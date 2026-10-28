@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>lwk_mdt</title>
+<style>
+:root {
+    --face: #f0f0f0; --edge: #a0a0a0; --dark: #696969; --ink: #000;
+    --navy: #0a246a; --cyan: #00ffff; --yellow: #ffff00; --red: #ff3b3b; --green: #33ff66; --orange: #ff9d00; --grey: #a8a8a8;
+    font: 12px/1.35 'Segoe UI', Tahoma, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+button { font: inherit; }
+
+#mdt { display: none; position: absolute; inset: 0; margin: auto; width: min(1180px, 95vw); height: min(780px, 92vh);
+       flex-direction: column; background: var(--face); color: var(--ink); border: 1px solid #5a6f8f;
+       box-shadow: 0 0 0 1px #c9d6e8 inset, 0 16px 50px #000b; }
+#mdt.open { display: flex; }
+
+/* title bar + menu */
+.titlebar { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 0 0 7px; flex: none;
+            background: linear-gradient(#fdfeff, #dfe8f4); border-bottom: 1px solid #b6c3d6; }
+.appicon { width: 16px; height: 16px; border-radius: 2px; background: linear-gradient(135deg, #2f6fd6, #0b2f7a); box-shadow: inset 0 0 0 1px #ffffff66; }
+#title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1b1b1b; }
+.wbtn { width: 44px; height: 27px; display: grid; place-items: center; color: #333; font-size: 13px; border: none; background: none; }
+.wbtn.x:hover { background: #e81123; color: #fff; }
+.menubar { display: flex; height: 22px; flex: none; background: var(--face); border-bottom: 1px solid #d9d9d9; }
+.menubar button { border: 1px solid transparent; background: none; padding: 0 8px; color: #000; }
+.menubar button:hover:not(:disabled) { background: #e5f1fb; border-color: #cce4f7; }
+.menubar button:disabled { color: #000; }
+
+/* big toolbar */
+.toolbar { display: flex; align-items: center; gap: 4px; height: 66px; padding: 0 8px; flex: none;
+           background: linear-gradient(#26467a, #102852 60%, #0c1f42); border-top: 1px solid #4b6a9c; border-bottom: 1px solid #06122a; }
+.tile { width: 76px; height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+        color: #fff; border: 1px solid #7189b0; border-radius: 3px; cursor: pointer;
+        background: linear-gradient(#6a86b4 0%, #3d5f93 47%, #23457a 53%, #2f548c 100%); box-shadow: inset 0 1px 0 #ffffff66, 0 1px 1px #0008; }
+.tile:hover:not(:disabled) { background: linear-gradient(#86a2cf 0%, #5577ad 47%, #3a5d95 53%, #4a6fa8 100%); }
+.tile:active:not(:disabled) { background: linear-gradient(#23457a, #3d5f93); }
+.tile:disabled { filter: grayscale(1) brightness(.75); cursor: default; }
+.tile svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tile span { font-size: 11px; line-height: 1.1; }
+.tile small { font-size: 9px; opacity: .8; line-height: 1; }
+.tsep { width: 1px; height: 44px; background: #0a1a36; box-shadow: 1px 0 0 #3b5b8e; margin: 0 4px; }
+.brand { margin-left: auto; text-align: right; color: #fff; font-style: italic; line-height: 1; padding-right: 4px; }
+.brand b { font-size: 26px; letter-spacing: -1px; }
+.brand small { display: block; font-size: 9px; letter-spacing: .12em; opacity: .75; font-style: normal; }
+
+/* small toolbar */
+.subbar { display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; flex: none;
+          background: linear-gradient(#fbfbfb, #e9e9e9); border-bottom: 1px solid #c4c4c4; overflow-x: auto; }
+.sbtn { display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid transparent; border-radius: 2px; background: none; color: #000; white-space: nowrap; cursor: pointer; }
+.sbtn:hover:not(:disabled) { background: linear-gradient(#fdfeff, #e3f1fc); border-color: #a9cbe6; }
+.sbtn:disabled { color: #8d8d8d; cursor: default; }
+.sbtn i { width: 12px; height: 12px; border-radius: 2px; background: var(--c, #4a76b8); box-shadow: inset 0 0 0 1px #0003; }
+.vsep { width: 1px; height: 18px; background: #c4c4c4; box-shadow: 1px 0 0 #fff; margin: 0 4px; }
+
+/* content */
+main { flex: 1; min-height: 0; overflow: auto; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+.pane { background: #000; border: 1px solid; border-color: var(--dark) #fff #fff var(--dark); overflow: auto; min-height: 60px; }
+.split { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.split .pane { flex: 1; }
+.splitter { height: 7px; flex: none; display: grid; place-items: center; }
+.splitter::after { content: ''; width: 34px; height: 3px; border-top: 1px dotted #7a7a7a; border-bottom: 1px dotted #7a7a7a; }
+.sect { display: flex; align-items: baseline; gap: 8px; margin: 6px 2px 2px; font-weight: 600; color: #1e3c78; }
+.sect small { font-weight: 400; color: #666; }
+
+/* black grids */
+table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; font: bold 13px Arial, Helvetica, sans-serif; }
+.grid th { position: sticky; top: 0; z-index: 1; height: 21px; padding: 0 5px; text-align: left; font: 12px 'Segoe UI', sans-serif; color: #000;
+           background: linear-gradient(#ffffff, #f1f2f4 50%, #e3e5e8 51%, #dfe1e4); border-right: 1px solid #d0d0d0; border-bottom: 1px solid #a5a5a5;
+           white-space: nowrap; overflow: hidden; }
+.grid td { height: 22px; padding: 0 5px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid .rh { width: 24px; padding: 0; background: linear-gradient(90deg, #f4f4f4, #dcdcdc); border-right: 1px solid #a5a5a5; border-bottom: 1px solid #c8c8c8; color: #000; font-weight: 400; text-align: center; }
+.grid tbody tr { cursor: default; outline: none; }
+.grid tbody tr.sel td:not(.rh), .grid tbody tr:focus td:not(.rh) { background: var(--navy); }
+.grid tbody tr.sel .rh, .grid tbody tr:focus .rh { background: #9ec5f5; }
+.grid .empty td { color: var(--grey); font-weight: 400; font-style: italic; }
+.cy { color: var(--cyan) !important; } .ye { color: var(--yellow) !important; } .rd { color: var(--red) !important; }
+.gn { color: var(--green) !important; } .or { color: var(--orange) !important; } .gy { color: var(--grey) !important; }
+
+/* NCIC-style query return */
+pre.return { margin: 0; padding: 10px 12px; min-height: 120px; font: 13px/1.5 Consolas, 'Lucida Console', monospace; color: #e8e8e8; white-space: pre-wrap; }
+
+/* windows controls */
+.btn { min-width: 76px; height: 24px; padding: 0 12px; color: #000; border: 1px solid #707070; border-radius: 3px; cursor: pointer;
+       background: linear-gradient(#f2f2f2, #ebebeb 50%, #dddddd 51%, #cfcfcf); }
+.btn:hover:not(:disabled) { border-color: #3c7fb1; background: linear-gradient(#eaf6fd, #d9f0fc 50%, #bee6fd 51%, #a7d9f5); }
+.btn:active:not(:disabled) { background: linear-gradient(#c4e5f6, #98d1ef); }
+.btn.default { border-color: #3c7fb1; box-shadow: inset 0 0 0 1px #c1e3f7; }
+.btn:disabled { color: #8d8d8d; border-color: #adb2b5; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, tr:focus-visible { outline: 1px dotted #000; outline-offset: -3px; }
+.txt { height: 23px; padding: 0 5px; color: #000; background: #fff; border: 1px solid #abadb3; font: 13px 'Segoe UI', sans-serif; }
+.txt:focus { border-color: #3d7bad; outline: none; }
+.formbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px; flex: none; }
+.formbar h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.badge { padding: 1px 6px; border: 1px solid #888; background: #fff; font-size: 11px; font-weight: 600; }
+.badge.open { background: #fff7b3; border-color: #b8a400; } .badge.draft { background: #d8f0ff; border-color: #5a9ccc; } .badge.signed { background: #e2e2e2; }
+.grow { flex: 1; }
+fieldset { margin: 0; padding: 4px 8px 8px; border: 1px solid #d5dfe5; border-radius: 3px; min-width: 0; }
+legend { padding: 0 3px; color: #1e3c78; }
+.info { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 3px 14px; }
+.info div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info b { display: inline-block; min-width: 64px; color: #555; font-weight: 400; }
+.cols { display: flex; gap: 4px; }
+.radios { display: flex; flex-direction: column; gap: 4px; padding-top: 2px; }
+.radios label, .listbox label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.listbox { height: 132px; overflow-y: auto; background: #fff; border: 1px solid #abadb3; padding: 1px; }
+.listbox label { padding: 1px 4px; }
+.listbox label:hover { background: #e5f3fb; }
+.listbox .fine { width: 66px; flex: none; text-align: right; color: #555; font-variant-numeric: tabular-nums; }
+.listbox.charges { height: 260px; padding: 0; }
+.listbox label[hidden], .cgroup[hidden] { display: none; }
+.cgroup { position: sticky; top: 0; z-index: 1; padding: 2px 6px; font-weight: 600; color: #1e3c78; background: #dfe8f4; border-bottom: 1px solid #b6c3d6; }
+.listbox .sec { width: 96px; flex: none; color: #555; font: 12px Consolas, 'Lucida Console', monospace; }
+.listbox .cname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cls { width: 38px; flex: none; text-align: center; font-size: 10px; font-weight: 700; border-radius: 2px; }
+.cls.F { background: #fde2e2; color: #b40000; } .cls.M { background: #fff1cc; color: #8a5a00; } .cls.I { background: #e3eefc; color: #1e3c78; }
+.listbox .pts { width: 34px; flex: none; text-align: right; color: #777; }
+#csearch { width: 100%; margin-bottom: 4px; }
+.total { text-align: right; padding-top: 4px; font-weight: 600; }
+textarea.txt { width: 100%; height: 190px; padding: 4px 6px; resize: vertical; font: 13px/1.4 Consolas, 'Lucida Console', monospace; }
+.dlgbtns { display: flex; gap: 6px; align-items: center; }
+.query { display: flex; align-items: center; gap: 8px; }
+.query label { white-space: nowrap; }
+.hint { margin-top: 4px; color: #666; }
+.form2 { display: grid; grid-template-columns: 110px minmax(0, 320px); gap: 6px 10px; align-items: center; }
+.flaggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; }
+.flaggrid label, .dlgbtns label { display: flex; align-items: center; gap: 6px; }
+select.txt { height: 23px; }
+.badge.pending { background: #ffd9d9; border-color: #c43; }
+body.civ .menubar [data-act]:not([data-act=close]), body.civ .subbar, body.civ #ssince, body.civ #scall, body.civ #sdrafts, body.civ #sunits { display: none; }
+body.civ .dot { background: radial-gradient(circle at 35% 35%, #bcd8ff, #3d74c4); }
+.qwrap { flex: 1; min-height: 0; display: flex; gap: 6px; }
+.qmain { flex: 1; min-width: 0; overflow: auto; }
+.qside { width: 240px; flex: none; display: flex; flex-direction: column; }
+.qside .sect { margin-top: 2px; }
+.qside .pane { flex: 1; }
+.query .txt { width: 340px; }
+
+/* status bar */
+.statusbar { display: flex; height: 23px; flex: none; background: var(--face); border-top: 1px solid #d0d0d0; font-size: 11px; }
+.statusbar > span { display: flex; align-items: center; gap: 5px; padding: 0 9px; border-right: 1px solid #c8c8c8; white-space: nowrap; }
+.statusbar > span:last-child { border-right: none; margin-left: auto; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #9dff9d, #1aa31a); }
+.dot.busy { background: radial-gradient(circle at 35% 35%, #ffe08a, #d08a00); }
+
+/* pop-out link dialog + popped-out browser window */
+.dlg { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 5; width: min(540px, 92%);
+       background: var(--face); border: 1px solid #5a6f8f; box-shadow: 0 10px 34px #0009; }
+.dlg[hidden] { display: none; }
+.dlgtitle { height: 26px; display: flex; align-items: center; padding: 0 8px; background: linear-gradient(#fdfeff, #dfe8f4); border-bottom: 1px solid #b6c3d6; }
+.dlgbody { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+#linkurl { width: 100%; font-size: 12px; }
+body.web { background: var(--face); }
+body.web #mdt { width: 100vw; height: 100vh; border: none; box-shadow: none; }
+body.web #t-popout, body.web #t-close, body.web .wbtn, body.web .tsep:last-of-type { display: none; }
+
+
+/* sign-on and settings */
+.veil { position: absolute; inset: 0; z-index: 4; background: #0007; }
+.veil[hidden] { display: none; }
+.err { min-height: 16px; color: #c42b1c; }
+.radios.row { flex-direction: row; gap: 16px; }
+#gear { font-size: 15px; }
+body.civ #gear { display: none; }
+
+/* ─── the flat styles: Modern (default), Command and Enterprise share one layout (body.flat) and differ in
+   palette, and Command moves the tools to a top bar. Command and Enterprise take their cue from the look of
+   the two most widely used police CAD/MDT suites (Motorola Solutions' and CentralSquare's): our own design. ─── */
+body.modern { --m-bg: #1d1e21; --m-panel: #26272b; --m-raise: #2e2f34; --m-line: #383940; --m-text: #e8e9ec; --m-dim: #9da2aa;
+              --m-orange: #f2a33a; --m-blue: #2f8fe0; --m-green: #18c48a; --m-red: #e5484d; --m-sel: #12614a; --m-sel-text: #fff;
+              --m-side: #141517; --m-side-text: #b9bdc4; --m-side-hover: #2e2f34; --m-side-hi: #fff; --m-hover: #2c2d32; --m-press: #3a3c42;
+              --m-input: #18191c; --m-row-line: #2c2d32; --m-off: #6f747c; --m-link: #8fc6ff; --m-edge: #0c0d0f;
+              --m-on-green: #0b1f17; --m-on-orange: #2a1a03; --m-green-hi: #29d69b; --m-orange-hi: #f7b65c; --m-blue-hi: #4aa0ea;
+              --m-cy: #52d6ff; --m-ye: #ffd34d; --m-rd: #ff6b6f; --m-gn: #4be3a6; --m-or: #ffab4d; --m-gy: #80858d;
+              --m-thumb: #45474e; --m-thumb-hi: #5c5f68; }
+/* Command: deep navy and steel blue, the dark consoles of the big dispatch suites; tools across the top */
+body.command { --m-bg: #0c1726; --m-panel: #12223a; --m-raise: #1a2e4b; --m-line: #25406a; --m-text: #e4edf8; --m-dim: #8ea6c4;
+               --m-orange: #ff8f2e; --m-blue: #2e8bff; --m-green: #1fbf6e; --m-red: #f0484e; --m-sel: #1d4f99; --m-sel-text: #fff;
+               --m-side: #08111d; --m-side-text: #a9bdd6; --m-side-hover: #1a2e4b; --m-side-hi: #fff; --m-hover: #172a45; --m-press: #22395c;
+               --m-input: #0a1422; --m-row-line: #182b47; --m-off: #5d7391; --m-link: #6fb2ff; --m-edge: #050b14;
+               --m-on-green: #04170d; --m-on-orange: #2b1500; --m-green-hi: #35d685; --m-orange-hi: #ffa553; --m-blue-hi: #519fff;
+               --m-cy: #46d4ff; --m-ye: #ffd23f; --m-rd: #ff6066; --m-gn: #3fe08e; --m-or: #ffa23d; --m-gy: #7b8da6;
+               --m-thumb: #2a4570; --m-thumb-hi: #3a5c90; }
+/* Enterprise: a light desktop CAD, white panels on cool grey, a navy sidebar, teal for what's selected */
+body.enterprise { --m-bg: #eef1f5; --m-panel: #ffffff; --m-raise: #e4e9f0; --m-line: #cfd7e2; --m-text: #1b2533; --m-dim: #5b6779;
+                  --m-orange: #e8861b; --m-blue: #1f6fbf; --m-green: #0f8f86; --m-red: #d23f3f; --m-sel: #d3efec; --m-sel-text: #0c3b38;
+                  --m-side: #1d3354; --m-side-text: #c9d6ea; --m-side-hover: #2a456d; --m-side-hi: #fff; --m-hover: #eef3f9; --m-press: #d6dee9;
+                  --m-input: #ffffff; --m-row-line: #e6ebf1; --m-off: #8b96a5; --m-link: #1f6fbf; --m-edge: #9aa8ba;
+                  --m-on-green: #fff; --m-on-orange: #fff; --m-green-hi: #13a398; --m-orange-hi: #f39a35; --m-blue-hi: #2a80d4;
+                  --m-cy: #0b7ea6; --m-ye: #9a7400; --m-rd: #c62828; --m-gn: #1d8a4a; --m-or: #c2600a; --m-gy: #7a8596;
+                  --m-thumb: #b9c4d2; --m-thumb-hi: #93a1b4; }
+/* the shared flat layout: a sidebar of tools, big flat action tiles, rounded grids (Command moves the tools up top) */
+body.flat #mdt.open { display: grid; grid-template-columns: 96px 1fr; grid-template-rows: 48px auto 1fr 30px;
+                        grid-template-areas: "side title" "side sub" "side main" "side status"; }
+body.flat #mdt { background: var(--m-bg); color: var(--m-text); border: 1px solid var(--m-edge); border-radius: 10px; overflow: hidden;
+                   box-shadow: 0 20px 60px #000c; font: 13px/1.4 'Segoe UI', system-ui, sans-serif; }
+body.flat .titlebar { grid-area: title; height: 48px; padding: 0 6px 0 16px; background: var(--m-panel); border-bottom: 1px solid var(--m-line); }
+body.flat .appicon { display: none; }
+body.flat #title { color: var(--m-text); font-size: 14px; font-weight: 600; }
+body.flat .titlebar span.wbtn { display: none; }
+body.flat .wbtn { width: 38px; height: 34px; border-radius: 6px; color: var(--m-dim); cursor: pointer; }
+body.flat .wbtn:hover { background: var(--m-raise); color: var(--m-text); }
+body.flat .wbtn.x:hover { background: var(--m-red); }
+body.flat .menubar { display: none; }
+body.flat .toolbar { grid-area: side; flex-direction: column; align-items: stretch; height: auto; gap: 4px; padding: 12px 8px;
+                       background: var(--m-side); border: none; border-right: 1px solid var(--m-line); overflow-y: auto; }
+body.flat .tile { width: 100%; height: 62px; gap: 4px; border: none; border-radius: 8px; background: none; box-shadow: none; color: var(--m-side-text); }
+body.flat .tile:hover:not(:disabled) { background: var(--m-side-hover); color: var(--m-side-hi); }
+body.flat .tile:active:not(:disabled) { background: var(--m-side-hover); }
+body.flat .tile:disabled { filter: none; opacity: .35; }
+body.flat .tile svg { width: 22px; height: 22px; stroke: currentColor; }
+body.flat .tile span { font-size: 11px; font-weight: 600; }
+body.flat .tile small { display: none; }
+body.flat .tsep { width: 60%; height: 1px; margin: 4px auto; background: var(--m-line); box-shadow: none; }
+body.flat .brand { margin: auto 0 0; padding: 10px 0 2px; text-align: center; font-style: normal; }
+body.flat .brand b { font-size: 20px; letter-spacing: .02em; }
+body.flat .brand small { font-size: 8px; letter-spacing: .16em; color: var(--m-dim); opacity: 1; }
+body.flat .subbar { grid-area: sub; height: auto; gap: 10px; padding: 12px 14px; background: var(--m-bg); border: none; flex-wrap: wrap; overflow: visible; }
+body.flat .subbar .sbtn { height: 48px; min-width: 120px; padding: 0 18px; justify-content: center; border: none; border-radius: 6px;
+                    background: var(--m-green); color: var(--m-on-green); font-weight: 700; font-size: 13px; }
+body.flat .sbtn i { display: none; }
+body.flat main .sbtn { height: 28px; padding: 0 12px; border: none; border-radius: 6px; background: var(--m-raise); color: var(--m-text); font-weight: 600; }
+body.flat main .sbtn:hover:not(:disabled) { background: var(--m-press); border: none; }
+body.flat .subbar .sbtn:hover:not(:disabled) { background: var(--m-green-hi); border: none; }
+body.flat #mycall { background: var(--m-orange); color: var(--m-on-orange); }
+body.flat #mycall:hover:not(:disabled) { background: var(--m-orange-hi); }
+body.flat [data-act=drafts].sbtn { background: var(--m-blue); color: #fff; }
+body.flat [data-act=drafts].sbtn:hover { background: var(--m-blue-hi); }
+body.flat .subbar .sbtn:disabled { background: var(--m-raise); color: var(--m-off); }
+body.flat .vsep { width: 1px; height: 34px; background: var(--m-line); box-shadow: none; }
+body.flat main { grid-area: main; padding: 4px 14px 12px; gap: 8px; }
+body.flat .pane { background: var(--m-panel); border: 1px solid var(--m-line); border-radius: 8px; }
+body.flat .splitter::after { border-color: var(--m-line); }
+body.flat .sect { color: var(--m-text); font-size: 13px; font-weight: 700; margin: 8px 2px 4px; }
+body.flat .sect small { color: var(--m-dim); }
+body.flat table.grid { font: 600 13px 'Segoe UI', system-ui, sans-serif; }
+body.flat .grid th { height: 30px; padding: 0 8px; color: var(--m-dim); background: var(--m-raise); border-right: 1px solid var(--m-line);
+                       border-bottom: 1px solid var(--m-line); font: 700 11px 'Segoe UI', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+body.flat .grid td { height: 32px; padding: 0 8px; color: var(--m-text); border-bottom: 1px solid var(--m-row-line); }
+body.flat .grid col:first-child { width: 34px !important; }
+body.flat .grid .rh { background: var(--m-raise); color: var(--m-dim); border-color: var(--m-line); }
+body.flat .grid tbody tr:hover td:not(.rh) { background: var(--m-hover); }
+body.flat .grid tbody tr.sel td:not(.rh), body.flat .grid tbody tr:focus td:not(.rh) { background: var(--m-sel); color: var(--m-sel-text); }
+body.flat .grid tbody tr.sel .rh, body.flat .grid tbody tr:focus .rh { background: var(--m-green); color: var(--m-on-green); }
+body.flat .grid .empty td { color: var(--m-off); }
+body.flat .cy { color: var(--m-cy) !important; } body.flat .ye { color: var(--m-ye) !important; } body.flat .rd { color: var(--m-rd) !important; }
+body.flat .gn { color: var(--m-gn) !important; } body.flat .or { color: var(--m-or) !important; } body.flat .gy { color: var(--m-gy) !important; }
+body.flat pre.return { color: var(--m-text); }
+body.flat .btn { height: 32px; padding: 0 16px; border: none; border-radius: 6px; color: var(--m-text); background: var(--m-raise); font-weight: 600; }
+body.flat .btn:hover:not(:disabled) { background: var(--m-press); border: none; }
+body.flat .btn:active:not(:disabled) { background: var(--m-press); }
+body.flat .btn.default { background: var(--m-blue); color: #fff; box-shadow: none; }
+body.flat .btn.default:hover:not(:disabled) { background: var(--m-blue-hi); }
+body.flat .btn:disabled { color: var(--m-off); background: var(--m-panel); }
+body.flat button:focus-visible, body.flat input:focus-visible, body.flat textarea:focus-visible, body.flat tr:focus-visible { outline: 2px solid var(--m-blue); outline-offset: -2px; }
+body.flat .txt { height: 32px; padding: 0 8px; color: var(--m-text); background: var(--m-input); border: 1px solid var(--m-line); border-radius: 6px; }
+body.flat .txt:focus { border-color: var(--m-blue); }
+body.flat textarea.txt { height: 190px; padding: 6px 8px; }
+body.flat .formbar h2 { color: var(--m-text); }
+body.flat .badge { border-radius: 4px; border: none; background: var(--m-raise); color: var(--m-text); }
+body.flat .badge.open { background: #5a4a10; color: #ffe27a; } body.flat .badge.draft { background: #123b5c; color: #9cd2ff; }
+body.flat .badge.signed { background: #33353a; color: #c2c5cb; } body.flat .badge.pending { background: #5c1d1f; color: #ff9da0; }
+body.flat fieldset { border: 1px solid var(--m-line); border-radius: 8px; background: var(--m-panel); }
+body.flat legend { color: var(--m-link); font-weight: 600; }
+body.flat .info b { color: var(--m-dim); }
+body.flat .listbox { background: var(--m-input); border: 1px solid var(--m-line); border-radius: 6px; color: var(--m-text); }
+body.flat .listbox label:hover { background: var(--m-hover); }
+body.flat .listbox .fine, body.flat .listbox .sec, body.flat .listbox .pts { color: var(--m-dim); }
+body.flat .cgroup { background: var(--m-raise); color: var(--m-link); border-color: var(--m-line); }
+body.flat .hint { color: var(--m-dim); }
+body.flat .statusbar { grid-area: status; background: var(--m-side); color: var(--m-dim); border-top: 1px solid var(--m-line); }
+body.flat .statusbar > span { border-color: var(--m-line); }
+body.flat .statusbar b { color: var(--m-text); }
+body.flat .dlg { background: var(--m-panel); color: var(--m-text); border: 1px solid var(--m-line); border-radius: 10px; overflow: hidden; }
+body.flat .dlgtitle { height: 40px; padding: 0 14px; background: var(--m-raise); border-bottom: 1px solid var(--m-line); font-weight: 700; }
+body.flat .dlgbody { padding: 16px; }
+body.flat .err { color: var(--m-rd); }
+body.flat #toast { color: var(--m-text); background: var(--m-raise); border: 1px solid var(--m-line); border-radius: 8px; }
+body.flat.web #mdt { border-radius: 0; }
+/* scrollbars: thin, dark and rounded, no arrows; every scrolling box (grids, charge list, narrative, the page) */
+body.flat ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+body.flat ::-webkit-scrollbar-track { background: transparent; }
+body.flat ::-webkit-scrollbar-thumb { background: var(--m-thumb); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+body.flat ::-webkit-scrollbar-thumb:hover { background-color: var(--m-thumb-hi); }
+body.flat ::-webkit-scrollbar-thumb:active { background-color: var(--m-blue); }
+body.flat ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+body.flat ::-webkit-scrollbar-corner { background: transparent; }
+body.flat ::-webkit-resizer { background: linear-gradient(135deg, transparent 50%, var(--m-thumb-hi) 50%, var(--m-thumb-hi) 60%, transparent 60%, transparent 70%, var(--m-thumb-hi) 70%, var(--m-thumb-hi) 80%, transparent 80%); }
+
+/* Enterprise: light rows striped, a white title bar, the brand on the navy sidebar */
+body.enterprise .grid tbody tr:nth-child(even) td:not(.rh) { background: #f6f8fb; }
+body.enterprise .grid tbody tr:hover td:not(.rh) { background: var(--m-hover); }
+body.enterprise .grid tbody tr.sel td:not(.rh), body.enterprise .grid tbody tr:focus td:not(.rh) { background: var(--m-sel); }
+body.enterprise .titlebar { background: #fff; }
+body.enterprise .statusbar { background: #fff; color: var(--m-dim); }
+body.enterprise .brand { color: #fff; }
+body.enterprise .brand small { color: #9fb3d1; }
+body.enterprise #mdt { box-shadow: 0 20px 60px #0008; }
+body.enterprise .badge.open { background: #fff1c2; color: #7a5a00; } body.enterprise .badge.draft { background: #dcecfb; color: #164f86; }
+body.enterprise .badge.signed { background: #e7eaee; color: #4a5565; } body.enterprise .badge.pending { background: #fde0e0; color: #9e1c1c; }
+/* Command: the tools in a bar across the top, icon beside the label; sharper corners */
+body.command #mdt.open { grid-template-columns: 1fr; grid-template-rows: 44px 52px auto 1fr 28px;
+                         grid-template-areas: "title" "side" "sub" "main" "status"; }
+body.command #mdt { border-radius: 4px; }
+body.command .toolbar { flex-direction: row; align-items: center; padding: 6px 10px; gap: 2px; border-right: none;
+                        border-bottom: 1px solid var(--m-line); overflow-x: auto; overflow-y: hidden; }
+body.command .tile { width: auto; height: 38px; flex-direction: row; gap: 8px; padding: 0 12px; border-radius: 4px; }
+body.command .tile svg { width: 18px; height: 18px; }
+body.command .tile span { font-size: 12px; }
+body.command .tsep { width: 1px; height: 24px; margin: 0 6px; }
+body.command .brand { margin: 0 0 0 auto; padding: 0 6px; text-align: right; }
+body.command .brand b { font-size: 18px; }
+body.command .titlebar { background: linear-gradient(90deg, #102544, #0c1726 60%); }
+body.command .subbar .sbtn { height: 42px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; font-size: 12px; }
+body.command .pane, body.command .btn, body.command .txt, body.command fieldset, body.command .listbox, body.command .dlg { border-radius: 4px; }
+body.command .grid th { background: #142844; }
+body.command .grid tbody tr.sel td:not(.rh), body.command .grid tbody tr:focus td:not(.rh) { box-shadow: inset 3px 0 0 var(--m-blue); }
+
+#toast { position: absolute; right: 12px; bottom: 30px; display: none; max-width: 340px; padding: 6px 10px; color: #000;
+         background: #ffffe1; border: 1px solid #767676; box-shadow: 2px 2px 4px #0004; }
+</style>
+</head>
+<body>
+<div id="mdt" role="dialog" aria-label="Mobile data terminal">
+    <div class="titlebar">
+        <span class="appicon" aria-hidden="true"></span>
+        <span id="title">lwk Message Center</span>
+        <button class="wbtn" id="gear" aria-label="Settings" title="Settings">&#x2699;</button>
+        <span class="wbtn" aria-hidden="true">&#x2014;</span>
+        <span class="wbtn" aria-hidden="true">&#x2610;</span>
+        <button class="wbtn x" id="close" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="menubar">
+        <button data-act="close">File</button>
+        <button disabled>Edit</button>
+        <button data-act="query">Search</button>
+        <button data-act="reports">Screens</button>
+        <button data-act="home">MDT</button>
+        <button data-act="settings">Tools</button>
+        <button disabled>Help</button>
+    </div>
+    <div class="toolbar" id="toolbar"></div>
+    <div class="subbar">
+        <button class="sbtn" id="mycall" style="--c:#d9a400"><i></i>My Call</button>
+        <button class="sbtn" data-act="drafts" style="--c:#3b8fd8"><i></i>My Drafts</button>
+        <span class="vsep"></span>
+        <span id="quick" style="display:flex;gap:2px"></span>
+    </div>
+    <main id="view"></main>
+    <div class="statusbar">
+        <span><i class="dot" id="sdot"></i>Status: <b id="sstatus">-</b></span>
+        <span id="ssince">00:00:00</span>
+        <span id="scall">No Active Call</span>
+        <span id="sclock">--:--:--</span>
+        <span id="sdrafts">Drafts: 0</span>
+        <span id="sunits">Units: 0</span>
+        <span id="sunit">Unit: -</span>
+    </div>
+    <div class="dlg" id="linkdlg" role="dialog" aria-label="Pop out" hidden>
+        <div class="dlgtitle">Pop Out</div>
+        <div class="dlgbody">
+            <span>The MDT is opening in your web browser. If it didn't, copy this link into your browser.
+                The link is yours alone and stops working when you leave the server.</span>
+            <input class="txt" id="linkurl" readonly aria-label="Pop-out link">
+            <div class="dlgbtns"><span class="grow"></span><button class="btn" id="linkcopy">Copy</button><button class="btn default" id="linkok">OK</button></div>
+        </div>
+    </div>
+    <div class="veil" id="veil" hidden></div>
+    <div class="dlg" id="signon" role="dialog" aria-modal="true" aria-labelledby="signon-t" hidden>
+        <div class="dlgtitle" id="signon-t">Sign On</div>
+        <div class="dlgbody">
+            <span>Enter your callsign for this shift. The unit board, your reports and dispatch use it.</span>
+            <input class="txt" id="signcs" maxlength="20" placeholder="e.g. 1-ADAM-12" autocomplete="off" aria-label="Callsign">
+            <span class="err" id="signerr" role="alert"></span>
+            <div class="dlgbtns"><span class="grow"></span><button class="btn default" id="signok">Sign On</button></div>
+        </div>
+    </div>
+    <div class="dlg" id="setdlg" role="dialog" aria-modal="true" aria-labelledby="setdlg-t" hidden>
+        <div class="dlgtitle" id="setdlg-t">Settings</div>
+        <div class="dlgbody">
+            <div class="form2">
+                <label for="setcs">Callsign</label>
+                <input class="txt" id="setcs" maxlength="20" placeholder="e.g. 1-ADAM-12" autocomplete="off">
+                <span>Style</span>
+                <div class="radios row">
+                    <label><input type="radio" name="style" value="modern"> Modern</label>
+                    <label><input type="radio" name="style" value="command"> Command</label>
+                    <label><input type="radio" name="style" value="enterprise"> Enterprise</label>
+                    <label><input type="radio" name="style" value="classic"> Classic</label>
+                </div>
+            </div>
+            <span class="err" id="seterr" role="alert"></span>
+            <div class="dlgbtns"><span class="grow"></span><button class="btn" id="setcancel">Cancel</button><button class="btn default" id="setsave">Save</button></div>
+        </div>
+    </div>
+    <div id="toast" role="status"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

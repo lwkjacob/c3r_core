@@ -1,0 +1,52 @@
+Sounds - sources and licences
+=============================
+
+Every file here is CC0 1.0 (public domain dedication): free to use, redistribute and change, with
+no attribution required. They are credited anyway. Downloaded 2026-10-05 as Freesound's HQ previews
+(128 kbps MP3); swap in the original file from the page for full quality.
+
+None of these is a recording of another phone's ringtone or alert.
+
+ring-signal.mp3   "musical "ios/samsung"-type ringtone (FREE)" by chockingonuwilliamiloveyou (Freesound #844279)
+                  https://freesound.org/people/chockingonuwilliamiloveyou/sounds/844279/
+
+ring-marimba.mp3  "Marimba loop" by BrickDeveloper171 (Freesound #521390)
+                  https://freesound.org/people/BrickDeveloper171/sounds/521390/
+
+ring-vibes.mp3    "Short vibraphone melody (loop)" by xkeril (Freesound #753346)
+                  https://freesound.org/people/xkeril/sounds/753346/
+
+ring-kalimba.mp3  "Short_Kalimba_Melody.mp3" by G_RonnyMo (Freesound #555055)
+                  https://freesound.org/people/G_RonnyMo/sounds/555055/
+
+ring-classic.mp3  "Cell Ringtone" by fennelliott (Freesound #379416)
+                  https://freesound.org/people/fennelliott/sounds/379416/
+
+tone-xylo.mp3     "FX - Smartphone Ringtone (xylophone)" by TILIADESIGN (Freesound #517368)
+                  https://freesound.org/people/TILIADESIGN/sounds/517368/
+
+tone-duo.mp3      "System Sound - Interval - TT" by bnlc (Freesound #789311)
+                  https://freesound.org/people/bnlc/sounds/789311/
+
+tone-chord.mp3    "Studio Grand Notification" by Allesyt (Freesound #818998)
+                  https://freesound.org/people/Allesyt/sounds/818998/
+
+tone-ding.mp3     "Good Phone Notification Sound" by qubodup (Freesound #782969)
+                  https://freesound.org/people/qubodup/sounds/782969/
+
+sent.mp3          "Message Sent" by Froey_ (Freesound #760370)
+                  https://freesound.org/people/Froey_/sounds/760370/
+
+received.mp3      "Pop in sfx" by Sadiquecat (Freesound #824189)
+                  https://freesound.org/people/Sadiquecat/sounds/824189/
+
+shutter.mp3       "Camera Shutter Click" by Kodack (Freesound #271010)
+                  https://freesound.org/people/Kodack/sounds/271010/
+
+alarm.mp3         "Alarm clock beep" by Squidems (Freesound #709944)
+                  https://freesound.org/people/Squidems/sounds/709944/
+
+Replacing a sound: put an .mp3 with the same name in this folder (web/dist/sounds/ on a server that
+is already built). Adding a ringtone or text tone: drop in ring-<name>.mp3 or tone-<name>.mp3, then
+add the name to RINGTONES or TEXTTONES and a line to CLIPS in web/src/sound.ts, and rebuild.
+The dial pad tones and the ringback are generated in code, not recorded.

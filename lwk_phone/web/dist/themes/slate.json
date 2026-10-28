@@ -1,0 +1,29 @@
+{
+  "name": "Slate",
+  "font": "'Segoe UI', system-ui, sans-serif",
+  "iconRadius": 0.5,
+  "island": "hole",
+  "frames": {
+    "carbon": "#26282c",
+    "mint": "#9fd8cb"
+  },
+  "wallpapers": {
+    "slate": "radial-gradient(90% 60% at 85% 10%, #1f6f66, transparent 62%), radial-gradient(80% 55% at 10% 90%, #3a2f6b, transparent 60%), linear-gradient(180deg, #14181c, #0a0c0e)"
+  },
+  "colors": {
+    "light": { "--blue": "#0b8a7a", "--green": "#0b8a7a" },
+    "dark": { "--blue": "#3ddbc6", "--green": "#2fbfa9" }
+  },
+  "apps": {
+    "store": { "name": "Apps", "bg": "linear-gradient(180deg, #3ddbc6, #0b8a7a)" },
+    "messages": { "name": "Chat", "bg": "linear-gradient(180deg, #7c8cff, #4a55d9)" },
+    "wallet": { "name": "Pay" },
+    "flock": { "name": "Chirp" },
+    "lumen": { "name": "Snaps" }
+  },
+  "defaults": {
+    "wallpaper": "slate",
+    "lockWallpaper": "slate",
+    "frame": "carbon"
+  }
+}

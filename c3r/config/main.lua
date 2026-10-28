@@ -1,0 +1,25 @@
+-- c3r config: the basics. Loaded first (it makes Config); the other files in this folder add to it.
+-- Every file here is plain Lua, read by both the server and the players' games: edit, then restart c3r.
+
+Config = {}
+
+Config.Debug = false
+
+-- /duty toggles your police shift. nil ace = anyone can go on duty; set one (e.g. 'c3r.police')
+-- and grant it with  add_ace group.police c3r.police allow  to restrict it.
+Config.DutyCommand = 'duty'
+Config.DutyKey = 'F11' -- the service screen: pick a service to go on duty, or end the shift
+Config.DutyAce = nil
+
+-- Keys (players rebind them in Settings -> Key Bindings -> FiveM -> c3r).
+Config.TargetKey = 'LSHIFT' -- in a police vehicle: the red circle ahead; drive it under a car to pick it (again: cancel)
+Config.ModeKey = 'U'        -- during a stop: what the driver does (follow in front / behind, steer, halt, cancel)
+Config.InteractKey = 'E'    -- on foot next to the car: talk to someone in it
+Config.RadialKey = 'G'      -- on foot at their car, held: the vehicle's radial menu (search, tow, everyone out / in)
+
+-- Tab with someone's ID or registration showing: a tap hides / shows it, held this long (ms) it opens the weapon wheel.
+Config.WeaponWheelHold = 500
+
+-- The officer's lines out loud (asking for ID, the Miranda rights, a search, the breathalyzer): heard this far (m)
+-- by any player, quieter further off; volume 0-1 (0 = off). The clips are nui/voice/officer_*.ogg.
+Config.Voice = { range = 20.0, volume = 1.0 }

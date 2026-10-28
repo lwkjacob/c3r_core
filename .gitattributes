@@ -1,0 +1,1 @@
+lwk_control_assets/nui/sherpa/sherpa-onnx-wasm-main-asr.data filter=lfs diff=lfs merge=lfs -text

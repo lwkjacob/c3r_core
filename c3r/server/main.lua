@@ -1,0 +1,89 @@
+--[[
+    c3r — server: duty, the people / vehicle store, and the events other resources listen to.
+    The full contract (every export and event) is in docs/contract.md.
+
+    Events are server-only (TriggerEvent, never a net event), so a client can't fake a stop or a callout.
+    Their records are the public ones; a ped's hidden truth only comes out through getPedSubject.
+]]
+
+local function log(fmt, ...)
+    if Config.Debug then print(('[c3r] ' .. fmt):format(...)) end
+end
+
+-- ─── duty ─────────────────────────────────────────────────────────────────────
+-- The player's state bag carries it to their client (and anyone else's), so isOnDuty never needs a round trip.
+
+local Duty = {} -- [src] = true while on duty
+
+local function set_duty(src, on)
+    on = on == true
+    if (Duty[src] == true) == on then return true end
+    if on and Config.DutyAce and not IsPlayerAceAllowed(src, Config.DutyAce) then return false, 'not_allowed' end
+    Duty[src] = on or nil
+    Player(src).state:set('c3rDuty', on, true)
+    TriggerEvent('c3r:duty', src, on)
+    log('%s is %s duty', GetPlayerName(src) or src, on and 'on' or 'off')
+    return true
+end
+
+RegisterNetEvent('c3r:setDuty', function(on)
+    local src = source
+    local ok, reason = set_duty(src, on)
+    TriggerClientEvent('c3r:dutyResult', src, ok, reason)
+end)
+
+-- The bag lives on the player and outlasts a restart of this resource, but Duty doesn't: start everyone off.
+CreateThread(function()
+    for _, id in ipairs(GetPlayers()) do
+        if Player(id).state.c3rDuty then Player(id).state:set('c3rDuty', false, true) end
+    end
+end)
+
+AddEventHandler('playerDropped', function()
+    if Duty[source] then set_duty(source, false) end
+end)
+
+function IsOnDuty(src) return Duty[tonumber(src)] == true end
+exports('isOnDuty', IsOnDuty)
+exports('setDuty', function(src, on) return set_duty(tonumber(src), on) end)
+
+-- ─── people and vehicles ──────────────────────────────────────────────────────
+-- These wait on SQL, and a call from another resource can't wait inside c3r: the result comes back
+-- through cb. getPerson / createPerson also pass the truth to cb; it's for c3r's own scripts.
+
+local function later(fn)
+    return function(arg, cb)
+        CreateThread(function()
+            local ok, r = pcall(fn, arg)
+            if not ok then print('[c3r] ' .. tostring(r)) end
+            cb(ok and r or nil) -- always answer: a plate check waiting on this must not hang
+        end)
+    end
+end
+
+exports('getPerson', later(function(id) return (Db.getPerson(id)) end)) -- public record only
+exports('getVehicle', later(Db.getVehicle))
+exports('findVehicle', later(Db.findVehicle))
+exports('createPerson', later(function(p) return (Db.createPerson(p)) end))
+exports('createVehicle', later(Db.createVehicle))
+
+-- ─── subjects ─────────────────────────────────────────────────────────────────
+-- Which physical ped is which person: set when c3r puts someone in the world (a driver, a passenger,
+-- a callout suspect). Keyed by network id, so any resource can ask about the ped in front of an officer.
+-- Held in memory, so getPedSubject answers at once.
+
+local Subjects = {} -- [net id] = { person, vehicle | nil, items = { 'Bag of weed', ... }, truth }
+
+-- Phase 1's stop generator calls this for every ped it creates, with the records it just made.
+function BindSubject(net, person, vehicle, items, truth)
+    Subjects[net] = { person = person, vehicle = vehicle, items = items or {}, truth = truth or {} }
+end
+
+function UnbindSubject(net) Subjects[net] = nil end
+
+-- -> person (public), vehicle | nil, items, truth | nil when c3r didn't put this ped there
+exports('getPedSubject', function(net)
+    local s = Subjects[tonumber(net) or -1]
+    if not s then return nil end
+    return s.person, s.vehicle, s.items, s.truth
+end)

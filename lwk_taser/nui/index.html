@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --on: #a8a224; --off: #a8a22412; }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  /* TASER 10 CID: dot-matrix LCD, 2x5 probe blocks + battery */
+  #cid { position: absolute; right: 2.2vw; bottom: 14vh; display: none; align-items: center; gap: 36px;
+         padding: 16px 24px; background: #030301; border-radius: 12px; box-shadow: 0 0 0 2px #0e0e09, 0 6px 18px #000a; }
+  .dots { background-image: radial-gradient(circle, var(--on) 0 1.1px, transparent 1.5px); background-size: 3px 3px;
+          filter: drop-shadow(0 0 2px #c9c22770); }
+  .dots.off { background-image: radial-gradient(circle, var(--off) 0 1.1px, transparent 1.5px); filter: none; }
+  #probes { display: grid; grid-template-columns: repeat(5, 30px); grid-auto-rows: 40px; gap: 5px; }
+  #mid { width: 42px; height: 96px; display: flex; align-items: center; justify-content: center; }
+  #batt { position: relative; width: 42px; height: 84px; margin-top: 12px; }
+  #batt::before { content: ''; position: absolute; top: -12px; left: 13px; width: 16px; height: 12px; background: inherit; }
+  #cycle { font: 700 46px/1 'Consolas', monospace; color: var(--on); text-shadow: 0 0 4px #c9c22780; display: none; }
+</style>
+</head>
+<body>
+<div id="cid">
+  <div id="probes"></div>
+  <div id="mid"><div id="batt" class="dots"></div><span id="cycle"></span></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+
+// The cycle countdown takes the battery's place, like the real CID
+let cycleEnd = 0;
+setInterval(() => {
+  const left = Math.ceil((cycleEnd - Date.now()) / 1000);
+  $('cycle').textContent = left > 0 ? left : '';
+  $('cycle').style.display = left > 0 ? 'block' : 'none';
+  $('batt').style.display = left > 0 ? 'none' : '';
+}, 100);
+
+// 3D audio: volume + stereo pan come from Lua (distance / camera angle). Files in nui/sounds
+const ac = new AudioContext();
+const GAIN = { charge: 0.7 };   // per-sound level trim
+const live = {};                // key -> running looped clip (cycle), so an extension continues it
+// Decoded once and played from memory: a looping <audio> re-reads the file through nui:// at every wrap, which
+// dropped the held-trigger cycle for about a second past each 5 s
+const bufs = {};
+const load = n => bufs[n] ??= fetch(`sounds/${n}.ogg`).then(r => r.arrayBuffer()).then(b => ac.decodeAudioData(b));
+['fire', 'cycle', 'arc', 'click'].forEach(load);
+async function play(m) {
+  ac.resume();
+  const vol = m.vol * (GAIN[m.name] ?? 1), p = Math.max(-1, Math.min(1, m.pan || 0));
+  const id = m.key != null && m.name + ':' + m.key, cur = id && live[id];
+  const ms = (m.dur || 5) * 1000;
+  if (cur) { // same cycle still sounding: just move its stop time, no restart
+    cur.g.gain.value = vol; cur.pan.pan.value = p;
+    clearTimeout(cur.t); cur.t = setTimeout(cur.end, ms);
+    return;
+  }
+  const g = ac.createGain(), pan = ac.createStereoPanner();
+  g.gain.value = vol; pan.pan.value = p;
+  g.connect(pan).connect(ac.destination);
+  const s = ac.createBufferSource();
+  if (m.name === 'cycle') { // registered before the await so an extension arriving meanwhile finds it
+    const e = { g, pan, end: () => { s.done = true; try { s.stop(); } catch (_) {} if (id && live[id] === e) delete live[id]; } };
+    e.t = setTimeout(e.end, ms);
+    if (id) live[id] = e;
+  }
+  s.buffer = await load(m.name);
+  if (m.name === 'cycle') { s.loop = true; s.loopStart = 0.05; s.loopEnd = 4.75; } // skip the file's fade-out tail
+  if (s.done) return; // ended before it finished loading
+  s.connect(g);
+  s.start();
+}
+
+let hudHidden = false; // lwk_cine clean frame
+window.addEventListener('message', e => {
+  const m = e.data;
+  if (m.type === 'sound') play(m);
+  else if (m.type === 'cycle') cycleEnd = Date.now() + m.ms;
+  else if (m.type === 'hud') { hudHidden = m.hidden; if (hudHidden) $('cid').style.display = 'none'; }
+  else if (m.type === 'cid') {
+    $('cid').style.display = m.show && !hudHidden ? 'flex' : 'none';
+    if (!m.show) return;
+    // one lit block per live probe; fired / empty blocks go dark
+    $('probes').innerHTML = (m.bays || []).map(b => `<div class="dots${b && b.s === 'live' ? '' : ' off'}"></div>`).join('');
+  }
+});
+</script>
+</body>
+</html>

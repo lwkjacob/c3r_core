@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* Rendered off-screen (DUI) onto the TASER 10 model's rear display: same dot-matrix CID as the HUD */
+  :root { --on: #a8a224; --off: #a8a22414; }
+  html, body { margin: 0; width: 512px; height: 208px; background: #020201; overflow: hidden; }
+  #cid { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 46px; }
+  .dots { background-image: radial-gradient(circle, var(--on) 0 2.2px, transparent 3px); background-size: 6px 6px;
+          filter: drop-shadow(0 0 3px #c9c22790); }
+  .dots.off { background-image: radial-gradient(circle, var(--off) 0 2.2px, transparent 3px); filter: none; }
+  #probes { display: grid; grid-template-columns: repeat(5, 50px); grid-auto-rows: 66px; gap: 9px; }
+  #mid { width: 70px; height: 150px; display: flex; align-items: center; justify-content: center; }
+  #batt { position: relative; width: 66px; height: 128px; margin-top: 18px; }
+  #batt::before { content: ''; position: absolute; top: -18px; left: 21px; width: 24px; height: 18px; background: inherit; }
+  #cycle { font: 700 96px/1 'Consolas', monospace; color: var(--on); text-shadow: 0 0 6px #c9c22790; display: none; }
+  #idle #probes, #idle #mid { opacity: 0.08; }
+</style>
+</head>
+<body>
+<div id="cid">
+  <div id="probes"></div>
+  <div id="mid"><div id="batt" class="dots"></div><span id="cycle"></span></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let cycleEnd = 0;
+setInterval(() => {
+  const left = Math.ceil((cycleEnd - Date.now()) / 1000);
+  $('cycle').textContent = left > 0 ? left : '';
+  $('cycle').style.display = left > 0 ? 'block' : 'none';
+  $('batt').style.display = left > 0 ? 'none' : '';
+}, 100);
+window.addEventListener('message', e => {
+  const m = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+  if (m.type === 'cycle') cycleEnd = Date.now() + m.ms;
+  else if (m.type === 'cid') {
+    document.body.id = m.show ? '' : 'idle'; // holstered / not yours: screen dims
+    $('probes').innerHTML = (m.bays || []).map(b => `<div class="dots${b && b.s === 'live' ? '' : ' off'}"></div>`).join('');
+  }
+});
+</script>
+</body>
+</html>

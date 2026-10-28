@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>c3r</title>
+    <style>
+        :root {
+            --panel: rgba(16, 19, 24, .94); --raised: #1b1f26; --sunk: #0b0d11; --line: rgba(255, 255, 255, .1);
+            --text: #e8ebf0; --muted: #8b94a3; --dim: #5d6573;
+            --accent: #f0b040; --alert: #c8483f; --ok: #4fae7c;
+            --ease: cubic-bezier(.2, .8, .2, 1);
+            --r: 6px;
+            /* glass, the radial's look: frosted and see-through, a bright top edge, white type over the game */
+            --glass: linear-gradient(160deg, rgba(255, 255, 255, .17), rgba(255, 255, 255, .05) 55%, rgba(255, 255, 255, .08)), rgba(14, 18, 26, .34);
+            --glass-edge: rgba(255, 255, 255, .3);
+            --glass-shade: 0 10px 28px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .38), inset 0 0 0 1px rgba(255, 255, 255, .05);
+            --glass-r: 16px;
+            --ink: 0 1px 2px rgba(0, 0, 0, .65), 0 0 10px rgba(0, 0, 0, .25);
+            --red: #ff7d70; --green: #6fe0a5;
+        }
+        .glass { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--glass-r); box-shadow: var(--glass-shade);
+                 -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); color: #fff; text-shadow: var(--ink); }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
+                     font: 14px/1.4 system-ui, 'Segoe UI', sans-serif; color: var(--text); }
+        button { font: inherit; color: inherit; }
+        .kbd, kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px;
+                    padding: 0 6px; border-radius: 7px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .42);
+                    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); color: #fff; font: 700 12px/1 system-ui, 'Segoe UI', sans-serif;
+                    text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+
+        /* ── prompt cards: top centre, glass, slide in, update in place, fade out ───── */
+        #prompts { position: fixed; top: 15%; left: 50%; width: 420px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; }
+        .prompt { display: flex; align-items: center; gap: 14px; padding: 13px 18px 13px 14px; animation: prompt-in .26s var(--ease) both; }
+        .prompt.leaving { animation: prompt-out .18s ease-in both; }
+        /* the icon in a thin ring, like the radial's options; the ring takes the colour of what kind of news it is */
+        .prompt .icon { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+                        border: 1.5px solid rgba(255, 255, 255, .6); color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5)); }
+        .prompt.alert .icon { border-color: var(--red); color: var(--red); box-shadow: 0 0 12px rgba(255, 125, 112, .35); }
+        .prompt.ok .icon { border-color: var(--green); color: var(--green); box-shadow: 0 0 12px rgba(111, 224, 165, .3); }
+        .prompt .icon svg { width: 17px; height: 17px; }
+        .prompt h2 { margin: 0 0 2px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+        .prompt p { margin: 0; color: rgba(255, 255, 255, .88); font-size: 13.5px; }
+        .prompt.pulse .icon { animation: pulse 1.4s ease-in-out infinite; }
+        @keyframes prompt-in { from { opacity: 0; transform: translateY(-12px) scale(.97); } to { opacity: 1; transform: none; } }
+        @keyframes prompt-out { to { opacity: 0; transform: translateY(-6px) scale(.98); } }
+        @keyframes pulse { 50% { opacity: .5; } }
+
+        /* ── the hint beside the officer: a glass pill ───────────────────────────────── */
+        #hint { position: fixed; display: flex; align-items: center; gap: 9px; padding: 6px 14px 6px 6px; border-radius: 999px;
+                font-size: 13.5px; font-weight: 500; white-space: nowrap;
+                opacity: 0; transform: translate(40px, -50%) scale(.96); transition: opacity .16s, transform .18s var(--ease);
+                pointer-events: none; }
+        #hint.show { opacity: 1; transform: translate(48px, -50%); }
+        #hint .kbd { min-width: 26px; height: 26px; border-radius: 50%; padding: 0; }
+        #hint .kbd.wide { border-radius: 999px; padding: 0 9px; }
+        #hint .who { color: var(--accent); font-weight: 700; }
+        #hint .sep { width: 1px; height: 16px; background: rgba(255, 255, 255, .35); }
+
+        /* ── mode picker: a glass list ───────────────────────────────────────────────── */
+        #modes { position: fixed; right: 24px; top: 50%; width: 330px; transform: translate(10px, -50%); padding: 16px 14px 12px;
+                 border-radius: 20px; opacity: 0; visibility: hidden;
+                 transition: opacity .16s, transform .22s var(--ease), visibility .16s; }
+        #modes.open { opacity: 1; visibility: visible; transform: translate(0, -50%); }
+        #modes h1 { margin: 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+        #modes .sub { color: rgba(255, 255, 255, .72); font-size: 12.5px; margin: 2px 4px 10px; }
+        .mode { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; padding: 9px 12px; border-radius: 12px; opacity: .78;
+                transition: background .12s, opacity .12s; }
+        .mode .name { font-weight: 600; font-size: 14.5px; }
+        .mode .desc { grid-column: 1 / -1; color: rgba(255, 255, 255, .75); font-size: 12px; }
+        .mode .now { align-self: center; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .45);
+                     font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+        .mode.sel { opacity: 1; background: rgba(255, 255, 255, .14); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28), inset 0 1px 0 rgba(255, 255, 255, .3); }
+        .mode.sel .name { color: var(--accent); }
+        .mode.danger .name { color: var(--red); }
+        .keys { display: flex; gap: 14px; margin: 10px 4px 0; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .2);
+                color: rgba(255, 255, 255, .8); font-size: 12px; }
+        .keys span { display: inline-flex; align-items: center; gap: 5px; }
+
+        @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+    /* ── San Andreas ID card: the California ID layout, 530 × 320 ─────────────────── */
+    .idcard { --navy: #25327a; --red: #b3262f; --label: #3b5aa3; --ink: #161616; --green: #2c8a40;
+              position: relative; width: 530px; height: 320px; overflow: hidden; border-radius: 10px;
+              font-family: Arial, Helvetica, sans-serif; color: var(--ink);
+              background:
+                  radial-gradient(ellipse 30% 70% at 0% 55%, rgba(150, 205, 225, .45), transparent 75%),
+                  radial-gradient(ellipse 40% 45% at 100% 100%, rgba(165, 200, 230, .55), transparent 75%),
+                  radial-gradient(ellipse 40% 40% at 85% 22%, rgba(190, 212, 236, .55), transparent 75%),
+                  radial-gradient(ellipse 50% 40% at 45% 0%, rgba(253, 236, 205, .8), transparent 80%),
+                  repeating-radial-gradient(circle at 22% 125%, rgba(214, 128, 140, .09) 0 .8px, transparent 1px 4.5px),
+                  repeating-radial-gradient(circle at 70% -30%, rgba(214, 140, 120, .12) 0 .8px, transparent 1px 5.5px),
+                  linear-gradient(170deg, #f7efe4 0%, #f6efe8 55%, #f1eeec 100%);
+              box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .idcard * { position: absolute; margin: 0; white-space: nowrap; }
+    .idcard svg.art { inset: 0; width: 100%; height: 100%; }
+
+    .idcard .rule { left: 14px; right: 0; top: 37px; height: 1.5px;
+            background: linear-gradient(90deg, #3d4a85 0 57%, rgba(61,74,133,.4) 64%, rgba(61,74,133,.3) 100%); }
+    .idcard .tint-top { left: 0; top: 0; width: 530px; height: 44px;
+                background: repeating-radial-gradient(circle at 40% 160%, rgba(225,150,80,.18) 0 .7px, transparent 1px 4px),
+                            linear-gradient(180deg, #fbe9cc 0%, rgba(251,233,204,.6) 75%, transparent 100%); }
+    .idcard .tint-right { left: 300px; top: 30px; width: 230px; height: 250px;
+                  background: repeating-linear-gradient(0deg, rgba(140,155,180,.2) 0 .6px, transparent .8px 2.6px),
+                              rgba(244, 245, 248, .8);
+                  -webkit-mask-image: radial-gradient(ellipse 70% 65% at 60% 50%, #000 45%, transparent 80%); }
+    .idcard canvas.scene { left: 0; top: 0; width: 530px; height: 320px; opacity: .85; }
+    .idcard .rosette { left: 0; top: 40px; width: 18px; height: 280px; opacity: .7;
+                background: radial-gradient(circle, transparent 4.5px, rgba(130,175,210,.55) 5px 5.8px, transparent 6.2px) 0 0 / 18px 18px; }
+    .idcard .hatch { left: 180px; top: 40px; width: 170px; height: 120px;
+             background: repeating-linear-gradient(32deg, rgba(210,110,125,.16) 0 .7px, transparent 1px 6px),
+                         repeating-linear-gradient(-28deg, rgba(210,110,125,.12) 0 .7px, transparent 1px 7px);
+             -webkit-mask-image: radial-gradient(ellipse 60% 60% at 60% 30%, #000 30%, transparent 75%); }
+    .idcard .seal { left: 14px; top: 8px; width: 42px; height: 42px; opacity: .6; }
+    .idcard .state { left: 48px; top: 6px; font: 700 35px/1 "Times New Roman", Times, serif; color: var(--navy);
+             letter-spacing: -.3px; transform: scaleX(.9); transform-origin: left top; }
+    .idcard .usa { left: 272px; top: 18px; font: 700 7.5px/1 Arial, sans-serif; color: #4e5381; letter-spacing: 1.1px; }
+    .idcard .map { left: 252px; top: 3px; width: 62px; height: 76px; }
+    .idcard .doc { font: 700 16px/1 Arial, Helvetica, sans-serif; color: var(--green); letter-spacing: .3px; }
+
+    .idcard .photo { left: 18px; top: 50px; width: 158px; height: 208px; overflow: hidden; background: #4fbad8; }
+    .idcard .photo img, .idcard .photo .ph { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+    .idcard .sig { left: 44px; top: 274px; font: 400 18px/1 "Segoe Script", "Brush Script MT", cursive; color: #333;
+           transform: rotate(-3deg); }
+
+    .idcard .lab { font: 700 13px/1 Arial, sans-serif; color: var(--label); }
+    .idcard .red { font: 700 20px/1 Arial, sans-serif; color: var(--red); }
+    .idcard .blk { font: 700 17px/1 Arial, sans-serif; color: var(--ink); }
+    .idcard .addr { font: 700 12.5px/12.5px Arial, sans-serif; color: #1a1a1a; }
+    .idcard .frow { font: 700 13px/1 Arial, sans-serif; color: var(--ink); }
+    .idcard .frow.lab { color: var(--label); }
+
+    .idcard .ghost { left: 330px; top: 181px; width: 77px; height: 100px; opacity: .55; overflow: hidden;
+             background: rgba(205, 205, 210, .7); filter: grayscale(1); }
+    .idcard .ghost img, .idcard .ghost .ph { left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+    .idcard .donor { left: 190px; top: 229px; width: 27px; height: 27px; border-radius: 50%; background: #ec8a95; }
+    .idcard .donor span { left: 0; right: 0; top: 10.5px; text-align: center; font: 700 6px/1 Arial, sans-serif; color: #4a2a2a; }
+    .idcard img:not([src]) { display: none; }
+
+    /* top right: the card at 72%, sliding in; a key hint under it */
+    #idwrap { position: fixed; top: 20px; right: 20px; width: calc(530px * .72); opacity: 0; visibility: hidden;
+              transform: translateX(24px); transition: opacity .2s, transform .28s var(--ease), visibility .2s; pointer-events: none; }
+    #idwrap.up { opacity: 1; visibility: visible; transform: none; }
+    #idwrap .idcard { transform: scale(.72); transform-origin: top left; }
+    #idwrap .keyhint { position: absolute; top: calc(320px * .72 + 8px); right: 0; display: flex; gap: 6px; align-items: center;
+                       font-size: 12px; color: #fff; padding: 4px 12px 4px 5px; border-radius: 999px;
+                       background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shade); text-shadow: var(--ink); }
+
+    /* ── San Andreas Certificate of Title: the California title layout, 867 × 1024 ───── */
+    .satitle { --ink: #0d0d0d; --red: #c4343b; --x: #1b1a22;
+             position: relative; width: 867px; height: 1024px; overflow: hidden; background: #d2cdc1;
+             font-family: Arial, Helvetica, sans-serif; color: var(--ink); }
+    .satitle canvas { position: absolute; left: 0; top: 0; width: 867px; height: 1024px; }
+    .satitle .t { position: absolute; margin: 0; white-space: nowrap; }
+    .satitle .lab { font-size: 9.5px; line-height: 10.5px; text-transform: uppercase; letter-spacing: .01em; color: #151515; }
+    .satitle .band { position: absolute; display: grid; place-items: center; background: #021e4d; color: #e3f3fd;
+                   font-weight: 700; letter-spacing: .02em; }
+    .satitle .band span { white-space: nowrap; }
+    .satitle .band.side { background: #0d1f46; }
+    .satitle .head { left: 287px; top: 49px; font-size: 28px; font-weight: 700; color: #14182a; letter-spacing: -.1px;
+                   -webkit-text-stroke: .4px #14182a; }
+    .satitle .hist { left: 537px; top: 80px; width: 278px; height: 47px; box-sizing: border-box; border: 3px solid #8a3c3e; position: absolute; }
+    .satitle .vinband { position: absolute; top: 148px; height: 23px;
+                      background: radial-gradient(circle, rgba(70, 90, 85, .25) .6px, transparent .9px) 0 0 / 3px 3px, #aab8b4; }
+    .satitle .panel { position: absolute; }
+    .satitle .para { position: absolute; margin: 0; font-size: 12.6px; line-height: 14.5px; white-space: normal; color: var(--ink); }
+    .satitle .rule { position: absolute; height: 0; border-top: 1px solid #1d1d1d; }
+    .satitle .x { font-size: 18px; font-weight: 700; color: var(--x); }
+    .satitle .box { position: absolute; border: 1px solid #1d1d1d; }
+    .satitle .vline { position: absolute; width: 0; border-left: 1px solid #1d1d1d; }
+    .satitle .odo { position: absolute; top: 613px; height: 19px; display: flex; }
+    .satitle .odo i { position: relative; width: 27px; background: #ccdce1; border: 1px solid #4d5f78; border-top-width: 0; margin-right: -1px; }
+    .satitle .odo i::before { content: ''; position: absolute; left: -1px; top: 0; height: 4px; border-left: 1px solid #4d5f78; }
+    .satitle .chk { display: inline-block; width: 9px; height: 9px; border: 1px solid #222; vertical-align: -1px; margin: 0 4px 0 8px; background: #f2eee6; }
+    .satitle .dash { position: absolute; left: 750px; width: 62px; height: 2.5px;
+                   background: repeating-linear-gradient(90deg, #111 0 10px, transparent 10px 13px); }
+    .satitle .form { left: 609px; top: 909px; font: 34px/1 Consolas, 'Lucida Console', monospace; color: #1a1a1a; letter-spacing: 1.2px; }
+    .satitle .form b { font-weight: 400; color: #2b3473; }
+    .satitle .seq { left: 560px; top: 940px; font: 700 16px/1 'Lucida Console', Consolas, monospace; color: #0a0a0a; letter-spacing: 2px;
+                  transform: scaleY(1.15); transform-origin: top left; }
+    .satitle svg.seal { position: absolute; left: 550px; top: 278px; width: 196px; height: 196px; }
+
+    #idwrap .satitle-wrap { display: none; width: calc(867px * .44); height: calc(1024px * .44); overflow: hidden; }
+    #idwrap .satitle { transform: scale(.44); transform-origin: top left; }
+    #idwrap.doc-title .idcard { display: none; }
+    #idwrap.doc-title .satitle-wrap { display: block; }
+    #idwrap.doc-title .keyhint { top: calc(1024px * .44 + 8px); }
+    #idwrap .keyhint .swap { display: none; }
+    #idwrap.has-title .keyhint .swap { display: inline-flex; gap: 6px; align-items: center; }
+    /* the menus on the right make room for it */
+    body.id-up #modes { top: calc(20px + 320px * .72 + 44px); }
+    body.id-up.title-up #modes { top: calc(20px + 1024px * .44 + 44px); }
+    body.id-up #modes.open { transform: none; }
+
+        /* ── the vehicle's radial menu: centred, opens outward, white line icons on a thin ring ── */
+        #radial { position: fixed; inset: 0; opacity: 0; visibility: hidden; pointer-events: none;
+                  transition: opacity .12s ease-in, visibility 0s linear .12s; }
+        #radial.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .16s var(--ease); }
+        #radial .rad-shade { position: absolute; inset: 0;
+                             background: radial-gradient(ellipse at center, rgba(0, 0, 0, .28) 0, rgba(0, 0, 0, .14) 38%, rgba(0, 0, 0, .42) 100%); }
+        #radial .rad-ring { position: absolute; left: 50%; top: 50%; width: 244px; height: 244px; margin: -122px 0 0 -122px;
+                            border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .42); }
+        #radial .rad-arcs { position: absolute; left: 50%; top: 50%; width: 900px; height: 900px; margin: -450px 0 0 -450px; }
+        #radial .rad-ring { display: grid; place-items: center; align-content: center; gap: 4px; text-align: center; }
+        #radial .rad-title { max-width: 190px; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, .85);
+                             text-shadow: 0 1px 3px rgba(0, 0, 0, .85); }
+        .rad-item .rad-icon { position: relative; }
+        .rad-item .rad-badge { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); min-width: 20px; height: 18px;
+                               padding: 0 5px; border-radius: 3px; background: #10343f; color: #fff; font-size: 11px; font-weight: 700;
+                               line-height: 18px; text-align: center; text-shadow: none; }
+        .rad-item .rad-badge.new { background: var(--accent); color: #1a1205; }
+        .rad-item .rad-label { max-width: 330px; white-space: normal; line-height: 1.25; }
+        .rad-item .rad-note.new { color: var(--accent); }
+        .rad-item .rad-desc { display: none; max-width: 300px; margin-top: 2px; font-size: 12px; font-weight: 400;
+                              color: rgba(255, 255, 255, .78); white-space: normal; }
+        #radial.tips .rad-item .rad-desc { display: block; }
+        #radial .rad-close { font-size: 15px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: rgba(255, 255, 255, .55);
+                             text-shadow: 0 1px 3px rgba(0, 0, 0, .85); transition: color .12s; }
+        #radial .rad-close.hot { color: var(--accent); }
+        #radial.open .rad-ring, #radial.open .rad-arcs { animation: rad-grow .26s var(--ease) both; }
+        #radial .rad-pointer { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transition: opacity .12s; }
+        #radial .rad-pointer.on { opacity: 1; }
+        #radial .rad-pointer::after { content: ''; position: absolute; left: -6px; top: -7px; border: 7px solid transparent;
+                                      border-left: 10px solid var(--accent); filter: drop-shadow(0 0 4px rgba(240, 176, 64, .6)); }
+        .rad-item { position: absolute; left: calc(50% + var(--x)); top: calc(50% + var(--y)); display: flex; align-items: center;
+                    gap: 14px; padding: 6px 4px; background: none; border: 0; cursor: pointer; color: #fff; opacity: .8;
+                    transform: translate(var(--ax), -50%); transition: opacity .12s, filter .12s;
+                    text-shadow: 0 1px 3px rgba(0, 0, 0, .85), 0 0 10px rgba(0, 0, 0, .45); }
+        .rad-item.left { --ax: calc(-100% + 24px); flex-direction: row; text-align: right; }
+        .rad-item.right { --ax: -24px; flex-direction: row-reverse; text-align: left; }
+        #radial.open .rad-item { animation: rad-item-in .28s var(--ease) both; }
+        .rad-item .rad-icon { flex: none; width: 48px; height: 48px; display: grid; place-items: center;
+                              transition: transform .14s var(--ease); filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .8)); }
+        .rad-item .rad-icon svg { width: 40px; height: 40px; }
+        .rad-item .rad-label { display: block; font-size: 18px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+        .rad-item .rad-note { display: block; font-size: 12px; color: rgba(255, 255, 255, .7); }
+        .rad-item.hot { opacity: 1; }
+        .rad-item.hot .rad-icon { transform: scale(1.14); }
+        .rad-item.hot .rad-label { color: var(--accent); }
+        .rad-item[disabled] { opacity: .35; cursor: default; }
+        .rad-item.small .rad-label { font-size: 15px; font-weight: 500; }
+        #radial .rad-keys { position: absolute; left: 50%; top: calc(50% + 300px); transform: translateX(-50%); display: flex; gap: 28px;
+                            color: #fff; font-size: 15px; font-weight: 500; text-shadow: 0 1px 3px rgba(0, 0, 0, .85); }
+        #radial .rad-keys > span { display: flex; align-items: center; gap: 8px; }
+        #radial .rad-keys svg { width: 18px; height: 18px; }
+        @keyframes rad-grow { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+        @keyframes rad-item-in {
+            from { opacity: 0; transform: translate(var(--ax), -50%) translate(calc(var(--x) * -.45), calc(var(--y) * -.45)) scale(.86); }
+        }
+
+        /* ── the service screen (F11): pick a service to go on duty; glass cards over a dimmed game ── */
+        #duty { position: fixed; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden; pointer-events: none;
+                transition: opacity .2s ease-in, visibility 0s linear .2s; }
+        #duty.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .3s var(--ease); }
+        #duty .shade { position: absolute; inset: 0; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+                       background: radial-gradient(ellipse at 50% 45%, rgba(8, 12, 20, .45), rgba(4, 6, 10, .82) 75%); }
+        #duty .stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 34px; }
+        #duty h1 { margin: 0; color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase;
+                   text-shadow: var(--ink); }
+        #duty .cards { display: flex; gap: 22px; }
+        .svc { position: relative; width: 250px; height: 330px; padding: 0; overflow: hidden; cursor: pointer; text-align: center;
+               display: flex; flex-direction: column; align-items: center; transform: translateY(0); transition: transform .2s var(--ease), box-shadow .2s; }
+        #duty.open .svc { animation: svc-in .5s var(--ease) both; }
+        .svc .art { position: relative; width: 100%; height: 170px; display: grid; place-items: center; overflow: hidden;
+                    background: radial-gradient(circle at 50% 120%, var(--tint) 0, transparent 70%),
+                                linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, 0)); }
+        .svc .art::before { content: ''; position: absolute; inset: 0; opacity: .35;
+                            background: repeating-radial-gradient(circle at 50% 120%, rgba(255, 255, 255, .22) 0 1px, transparent 1px 12px); }
+        .svc .art svg { position: relative; width: 86px; height: 86px; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .45)); }
+        .svc .name { margin-top: 18px; font-size: 19px; font-weight: 700; letter-spacing: .02em; }
+        .svc .line { margin: 6px 22px 0; color: rgba(255, 255, 255, .78); font-size: 13px; line-height: 1.4; }
+        .svc .go { margin-top: auto; margin-bottom: 20px; padding: 7px 20px; border-radius: 999px; font-size: 13px; font-weight: 700;
+                   border: 1px solid rgba(255, 255, 255, .5); background: rgba(255, 255, 255, .12); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
+        .svc.on .go { border-color: var(--red); color: #fff; background: rgba(255, 125, 112, .22); }
+        .svc.on .art::after { content: 'On duty'; position: absolute; top: 12px; left: 12px; padding: 2px 9px; border-radius: 999px;
+                              background: rgba(111, 224, 165, .25); border: 1px solid var(--green); font-size: 11px; font-weight: 700;
+                              letter-spacing: .06em; text-transform: uppercase; }
+        .svc:not([disabled]):hover, .svc:not([disabled]):focus-visible { transform: translateY(-6px); outline: none;
+                                    box-shadow: var(--glass-shade), 0 0 0 1px rgba(255, 255, 255, .55), 0 14px 34px rgba(0, 0, 0, .35); }
+        .svc:not([disabled]):hover .go, .svc:not([disabled]):focus-visible .go { background: rgba(255, 255, 255, .24); }
+        .svc[disabled] { cursor: default; }
+        .svc[disabled] > :not(.soon) { opacity: .45; filter: grayscale(.6); }
+        .svc .soon { position: absolute; top: 26px; right: -46px; width: 190px; padding: 5px 0; transform: rotate(35deg);
+                     background: linear-gradient(90deg, rgba(240, 176, 64, .85), rgba(240, 176, 64, .95)); color: #1d1405;
+                     font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; text-shadow: none;
+                     box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+        #duty .brand { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #fff; text-shadow: var(--ink); }
+        #duty.open .brand { animation: brand-in .6s var(--ease) .25s both; }
+        #duty .brand .logo { width: 360px; height: auto; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, .55)); }
+        #duty .brand .by { font-size: 12px; font-weight: 600; letter-spacing: .32em; text-transform: uppercase; color: rgba(255, 255, 255, .8); }
+        #duty .foot { position: absolute; left: 50%; bottom: -78px; transform: translateX(-50%); display: flex; gap: 22px;
+                      color: #fff; font-size: 13px; text-shadow: var(--ink); white-space: nowrap; }
+        #duty .foot span { display: inline-flex; align-items: center; gap: 7px; }
+        @keyframes svc-in { from { opacity: 0; transform: translateY(40px) scale(.94); } }
+        @keyframes brand-in { from { opacity: 0; transform: scale(.92); } }
+    </style>
+</head>
+<body>
+<div id="prompts" aria-live="polite"></div>
+
+<div id="hint" class="glass" role="status"></div>
+
+<section id="modes" class="glass" role="dialog" aria-label="What the driver does">
+    <h1>Driver</h1>
+    <div class="sub">What should they do?</div>
+    <div id="modelist" role="listbox"></div>
+    <div class="keys"><span><span class="kbd">↑</span><span class="kbd">↓</span> choose</span>
+        <span><span class="kbd">Enter</span> confirm</span><span><span class="kbd">⌫</span> close</span></div>
+</section>
+
+<div id="radial" aria-hidden="true">
+    <div class="rad-shade"></div>
+    <svg class="rad-arcs" id="rad-arcs" viewBox="0 0 900 900" aria-hidden="true">
+        <defs><linearGradient id="rad-fade" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".45"/>
+            <stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+        <path id="rad-arc-l" d="M 110.8 200.7 A 420 420 0 0 0 110.8 699.3" fill="none" stroke="url(#rad-fade)" stroke-width="1.5"/>
+        <path id="rad-arc-r" d="M 789.2 200.7 A 420 420 0 0 1 789.2 699.3" fill="none" stroke="url(#rad-fade)" stroke-width="1.5"/>
+    </svg>
+    <div class="rad-ring"><span class="rad-title" id="rad-title"></span><span class="rad-close" id="rad-close">Close</span></div>
+    <div class="rad-pointer" id="rad-pointer"></div>
+    <div id="rad-items" role="menu" aria-label="Vehicle"></div>
+    <div class="rad-keys" id="rad-keys"></div>
+</div>
+
+<section id="duty" aria-hidden="true">
+    <div class="shade"></div>
+    <div class="stage" role="dialog" aria-label="Select service">
+        <h1>Select service</h1>
+        <div class="cards">
+            <button class="svc glass" type="button" data-svc="police" style="--tint: rgba(64, 120, 255, .55); animation-delay: .05s">
+                <div class="art"><svg viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M32 6 52 13v16c0 13-8.5 23-20 29C20.5 52 12 42 12 29V13z"/><path d="M32 20l3.6 7.4 8.1 1.2-5.9 5.7 1.4 8.1L32 38.6l-7.2 3.8 1.4-8.1-5.9-5.7 8.1-1.2z"/></svg></div>
+                <div class="name">Police</div>
+                <div class="line">Traffic stops, pursuits and arrests. Keep the streets of San Andreas safe.</div>
+                <div class="go">Go on duty</div>
+            </button>
+            <button class="svc glass" type="button" disabled style="--tint: rgba(80, 220, 140, .45); animation-delay: .12s">
+                <div class="art"><svg viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="20" width="36" height="24" rx="3"/><path d="M42 26h8l8 9v9H42"/><circle cx="17" cy="46" r="5"/><circle cx="49" cy="46" r="5"/><path d="M24 26v12M18 32h12"/></svg></div>
+                <div class="name">Ambulance</div>
+                <div class="line">Treat the injured and get them to hospital in time.</div>
+                <div class="go">Go on duty</div>
+                <div class="soon">Coming soon</div>
+            </button>
+            <button class="svc glass" type="button" disabled style="--tint: rgba(255, 110, 60, .5); animation-delay: .19s">
+                <div class="art"><svg viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M32 58c-11 0-18-7-18-17 0-9 7-13 9-22 4 4 6 8 6 13 3-3 4-8 3-14 9 6 16 14 16 24 0 9-6 16-16 16z"/><path d="M32 58c-5 0-8-3-8-8 0-4 3-6 4-10 3 3 4 5 4 8 2-2 3-4 3-6 3 3 5 5 5 9 0 4-3 7-8 7z"/></svg></div>
+                <div class="name">Fire</div>
+                <div class="line">Fight fires and pull people out of wrecks.</div>
+                <div class="go">Go on duty</div>
+                <div class="soon">Coming soon</div>
+            </button>
+            <button class="svc glass" type="button" disabled style="--tint: rgba(250, 190, 60, .5); animation-delay: .26s">
+                <div class="art"><svg viewBox="0 0 64 64" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 44V30h18l6 7h12v7"/><path d="M22 30v-8h-6l-5 8"/><path d="M40 37 52 16"/><path d="M52 16v12a4 4 0 1 1-4.5 4"/><circle cx="12" cy="46" r="5"/><circle cx="32" cy="46" r="5"/><path d="M17 46h10"/></svg></div>
+                <div class="name">Tow</div>
+                <div class="line">Clear the roads and take the cars to impound.</div>
+                <div class="go">Go on duty</div>
+                <div class="soon">Coming soon</div>
+            </button>
+        </div>
+        <div class="brand"><img class="logo" src="img/code3response.png" alt="CODE3RESPONSE"><div class="by">by LWK Development</div></div>
+        <div class="foot"><span><span class="kbd">Esc</span>/<span class="kbd" id="duty-key">F11</span>Close</span></div>
+    </div>
+</section>
+
+<div id="idwrap" aria-live="polite">
+    <div class="idcard" role="img" aria-label="San Andreas identification card">
+        <div class="tint-top"></div>
+        <div class="tint-right"></div>
+        <canvas class="scene" width="530" height="320" aria-hidden="true"></canvas>
+        <svg class="art" viewBox="0 0 530 320" aria-hidden="true">
+            <defs>
+                <linearGradient id="idc-rock" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="rgb(120,150,190)" stop-opacity=".18"/>
+                    <stop offset=".7" stop-color="rgb(120,150,190)" stop-opacity=".12"/>
+                    <stop offset="1" stop-color="rgb(120,150,190)" stop-opacity="0"/>
+                </linearGradient>
+                <filter id="idc-soft"><feGaussianBlur stdDeviation="6"/></filter>
+                <filter id="idc-fur"><feGaussianBlur stdDeviation=".2"/></filter>
+                <linearGradient id="idc-bearfill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="rgb(255,250,250)" stop-opacity=".92"/>
+                    <stop offset=".65" stop-color="rgb(255,250,250)" stop-opacity=".9"/>
+                    <stop offset="1" stop-color="rgb(238,222,224)" stop-opacity=".92"/>
+                </linearGradient>
+            </defs>
+            <!-- the wave, bottom right: a compact white curl over blue, with foam -->
+            <g transform="translate(8,6)">
+            <path d="M432 312 C440 290 462 272 490 272 C506 272 516 280 520 292 L520 312 Z" fill="rgba(100,150,210,.24)" filter="url(#idc-soft)"/>
+            <path d="M440 306 C444 292 456 280 472 278 C488 276 500 284 500 294 C500 302 492 305 488 300 C485 296 489 292 494 293
+                     C490 286 480 285 472 290 C463 296 460 303 460 308 Z" fill="rgba(255,255,255,.9)" stroke="rgba(100,145,205,.6)" stroke-width=".6"/>
+            <g fill="none" stroke="rgba(100,145,205,.55)" stroke-width=".55">
+                <path d="M470 300 C472 292 480 288 488 290 M478 304 C480 298 486 296 492 298 M464 304 C466 296 472 292 478 292" stroke-width=".7"/>
+                <path d="M450 288 c-3 -1 -4 -4 -2 -7 c0 3 2 4 4 3 M458 282 c-3 -1 -3 -5 0 -7 c-1 3 1 4 3 4 M467 279 c-2 -2 -2 -5 1 -6 c-1 2 0 4 2 4 M476 277 c-1 -2 0 -5 3 -5 c-2 2 -1 3 1 4 M485 278 c0 -2 2 -4 4 -3 c-2 1 -2 2 -1 4" stroke-width=".6"/>
+                <path d="M450 288 l-3 -4 M456 283 l-2 -5 M463 280 l-1 -5 M470 278 l0 -5 M478 277 l1 -4 M486 278 l2 -4"/>
+                <path d="M436 310 C446 300 456 296 468 296 M436 315 C450 307 462 305 476 306 M500 300 C506 296 512 296 518 300"/>
+            </g>
+            </g>
+            <g fill="none" stroke="rgba(214,128,140,.16)" stroke-width=".6">
+                <circle cx="200" cy="290" r="15"/><circle cx="200" cy="290" r="20"/><circle cx="200" cy="290" r="25"/>
+            </g>
+            <!-- pale grizzlies under the fields, walking west -->
+            <g filter="url(#idc-fur)">
+                <g transform="translate(218,211) scale(.47,.48)"><path d="M44 45 C44 50 43 54 41.5 57 L41 58 L36 58 L36.3 57 C37 53 38 49 38 44 Z M75 46 C75 51 75 54 75 57 L74.5 58 L69.5 58 L69.3 57 C69.5 54 70 50 70 46 Z" fill="rgba(240,222,222,.85)" stroke="rgba(170,130,130,.38)" stroke-width="1.4"/><path d="M9 31 C8 29 9 27 11 26 C13 25 15 23 17 21 L18 18 L21 20 C24 19 27 19 30 19.5 C34 13 40 8 48 6.5 C54 6 58 7 62 8 C70 9 80 11 87 14 C93 17 96 24 95 31 C94 35 92 39 90 42 C89 48 90 54 91.5 58 L90.5 59.3 L84 59.3 L83.3 58 C82 54 81 50 78 46 C70 47 60 47 52 46 C51 51 50 55 48.5 58 L47.5 59.3 L41 59.3 L40.5 58 C41 53 41 48 40 43 C36 40 32 38 28 37 C22 36 17 36 14 35.5 C11.5 35 9.5 33.5 9 31 Z" fill="rgba(252,236,236,.85)" stroke="rgba(170,130,130,.45)" stroke-width="1.5"/></g>
+                <g transform="translate(262,232) scale(.39,.4)"><path d="M44 45 C44 50 43 54 41.5 57 L41 58 L36 58 L36.3 57 C37 53 38 49 38 44 Z M75 46 C75 51 75 54 75 57 L74.5 58 L69.5 58 L69.3 57 C69.5 54 70 50 70 46 Z" fill="rgba(240,222,222,.85)" stroke="rgba(170,130,130,.38)" stroke-width="1.4"/><path d="M9 31 C8 29 9 27 11 26 C13 25 15 23 17 21 L18 18 L21 20 C24 19 27 19 30 19.5 C34 13 40 8 48 6.5 C54 6 58 7 62 8 C70 9 80 11 87 14 C93 17 96 24 95 31 C94 35 92 39 90 42 C89 48 90 54 91.5 58 L90.5 59.3 L84 59.3 L83.3 58 C82 54 81 50 78 46 C70 47 60 47 52 46 C51 51 50 55 48.5 58 L47.5 59.3 L41 59.3 L40.5 58 C41 53 41 48 40 43 C36 40 32 38 28 37 C22 36 17 36 14 35.5 C11.5 35 9.5 33.5 9 31 Z" fill="rgba(252,236,236,.85)" stroke="rgba(170,130,130,.45)" stroke-width="1.5"/></g>
+            </g>
+            <g fill="none" stroke="rgba(120,160,210,.45)" stroke-width=".8">
+                <path d="M80 300 q-10-14 2-16 q6 2 4 12 q8-10 14-4 q2 8-12 10 q10 6 6 12 q-8 2-10-8 q-4 10-10 6 q-2-6 8-10Z"/>
+            </g>
+        </svg>
+    
+        <svg class="seal" viewBox="0 0 42 42" aria-hidden="true">
+            <circle cx="21" cy="21" r="20" fill="#c9d8e6" stroke="#9fb3c8" stroke-width="1"/>
+            <circle cx="21" cy="21" r="15" fill="none" stroke="#9fb3c8" stroke-width=".6"/>
+            <circle cx="21" cy="21" r="17.5" fill="none" stroke="#9fb3c8" stroke-width=".4" stroke-dasharray="1 1.2"/>
+            <path d="M13 25 q4-6 10-4 q4-1 6 3 h-2 l-1 3 h-2 v-2 q-4 1-7 0 v2 h-2 Z" fill="#8ea4bd"/>
+            <path d="M14 15 l7-6 l7 6" fill="none" stroke="#8ea4bd" stroke-width=".8"/>
+        </svg>
+        <div class="rule"></div>
+        <div class="rosette"></div>
+        <div class="hatch"></div>
+    
+        <svg class="map" viewBox="0 0 62 76" aria-hidden="true">
+            <path d="M2 2 L27 2 L28 21 C34 28 42 34 47 41 C52 48 56 56 58 64 L60 73 C58 76 54 76 50 73 C46 68 40 62 35 57 C29 51 23 45 18 38 C13 31 8 23 5 15 Z" fill="none" stroke="rgba(208,67,76,.6)" stroke-width=".7" stroke-linejoin="round"/>
+            <path d="M40 50 l.9 2 2.2.1-1.7 1.4.6 2.1-2-1.2-1.8 1.2.6-2.1-1.7-1.4 2.2-.1Z" fill="#d0434c"/>
+        </svg>
+    
+        <p class="state">SAN ANDREAS</p>
+        <p class="usa">USA</p>
+        <p class="doc" style="left:312px;top:7px">IDENTIFICATION</p>
+        <p class="doc" style="left:356px;top:22px">CARD</p>
+    
+        <div class="photo">
+            <svg class="ph" viewBox="0 0 158 212" aria-hidden="true">
+                <ellipse cx="79" cy="86" rx="36" ry="44" fill="#c99a7a"/>
+                <path d="M43 78 q2-44 36-46 q36 2 38 46 q-6-20-38-22 q-30 2-36 22Z" fill="#2b2220"/>
+                <path d="M8 212 q8-56 71-62 q63 6 71 62Z" fill="#3b4a5a"/>
+            </svg>
+            <img data-f="photo" alt="">
+        </div>
+        <p class="sig" data-f="sig"></p>
+    
+        <p class="lab" style="left:189px;top:63px">ID</p>
+        <p class="red" style="left:214px;top:53px;font-size:24px" data-f="id"></p>
+        <p class="lab" style="left:189px;top:101px">EXP</p>
+        <p class="red" style="left:220px;top:96px" data-f="exp"></p>
+        <p class="lab" style="left:189px;top:125px">LN</p>
+        <p class="blk" style="left:210px;top:122px" data-f="ln"></p>
+        <p class="lab" style="left:189px;top:143px">FN</p>
+        <p class="blk" style="left:210px;top:140px" data-f="fn"></p>
+        <p class="addr" style="left:189px;top:161px" data-f="addr1"></p>
+        <p class="addr" style="left:189px;top:173.5px" data-f="addr2"></p>
+        <p class="lab" style="left:189px;top:196px">DOB</p>
+        <p class="red" style="left:221px;top:191px" data-f="dob"></p>
+    
+        <div class="donor" data-f="donor"><span>DONOR</span></div>
+        <div class="ghost">
+            <svg class="ph" viewBox="0 0 79 105" aria-hidden="true">
+                <ellipse cx="39" cy="46" rx="20" ry="26" fill="#8a7d76"/>
+                <path d="M19 42 q1-26 20-27 q20 1 21 27 q-4-12-21-13 q-16 1-20 13Z" fill="#3a3533"/>
+                <path d="M2 105 q5-28 37-31 q32 3 38 31Z" fill="#555"/>
+            </svg>
+            <img data-f="photo" alt="">
+        </div>
+        <p style="left:437px;top:212px;font:700 12px/1 Arial,sans-serif;color:#7a7a7a;letter-spacing:.6px" data-f="dobn"></p>
+    
+        <p class="frow lab" style="left:244px;top:260px">SEX</p>
+        <p class="frow" style="left:277px;top:260px" data-f="sex"></p>
+        <p class="frow lab" style="left:329px;top:260px">HAIR</p>
+        <p class="frow" style="left:367px;top:260px" data-f="hair"></p>
+        <p class="frow lab" style="left:420px;top:260px">EYES</p>
+        <p class="frow" style="left:459px;top:260px" data-f="eyes"></p>
+        <p class="frow lab" style="left:244px;top:276px">HGT</p>
+        <p class="frow" style="left:277px;top:276px" data-f="hgt"></p>
+        <p class="frow lab" style="left:329px;top:276px">WGT</p>
+        <p class="frow" style="left:367px;top:276px" data-f="wgt"></p>
+        <p class="frow lab" style="left:244px;top:295px;font-size:13px">DD</p>
+        <p style="left:265px;top:297px;font:700 9.5px/1 Arial,sans-serif;letter-spacing:.15px" data-f="dd"></p>
+        <p class="frow lab" style="left:447px;top:283px">ISS</p>
+        <p style="left:447px;top:295px;font:400 13px/1 Arial,sans-serif;color:#222" data-f="iss"></p>
+    </div>
+        <div class="satitle-wrap">
+        <div class="satitle" id="satitle" role="img" aria-label="San Andreas certificate of title">
+            <canvas class="paper" aria-hidden="true"></canvas>
+            <div class="panel" style="left: 44px; top: 320px; width: 388px; height: 117px; background: rgba(218, 212, 200, .9); box-shadow: 0 0 6px 2px rgba(218, 212, 200, .6);"></div>
+            <div class="panel" style="left: 44px; top: 842px; width: 390px; height: 124px;
+                                      background: linear-gradient(90deg, rgba(232, 231, 224, .35), rgba(233, 231, 225, .95) 55%);"></div>
+            <div class="vinband" style="left: 44px; width: 252px;"></div>
+            <div class="vinband" style="left: 682px; width: 100px; opacity: .55;"></div>
+            <svg class="seal" viewBox="0 0 170 170" aria-hidden="true">
+                <defs>
+                    <path id="seal-top" d="M 27.8 118 A 66 66 0 1 1 142.2 118"/>
+                    <path id="seal-bottom" d="M 22 104 A 75 75 0 0 0 148 104"/>
+                </defs>
+                <circle cx="85" cy="85" r="83" fill="rgba(238, 236, 228, .32)"/>
+                <circle cx="85" cy="85" r="57" fill="rgba(150, 145, 135, .14)"/>
+                <g id="seal-grain" stroke="rgba(140, 135, 122, .3)" stroke-width=".5" fill="none"></g>
+                <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <!-- the emboss: a grey edge under, a light edge over -->
+                    <g stroke="rgba(150, 145, 130, .45)" transform="translate(.9 .9)">
+                        <circle cx="85" cy="85" r="82" stroke-width="1.6"/><circle cx="85" cy="85" r="77" stroke-width=".8"/>
+                        <circle cx="85" cy="85" r="57" stroke-width="1.2"/>
+                        <path d="M 34 84 l 12 -14 l 9 8 l 13 -18 l 12 13 l 8 -6 l 12 12 M 34 96 q 10 -4 20 0 t 20 0 t 20 0 t 20 0 t 20 0" stroke-width="1"/>
+                        <path d="M 100 70 q 6 -10 12 -2 q 2 8 -4 12 q 10 2 12 16 l -24 0 q 0 -14 6 -16 q -4 -4 -2 -10 z" stroke-width="1"/>
+                        <path d="M 96 118 q 2 -14 12 -16 q 4 -12 12 -8 q 4 2 2 8 l 6 2 q 4 4 0 8 l 0 6 l -4 0 l -1 -5 l -12 0 l -1 5 l -4 0 z" stroke-width="1"/>
+                    </g>
+                    <g stroke="rgba(255, 255, 255, .4)">
+                        <circle cx="85" cy="85" r="82" stroke-width="1.6"/><circle cx="85" cy="85" r="77" stroke-width=".8"/>
+                        <circle cx="85" cy="85" r="57" stroke-width="1.2"/>
+                        <!-- inside: the sea and a ship, the hills, a bear by a seated figure -->
+                        <path d="M 34 96 q 10 -4 20 0 t 20 0 t 20 0 t 20 0 t 20 0" stroke-width="1"/>
+                        <path d="M 36 103 q 10 -4 20 0 t 20 0 t 20 0 t 20 0 t 20 0" stroke-width=".8"/>
+                        <path d="M 34 84 l 12 -14 l 9 8 l 13 -18 l 12 13 l 8 -6 l 12 12" stroke-width="1"/>
+                        <path d="M 52 92 l 14 0 l -3 -5 l -8 0 z M 58 87 l 0 -12 M 58 77 l 5 4 M 58 79 l -4 4" stroke-width=".9"/>
+                        <path d="M 96 118 q 2 -14 12 -16 q 4 -12 12 -8 q 4 2 2 8 l 6 2 q 4 4 0 8 l 0 6 l -4 0 l -1 -5 l -12 0 l -1 5 l -4 0 z"
+                              stroke-width="1" fill="rgba(255, 255, 255, .35)"/>
+                        <path d="M 100 70 q 6 -10 12 -2 q 2 8 -4 12 q 10 2 12 16 l -24 0 q 0 -14 6 -16 q -4 -4 -2 -10 z M 92 98 l 30 0"
+                              stroke-width="1" fill="rgba(255, 255, 255, .35)"/>
+                        <path d="M 62 128 q 23 10 46 0" stroke-width=".9"/>
+                        <path d="M 66 42 q 19 -6 38 0 l -2 7 q -17 -5 -34 0 z" stroke-width=".9"/>
+                    </g>
+                    <g stroke="rgba(150, 145, 130, .4)" stroke-width=".5">
+                        <path d="M 40 80 l 4 -4 M 46 82 l 5 -5 M 52 80 l 6 -7 M 60 76 l 6 -8 M 66 72 l 5 -6 M 73 70 l 4 -4 M 80 74 l 4 -4 M 86 78 l 4 -4"/>
+                        <path d="M 38 99 h 8 M 50 99 h 10 M 64 99 h 9 M 77 99 h 11 M 92 99 h 8 M 104 99 h 10 M 118 99 h 9"/>
+                        <path d="M 40 107 h 7 M 52 107 h 9 M 66 107 h 10 M 80 107 h 8 M 94 107 h 9 M 108 107 h 8"/>
+                        <path d="M 104 84 l 3 6 M 108 84 l 3 6 M 112 84 l 3 6 M 100 108 l 3 5 M 106 108 l 3 5 M 112 108 l 3 5 M 118 108 l 3 5"/>
+                    </g>
+                    <g font-family="Arial, sans-serif" font-weight="700" fill="rgba(252, 251, 247, .85)" stroke="rgba(150, 145, 130, .5)" stroke-width=".45">
+                        <text font-size="11.5" letter-spacing="1.1"><textPath href="#seal-top" startOffset="50%" text-anchor="middle">THE GREAT SEAL OF THE STATE OF</textPath></text>
+                        <text font-size="11" letter-spacing="1.4"><textPath href="#seal-bottom" startOffset="50%" text-anchor="middle">SAN ANDREAS</textPath></text>
+                        <text x="85" y="47.5" text-anchor="middle" font-size="6.5" stroke="none">EUREKA</text>
+                    </g>
+                </g>
+            </svg>
+            <canvas class="ink" aria-hidden="true"></canvas>
+
+            <div class="band" style="left: 265px; top: 2px; width: 351px; height: 45px; font-size: 25px;"><span style="margin-top: 3px;">STATE OF SAN ANDREAS</span></div>
+            <div class="band side" style="left: 16px; top: 226px; width: 21px; height: 576px;">
+                <span style="writing-mode: vertical-rl; transform: rotate(180deg); font-size: 17px;">VOID WITHOUT BEAR WATERMARK. HOLD TO LIGHT TO VIEW.</span></div>
+            <div class="band side" style="left: 843px; top: 226px; width: 21px; height: 576px;">
+                <span style="writing-mode: vertical-rl; font-size: 17px;">VOID WITHOUT BEAR WATERMARK. HOLD TO LIGHT TO VIEW.</span></div>
+            <div class="band" style="left: 248px; top: 971px; width: 393px; height: 32px; font-size: 17.5px; background: rgba(14, 60, 125, .7); color: #dceaf5;"><span style="margin-top: 2px;">KEEP IN A SAFE PLACE - VOID IF ALTERED</span></div>
+
+            <p class="t head">CERTIFICATE OF TITLE</p>
+            <p class="t lab" style="left: 628px; top: 68px;">Vehicle History</p>
+            <div class="hist"></div>
+
+            <p class="t lab" style="left: 75px; top: 137px;">Vehicle ID Number</p>
+            <p class="t lab" style="left: 487px; top: 124px; text-align: center;">YR<br>Model</p>
+            <p class="t lab" style="left: 545px; top: 137px;">Make</p>
+            <p class="t lab" style="left: 693px; top: 137px;">Plate Number</p>
+
+            <p class="t lab" style="left: 75px; top: 181px;">Body Type Model</p>
+            <p class="t lab" style="left: 268px; top: 181px;">AX</p>
+            <p class="t lab" style="left: 293px; top: 170px;">Unladen<br>Weight</p>
+            <p class="t lab" style="left: 375px; top: 181px;">Fuel</p>
+            <p class="t lab" style="left: 405px; top: 181px;">Transfer Date</p>
+            <p class="t lab" style="left: 573px; top: 181px;">Fees Paid</p>
+            <p class="t lab" style="left: 693px; top: 170px;">Registration<br>Expiration Date</p>
+
+            <p class="t lab" style="left: 268px; top: 214px;">YR 1st<br>Sold</p>
+            <p class="t lab" style="left: 335px; top: 225px;">Class</p>
+            <p class="t lab" style="left: 383px; top: 225px;">*YR</p>
+            <p class="t lab" style="left: 437px; top: 225px;">MO</p>
+            <p class="t lab" style="left: 483px; top: 225px;">Equipmt/Trust Number</p>
+            <p class="t" style="left: 690px; top: 220px; font-size: 12px; color: var(--red);">ISSUE DATE</p>
+
+            <p class="t lab" style="left: 75px; top: 266px;">Motorcycle Engine Number</p>
+            <p class="t lab" style="left: 505px; top: 266px;">Odometer Date</p>
+            <p class="t lab" style="left: 660px; top: 266px;">Odometer Reading</p>
+            <p class="t lab" style="left: 75px; top: 310px;">Registered Owner(s)</p>
+            <div class="dash" style="top: 398px;"></div>
+            <div class="dash" style="top: 419px;"></div>
+
+            <p class="para" style="left: 75px; top: 487px; width: 760px; font-size: 12.2px;">I certify (or declare) <b>under penalty of perjury</b> under the laws of the State of San Andreas that <b>THE SIGNATURE(S) BELOW RELEASES INTEREST IN THE VEHICLE.</b></p>
+            <p class="t" style="left: 85px; top: 522px; font-size: 12.6px;">1a.</p>
+            <div class="rule" style="left: 103px; top: 533px; width: 161px;"></div>
+            <p class="t lab" style="left: 172px; top: 535px;">Date</p>
+            <p class="t x" style="left: 276px; top: 513px;">X</p>
+            <div class="rule" style="left: 293px; top: 533px; width: 534px;"></div>
+            <p class="t lab" style="left: 446px; top: 535px;">Signature of Registered Owner</p>
+            <p class="t" style="left: 85px; top: 556px; font-size: 12.6px;">1b.</p>
+            <div class="rule" style="left: 103px; top: 567px; width: 161px;"></div>
+            <p class="t lab" style="left: 172px; top: 569px;">Date</p>
+            <p class="t x" style="left: 276px; top: 547px;">X</p>
+            <div class="rule" style="left: 293px; top: 567px; width: 534px;"></div>
+            <p class="t lab" style="left: 446px; top: 569px;">Signature of Registered Owner</p>
+
+            <div class="box" style="left: 68px; top: 578px; width: 752px; height: 197px;"></div>
+            <p class="para" style="left: 79px; top: 579px; width: 730px; font-size: 13.4px; line-height: 14px;">Federal and State law requires that you state the mileage upon transfer of ownership. Failure to complete or providing a false statement may result in fines and/or imprisonment.</p>
+            <p class="t" style="left: 79px; top: 619px; font-size: 12.6px;">The odometer now reads</p>
+            <div class="odo" style="left: 232px;"><i></i><i></i><i></i></div>
+            <p class="t" style="left: 315px; top: 621px; font-size: 13px;">,</p>
+            <div class="odo" style="left: 320px;"><i></i><i></i><i></i></div>
+            <p class="t" style="left: 409px; top: 619px; font-size: 12.6px;">(no tenths), miles and to the best of my knowledge reflects the actual</p>
+            <p class="t" style="left: 79px; top: 634px; font-size: 12.6px;">mileage unless one of the following statements is checked. Mileage is VOID if altered or erased.</p>
+            <p class="t" style="left: 80px; top: 661px; font-size: 11px; font-weight: 700;">WARNING<span style="font-weight: 400;"><span class="chk" style="margin-left: 22px;"></span>Odometer reading is <b>not</b> the actual mileage.<span class="chk"></span>Mileage exceeds the odometer mechanical limits.</span></p>
+            <div class="rule" style="left: 68px; top: 679px; width: 752px;"></div>
+            <p class="t" style="left: 75px; top: 686px; font-size: 12.4px; font-weight: 700; font-style: italic;">I certify (or declare) under penalty of perjury under the laws of the State of San Andreas that the foregoing is true and correct.</p>
+            <div class="rule" style="left: 68px; top: 710px; width: 752px;"></div>
+            <div class="vline" style="left: 205px; top: 710px; height: 33px;"></div>
+            <div class="vline" style="left: 462px; top: 710px; height: 33px;"></div>
+            <div class="vline" style="left: 572px; top: 710px; height: 33px;"></div>
+            <div class="vline" style="left: 444px; top: 743px; height: 32px;"></div>
+            <p class="t lab" style="left: 75px; top: 713px; font-size: 7px;">Date</p>
+            <p class="t lab" style="left: 210px; top: 713px; font-size: 7px;">Transferor/Seller Signature(s)</p>
+            <p class="t x" style="left: 214px; top: 722px;">X</p>
+            <p class="t lab" style="left: 467px; top: 713px; font-size: 7px;">Date</p>
+            <p class="t lab" style="left: 576px; top: 713px; font-size: 7px;">Transferee/Buyer Signature(s)</p>
+            <p class="t x" style="left: 582px; top: 722px;">X</p>
+            <div class="rule" style="left: 68px; top: 743px; width: 752px;"></div>
+            <p class="t lab" style="left: 75px; top: 746px; font-size: 7px;">Printed Name of Seller or Agent Signing for a Company</p>
+            <p class="t lab" style="left: 449px; top: 746px; font-size: 7px;">Printed Name of Buyer or Agent Signing for a Company</p>
+
+            <p class="t" style="left: 322px; top: 777px; font-size: 14px; font-weight: 700; font-style: italic;">IMPORTANT READ CAREFULLY</p>
+            <p class="para" style="left: 79px; top: 793px; width: 676px; font-size: 13.4px; line-height: 15px;">Any change of Lienholder (holder of security interest) must be reported to the Department of Motor Vehicles within 10 days.</p>
+            <p class="t lab" style="left: 79px; top: 830px; font-size: 8px;">Lienholder(s)</p>
+            <p class="t" style="left: 497px; top: 846px; font-size: 13px;">2.</p>
+            <p class="t x" style="left: 517px; top: 836px;">X</p>
+            <div class="rule" style="left: 533px; top: 856px; width: 283px;"></div>
+            <p class="para" style="left: 517px; top: 860px; width: 300px; font-size: 13px;">Signature releases interest in vehicle. (Company names must be countersigned)</p>
+            <p class="t" style="left: 517px; top: 893px; font-size: 12.6px;">Release Date</p>
+            <div class="rule" style="left: 605px; top: 906px; width: 213px;"></div>
+            <p class="t form" id="ti-form"></p>
+            <p class="t" style="left: 690px; top: 943px; font-size: 9px;">REG. 17.30RS (REV.02/2016)</p>
+        </div>
+        </div>
+        <div class="keyhint"><kbd>Tab</kbd> hide / show<span class="swap">· <kbd>←</kbd><kbd>→</kbd> ID / registration</span></div>
+</div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+    const post = (name, data) => fetch(`https://${GetParentResourceName()}/${name}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}),
+    }).catch(() => {});
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    const ICONS = {
+        info: '<path d="M5 17h14l-1.5-6.5A2 2 0 0 0 15.6 9H8.4a2 2 0 0 0-1.9 1.5zM7 17v2M17 17v2M8 13h.01M16 13h.01"/>',
+        alert: '<path d="M7 18v-6a5 5 0 0 1 10 0v6M5 18h14M12 3v2M4.2 7.2l1.4 1.4M19.8 7.2l-1.4 1.4"/>',
+        ok: '<path d="M20 6 9 17l-5-5"/>',
+    };
+    const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k] || ICONS.info}</svg>`;
+
+    // ── prompt cards ────────────────────────────────────────────────────────────
+    const prompts = {}; // id -> { el, timer }
+    function prompt(d) {
+        const cur = prompts[d.id];
+        if (d.clear) {
+            if (!cur) return;
+            clearTimeout(cur.timer);
+            delete prompts[d.id];
+            cur.el.classList.add('leaving');
+            cur.el.addEventListener('animationend', () => cur.el.remove(), { once: true });
+            return;
+        }
+        const kind = d.kind || 'info';
+        const el = cur ? cur.el : document.createElement('div');
+        el.className = `prompt glass ${kind}${kind === 'alert' ? ' pulse' : ''}`;
+        el.innerHTML = `<div class="icon" aria-hidden="true">${svg(kind)}</div>
+            <div><h2>${esc(d.title)}</h2><p>${esc(d.text)}</p></div>`;
+        if (!cur) $('prompts').appendChild(el);
+        if (cur) clearTimeout(cur.timer);
+        prompts[d.id] = { el, timer: d.ms ? setTimeout(() => prompt({ id: d.id, clear: true }), d.ms) : null };
+    }
+
+    // ── hint beside the officer ─────────────────────────────────────────────────
+    let hintMode = null;
+    function hint(d) {
+        const el = $('hint');
+        if (!d.show) { el.classList.remove('show'); hintMode = null; return; }
+        el.style.left = `${d.x * 100}vw`;
+        el.style.top = `${d.y * 100}vh`;
+        const mode = d.browse ? `b:${d.index}:${d.count}:${d.who}` : `i:${d.key}`;
+        if (mode !== hintMode) {
+            hintMode = mode;
+            el.innerHTML = d.browse
+                ? `<span class="kbd">←</span><span class="kbd">→</span><span><span class="who">${esc(d.who)}</span> · ${d.index} of ${d.count}</span>
+                   <span class="sep"></span><span class="kbd wide">Enter</span><span>Talk</span>`
+                : `<span class="kbd">${esc(d.key)}</span><span>Interact with the person nearby</span>`;
+        }
+        el.classList.add('show');
+    }
+
+    // ── mode picker ─────────────────────────────────────────────────────────────
+    function modes(d) {
+        $('modes').classList.toggle('open', !!d.open);
+        if (!d.open) return;
+        $('modelist').innerHTML = d.items.map((m, i) => `
+            <div class="mode${i + 1 === d.index ? ' sel' : ''}${m.id === 'cancel' ? ' danger' : ''}" role="option"
+                 aria-selected="${i + 1 === d.index}">
+                <span class="name">${esc(m.label)}</span>${m.id === d.current ? '<span class="now">Now</span>' : '<span></span>'}
+                <span class="desc">${esc(m.desc)}</span>
+            </div>`).join('');
+    }
+
+    // ── the ID handed over: top right for 15 s; Tab hides and shows it again until the stop ends ──
+    function drawScene(cv) {
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = 530 * dpr; cv.height = 320 * dpr;
+        const g = cv.getContext('2d');
+        g.scale(dpr, dpr);
+        g.lineCap = 'round'; g.lineJoin = 'round';
+        let seed = 1977;
+        const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+        const between = (a, b) => a + (b - a) * rnd();
+        const pick = list => list[Math.floor(rnd() * list.length)];
+    
+        // a line that wanders smoothly: its heading drifts a little each step, like a cut groove
+        function groove(x, y, heading, steps, step, drift, pull, colour, width) {
+            g.beginPath(); g.moveTo(x, y);
+            for (let i = 0; i < steps; i++) {
+                heading += between(-drift, drift) + (pull - heading) * .1;
+                x += Math.cos(heading) * step; y += Math.sin(heading) * step;
+                g.lineTo(x, y);
+            }
+            g.strokeStyle = colour; g.lineWidth = width; g.stroke();
+            return [x, y];
+        }
+    
+        // ── the peak: a craggy fractal crest, high on the west, falling away east ──
+        const keys = [[383, 100], [388, 84], [392, 70], [397, 57], [402, 45], [408, 32], [413, 22], [421, 23], [430, 26],
+                      [442, 34], [455, 45], [466, 53], [478, 57], [490, 60], [497, 64]];
+        let sky = [keys[0]];
+        for (let k = 1; k < keys.length; k++) {
+            let seg = [keys[k - 1], keys[k]];
+            for (let lvl = 0, amp = 3; lvl < 4; lvl++, amp *= .55) {
+                const next = [seg[0]];
+                for (let n = 1; n < seg.length; n++) {
+                    const [px, py] = seg[n - 1], [qx, qy] = seg[n];
+                    next.push([(px + qx) / 2 + between(-amp, amp) * .4, (py + qy) / 2 + between(-amp, amp)], [qx, qy]);
+                }
+                seg = next;
+            }
+            sky = sky.concat(seg.slice(1));
+        }
+        const peak = new Path2D();
+        peak.moveTo(sky[0][0], sky[0][1]);
+        for (const [x, y] of sky) peak.lineTo(x, y);
+        peak.lineTo(506, 92); peak.lineTo(383, 100); peak.closePath();
+        const snow = g.createLinearGradient(0, 16, 0, 90);
+        snow.addColorStop(0, 'rgba(255,255,255,.95)'); snow.addColorStop(.6, 'rgba(255,255,255,.55)');
+        snow.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = snow; g.fill(peak);
+        const flank = g.createRadialGradient(392, 78, 2, 392, 78, 30); // the lower west flank in shadow
+        flank.addColorStop(0, 'rgba(120,140,170,.22)'); flank.addColorStop(1, 'rgba(120,140,170,0)');
+        g.fillStyle = flank; g.fill(peak);
+        const east = g.createRadialGradient(478, 58, 2, 478, 58, 24); // a blue tint on the east slope
+        east.addColorStop(0, 'rgba(110,150,200,.24)'); east.addColorStop(1, 'rgba(110,150,200,0)');
+        g.fillStyle = east; g.fill(peak);
+    
+        const slate = [[74, 88, 120], [63, 111, 122], [95, 115, 144], [125, 111, 149]];
+        const ink = () => { const c = pick(slate); return `rgba(${c[0]},${c[1]},${c[2]},${between(.4, .58).toFixed(2)})`; };
+        // the crest: broken, not a hard outline
+        for (let n = 1; n < sky.length; n++) {
+            const [x, y] = sky[n], fade = Math.max(0, 1 - (y - 22) / 60);
+            if (rnd() < .3 + (1 - fade) * .5 || (y < 36 && n % 5 < 2)) continue; // gaps along the summit too
+            g.beginPath(); g.moveTo(sky[n - 1][0], sky[n - 1][1]); g.lineTo(x, y);
+            g.globalAlpha = fade; g.strokeStyle = ink(); g.lineWidth = .6; g.stroke(); g.globalAlpha = 1;
+        }
+        // cracks off the crest, gathered in the top third; heavier near the summit
+        for (let n = 0; n < 60; n++) {
+            const at = Math.floor(between(3, sky.length - 4)), [x, y] = sky[at];
+            if (y < 37 && rnd() < .5) continue; // the summit stays mostly snow
+            g.globalAlpha = y < 32 ? .4 : y < 37 ? .55 : 1;
+            const pull = Math.PI / 2 + (x > 440 ? .3 : -.12);
+            const [ex, ey] = groove(x + between(-1, 1), y + between(.5, 4), pull, Math.floor(between(5, 20)), 1.2, .55,
+                pull, ink(), between(.8, 1.2));
+            if (rnd() < .4) groove(ex, ey, pull + between(-.8, .8), Math.floor(between(3, 9)), 1.1, .4, pull, ink(), .7);
+            g.globalAlpha = 1;
+        }
+        // ridge lines along the east snow edge, following the shoulder down
+        for (let n = 0; n < 6; n++) {
+            const at = Math.floor(between(sky.length * .55, sky.length - 2)), [x, y] = sky[at];
+            groove(x - between(2, 8), y + between(3, 9), .75 + between(-.15, .15), Math.floor(between(6, 14)), 1.3, .2, .75,
+                ink(), between(.8, 1.1));
+        }
+        for (let placed = 0, tries = 0; placed < 38 && tries < 4000; tries++) { // gullies down the whole snowfield
+            const x = between(395, 480), y = between(30, 85);
+            if (!g.isPointInPath(peak, x * dpr, y * dpr)) continue; // device pixels
+            placed++;
+            const pull = Math.PI / 2 + (x > 418 ? .35 : -.3);
+            groove(x, y, pull, Math.floor(between(8, 20)), 1.25, .4, pull, ink(), between(.6, .9));
+        }
+        // the east ridge below the shoulder: hatching under a slightly wavy crest, ragged and fading at the foot
+        const ridgeTop = x => x < 488 ? 96 - (x - 466) * 1.1 + Math.sin(x * .9) * .8 : 72 + (x - 488) * 1.4 + Math.sin(x * .9) * .8;
+        for (let k = 0; k < 10; k++) {
+            const x = 468 + k * 3.8, top = ridgeTop(x) + 1, len = between(10, 22);
+            const fade = g.createLinearGradient(0, top, 0, top + len);
+            const c = k % 3 === 1 ? '63,111,122' : '110,125,150';
+            fade.addColorStop(0, `rgba(${c},.5)`); fade.addColorStop(.7, `rgba(${c},.35)`); fade.addColorStop(1, `rgba(${c},0)`);
+            g.beginPath(); g.moveTo(x, top); g.lineTo(x - len * .35, top + len);
+            g.strokeStyle = fade; g.lineWidth = .6; g.stroke();
+        }
+        // a low misty ridge beyond, to the east
+        for (let n = 0; n < 14; n++) {
+            groove(between(472, 498), between(98, 104), between(-.3, .2), Math.floor(between(3, 7)), 1.5, .3, .1,
+                'rgba(120,140,170,.35)', .5);
+        }
+    
+        // ── a faint pink cliff west of the tree: uneven, broken rock strokes running down-left ──
+        for (let n = 0; n < 22; n++) {
+            const x = between(318, 384), y = between(42, 98);
+            groove(x, y, Math.PI * .7 + between(-.25, .25), Math.floor(between(4, 13)), 1.4, .3, Math.PI * .7,
+                `rgba(210,110,130,${between(.18, .3).toFixed(2)})`, .55);
+        }
+    
+        // ── a conifer: tiers of drooping clumps, each its own length, with a fringe of needles hanging beneath ──
+        function conifer(cx, top, height, width, alpha, fill = 1) {
+            g.beginPath(); g.moveTo(cx, top + 4); g.lineTo(cx, top + height * 1.06);
+            g.strokeStyle = `rgba(140,130,90,${.3 * alpha})`; g.lineWidth = .5; g.stroke();
+            const tiers = Math.round(height / 4.2);
+            for (let b = 0; b < tiers; b++) {
+                const f = (b + .5) / tiers;
+                for (const side of [-1, 1]) {
+                    if (rnd() < .12) continue;
+                    const y = top + f * height * .88 + between(-1.5, 1.5);
+                    const reach = width * (.1 + .45 * Math.pow(f, .8)) * between(.55, 1.3);
+                    const droop = reach * between(.2, .4) + 1, bumps = Math.max(2, Math.round(reach / 2.8));
+                    g.beginPath(); g.moveTo(cx, y - 1.2);
+                    for (let k = 1; k <= bumps; k++) { // the upper edge: soft lumps out along the branch
+                        const t = k / bumps, px = cx + side * reach * t, py = y - 1.2 + droop * t * t;
+                        g.quadraticCurveTo(px - side * reach / bumps * between(.3, .7), py - between(.3, 3), px, py + between(-.6, .6));
+                    }
+                    for (let k = bumps * 2; k >= 0; k--) { // the underside: a ragged fringe of hanging needles
+                        const t = k / (bumps * 2), px = cx + side * reach * t, py = y + 1.2 + droop * t * t * .85;
+                        g.lineTo(px, py + (k % 2 ? between(.8, 2.2) : 0));
+                    }
+                    g.closePath();
+                    g.fillStyle = `rgba(200,210,128,${.25 * alpha * fill})`; g.fill();
+                    g.strokeStyle = `rgba(140,160,92,${.3 * alpha})`; g.lineWidth = .55; g.stroke();
+                }
+            }
+        }
+        conifer(370, 44, 104, 40, 1);   // the big sequoia
+    
+        // ── the forest below the peak: a soft wash, dense overlapping firs, a few taller tiered ones ──
+        g.save(); g.filter = 'blur(3px)';
+        const wash = g.createLinearGradient(385, 0, 508, 0);
+        wash.addColorStop(0, 'rgba(180,200,120,0)'); wash.addColorStop(.12, 'rgba(180,200,120,.2)');
+        wash.addColorStop(.84, 'rgba(180,200,120,.2)'); wash.addColorStop(1, 'rgba(180,200,120,0)');
+        g.fillStyle = wash; g.fillRect(385, 92, 123, 42);
+        g.restore();
+        const fir = (x, base, h, w, a) => {
+            const tip = base - h, steps = Math.max(3, Math.round(h / 4));
+            g.beginPath(); g.moveTo(x, tip);
+            for (let k = 1; k <= steps; k++) {
+                const f = k / steps; g.lineTo(x + w / 2 * f * between(.7, 1.15), tip + h * .9 * f); g.lineTo(x + w / 2 * f * .5, tip + h * .9 * f - 1);
+            }
+            g.lineTo(x, tip + h * .93);
+            for (let k = steps; k >= 1; k--) {
+                const f = k / steps; g.lineTo(x - w / 2 * f * .5, tip + h * .9 * f - 1); g.lineTo(x - w / 2 * f * between(.7, 1.15), tip + h * .9 * f);
+            }
+            g.closePath();
+            g.fillStyle = `rgba(184,200,138,${(a * .3).toFixed(2)})`; g.fill();
+            g.strokeStyle = `rgba(140,160,100,${(a * .3).toFixed(2)})`; g.lineWidth = .5; g.stroke();
+        };
+        g.save(); g.filter = 'blur(.4px)';
+        for (let n = 0; n < 60; n++) {
+            fir(between(380, 504), between(124, 142), between(12, 34), between(6, 11), between(.4, .75));
+        }
+        g.restore();
+        g.save(); g.filter = 'blur(2px)';
+        for (const [x, y, rx, ry] of [[400, 118, 12, 10], [430, 114, 14, 12], [462, 120, 12, 9], [490, 116, 13, 11]]) {
+            g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = 'rgba(170,190,130,.18)'; g.fill();
+        }
+        g.restore();
+        for (const x of [408, 446, 478]) conifer(x, between(84, 94), between(44, 52), 16, .45);
+    
+        // little pines around the donor dot, among the bears
+        conifer(202, 205, 112, 18, .35, 2.5);
+        conifer(286, 220, 98, 16, .5, 2.5);
+    
+        // ── printed: fine white hairlines cut through the scene art ──
+        g.globalCompositeOperation = 'destination-out';
+        g.fillStyle = 'rgba(0,0,0,.38)';
+        for (let y = 0; y < 160; y += 1.6) g.fillRect(300, y, 230, .55);
+        g.fillStyle = 'rgba(0,0,0,.45)';
+        for (let y = 92; y < 140; y += 2) g.fillRect(385, y, 120, .7); // the forest, mostly washed out
+        g.globalCompositeOperation = 'source-over';
+    }
+    drawScene(document.querySelector('#idwrap canvas.scene'));
+
+    const CITY = { 'Alhambra Drive': 'SANDY SHORES', 'Panorama Drive': 'SANDY SHORES', 'Algonquin Boulevard': 'SANDY SHORES',
+                   'Joshua Road': 'GRAPESEED', 'Paleto Boulevard': 'PALETO BAY', 'Duluoz Avenue': 'PALETO BAY' };
+    // Seeded by the person, so the same person always shows the same card.
+    function seeded(text) {
+        let h = 2166136261;
+        for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+        return () => { // mulberry32
+            h = (h + 0x6D2B79F5) | 0; let t = Math.imul(h ^ h >>> 15, 1 | h);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+    }
+    function fillCard(p) {
+        const r = seeded(`${p.first}|${p.last}|${p.dob}`), int = (a, b) => a + Math.floor(r() * (b - a + 1));
+        const pick = list => list[Math.floor(r() * list.length)], pad = n => String(n).padStart(2, '0');
+        const [mm = '01', dd = '01', yyyy = '1990'] = String(p.dob || '').split('/');
+        const male = p.gender !== 'Female', year = new Date().getFullYear();
+        const issY = year - int(0, 4), iss = `${pad(int(1, 12))}/${pad(int(1, 28))}/${issY}`;
+        const address = String(p.address || ''), street = address.replace(/^\d+\s+/, '');
+        const inches = male ? int(65, 75) : int(60, 69), letters = 'ABCDEFGHJKLMNPRSTUVWXYZ';
+        const f = {
+            id: `I${int(1000000, 9999999)}`,
+            exp: `${mm}/${dd}/${p.dl === 'Expired' ? year - int(1, 2) : issY + 5}`, // expires on the birthday
+            ln: String(p.last || '').toUpperCase(), fn: String(p.first || '').toUpperCase(),
+            addr1: address.toUpperCase(), addr2: `${CITY[street] || 'LOS SANTOS'}, SA ${int(90001, 92899)}`,
+            dob: `${mm}/${dd}/${yyyy}`, dobn: `${mm}${dd}${yyyy}`, sex: male ? 'M' : 'F',
+            hair: pick(['BLK', 'BLK', 'BRN', 'BRN', 'BLN', 'RED', 'GRY']), eyes: pick(['BRN', 'BRN', 'BLU', 'GRN', 'HZL']),
+            hgt: `${Math.floor(inches / 12)}'-${pad(inches % 12)}"`, wgt: `${male ? int(145, 235) : int(105, 175)} lb`,
+            dd: `${iss}${int(10000, 99999)}/${pick(letters)}${pick(letters)}FD/${String(issY).slice(2)}`,
+            iss, sig: `${p.first || ''} ${p.last || ''}`,
+        };
+        document.querySelectorAll('#idwrap [data-f]').forEach(el => {
+            const k = el.dataset.f;
+            if (k === 'photo') return p.photo ? el.setAttribute('src', p.photo) : el.removeAttribute('src');
+            if (k === 'donor') return el.style.display = r() < .35 ? '' : 'none';
+            el.textContent = f[k] ?? '';
+        });
+    }
+    // ── the vehicle's title (registration), handed over with the driver's licence ──
+    // Drawn the way the approved design is; its own scope, so its helpers can't collide with the ID card's.
+    const Title = (() => {
+
+    // ── the title's paper, frame and the impact-printed fields ─────────────────
+    const W = 867, H = 1024, IN = { l: 44, t: 48, r: 838, b: 966 }; // the paper inside the frame
+
+    function seeded(seed) {
+        let h = 1779033703;
+        for (const c of String(seed)) h = Math.imul(h ^ c.charCodeAt(0), 3432918353), h = h << 13 | h >>> 19;
+        return () => { h = (h + 0x6D2B79F5) | 0; let t = Math.imul(h ^ h >>> 15, 1 | h);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    }
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+
+    function drawPaper(cv) {
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = W * dpr; cv.height = H * dpr;
+        const g = cv.getContext('2d');
+        g.scale(dpr, dpr);
+
+        // paper: grey-taupe, lightening down the sheet
+        const bg = g.createLinearGradient(0, IN.t, 0, IN.b);
+        bg.addColorStop(0, '#c2bbad'); bg.addColorStop(.3, '#dcd8ca'); bg.addColorStop(1, '#dedacd');
+        g.fillStyle = bg; g.fillRect(0, 0, W, H);
+
+        // soft mottle, then the security print: connected cream filigree (a lozenge with four petals, chevrons
+        // between) on two half-offset 36 px lattices, so no cell is empty
+        g.save();
+        g.beginPath(); g.rect(IN.l, IN.t, IN.r - IN.l, IN.b - IN.t); g.clip();
+        const mr = seeded('mottle');
+        for (let i = 0; i < 90; i++) {
+            const x = IN.l + mr() * (IN.r - IN.l), y = IN.t + mr() * (IN.b - IN.t), r = 40 + mr() * 50;
+            const m = g.createRadialGradient(x, y, 0, x, y, r);
+            m.addColorStop(0, mr() < .5 ? 'rgba(255, 252, 240, .07)' : 'rgba(110, 100, 85, .06)'); m.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            g.fillStyle = m; g.fillRect(x - r, y - r, r * 2, r * 2);
+        }
+        g.strokeStyle = 'rgba(243, 238, 226, .78)'; g.lineWidth = 1;
+        const C = 30;
+        const motif = (x, y, big) => {
+            const a = big ? 1 : .6;
+            g.beginPath(); // the lozenge
+            g.moveTo(x, y - 9 * a); g.quadraticCurveTo(x + 5 * a, y, x, y + 9 * a); g.quadraticCurveTo(x - 5 * a, y, x, y - 9 * a);
+            for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { // four petals
+                g.moveTo(x + dx * 3 * a, y + dy * 6 * a);
+                g.quadraticCurveTo(x + dx * 9 * a, y + dy * 5 * a, x + dx * 8 * a, y + dy * 11 * a);
+            }
+            g.stroke();
+        };
+        for (let j = 0, y = IN.t + 10; y < IN.b + C; j++, y += C) {
+            for (let x = IN.l + (j % 2 ? C / 2 : 0) + 8; x < IN.r + C; x += C) {
+                motif(x, y, true);
+                motif(x + C / 2, y + C / 2, false);
+                g.beginPath(); // chevrons between
+                g.moveTo(x + C / 4 - 3, y - 2); g.lineTo(x + C / 4, y + 2); g.lineTo(x + C / 4 + 3, y - 2);
+                g.stroke();
+            }
+        }
+        g.restore();
+
+        // the frame: slate navy packed edge to edge with lens-shaped medallions, each laced with fine white
+        // hypotrochoids and rimmed on one side by a solid navy crescent; a fine white mesh fills what's left
+        g.save();
+        g.beginPath(); g.rect(0, 0, W, H); g.rect(IN.l, IN.t, IN.r - IN.l, IN.b - IN.t); g.clip('evenodd');
+        g.fillStyle = '#38465a'; g.fillRect(0, 0, W, H);
+        g.lineWidth = .6;
+        for (const dir of [1, -1]) {
+            g.strokeStyle = 'rgba(200, 215, 228, .9)';
+            for (let k = -H; k < W + H; k += 2.6) {
+                g.beginPath(); g.moveTo(k, 0);
+                for (let t = 0; t <= H; t += 8) g.lineTo(k + dir * t + 1.4 * Math.sin(t / 9), t);
+                g.stroke();
+            }
+        }
+        // along the bottom the colours swap: navy lace on near-white
+        g.fillStyle = '#d5e0e8'; g.fillRect(0, IN.b + 2, W, H - IN.b - 2);
+        g.strokeStyle = 'rgba(20, 50, 95, .75)';
+        for (const dir of [1, -1]) {
+            for (let k = -60; k < W + 60; k += 2.6) {
+                g.beginPath(); g.moveTo(k, IN.b + 2);
+                for (let t = 0; t <= H - IN.b; t += 4) g.lineTo(k + dir * t + 1.2 * Math.sin(t / 7), IN.b + 2 + t);
+                g.stroke();
+            }
+        }
+        const spiro = (ox, oy, Rr, r, d, alpha, lw, rot) => {
+            while (gcd(Rr, r) !== 1) r++; // co-prime: the curve makes Rr loops, not a handful
+            g.strokeStyle = `rgba(214, 228, 238, ${alpha})`; g.lineWidth = lw; g.beginPath();
+            for (let t = 0; t <= Math.PI * 2 * r / gcd(Rr, r) + .01; t += .015) {
+                const px = (Rr - r) * Math.cos(t) + d * Math.cos((Rr - r) / r * t);
+                const py = (Rr - r) * Math.sin(t) - d * Math.sin((Rr - r) / r * t);
+                const x = ox + px * Math.cos(rot) - py * Math.sin(rot) * .78, y = oy + px * Math.sin(rot) + py * Math.cos(rot) * .78;
+                t ? g.lineTo(x, y) : g.moveTo(x, y);
+            }
+            g.stroke();
+        };
+        const medallion = (cx, cy, R, rot) => {
+            g.save();
+            g.translate(cx, cy); g.rotate(rot);
+            g.beginPath(); g.ellipse(0, 0, R, R / 1.3, 0, 0, Math.PI * 2); g.fillStyle = '#132a52'; g.fill();
+            g.clip();
+            // the lace sits off-centre, leaving a solid navy crescent along one side
+            const ox = R * .2, Rr = Math.round(R * .7);
+            // (d under the rolling radius keeps the curves off the centre: no bright knot where they'd all cross)
+            spiro(ox, 0, Rr, 2, (Rr - 2) * .9, .9, .55, 0);
+            spiro(ox, 0, Rr, 3, (Rr - 3) * .6, .75, .5, .3);
+            spiro(ox, 0, Math.round(R * .45), 2, R * .25, .65, .5, 0);
+            // the solid navy crescent along the far side, a bright rim line inside it
+            g.beginPath();
+            g.ellipse(0, 0, R, R / 1.3, 0, 0, Math.PI * 2);
+            g.ellipse(R * .32, 0, R * .82, R / 1.3 * .86, 0, 0, Math.PI * 2);
+            g.fillStyle = '#0f2149'; g.fill('evenodd');
+            g.beginPath(); g.ellipse(R * .32, 0, R * .82, R / 1.3 * .86, 0, Math.PI * .55, Math.PI * 1.45);
+            g.strokeStyle = 'rgba(225, 235, 245, .8)'; g.lineWidth = .7; g.stroke();
+            g.restore();
+        };
+        // two staggered rows along each edge: small ones behind, big ones over them, so nothing flat shows
+        const run = (x0, y0, x1, y1, pitch, R, rot0) => {
+            const n = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / pitch));
+            for (let i = 0; i <= n; i++) {
+                const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+                medallion(x, y, R, rot0 + (i % 2 ? Math.PI : 0));
+            }
+        };
+        // one row of medallions, spaced so the white mesh shows between them
+        run(34, 24, W - 34, 24, 86, 44, Math.PI); run(34, H - 27, W - 34, H - 27, 86, 42, Math.PI);
+        run(20, 100, 20, H - 100, 86, 34, -Math.PI / 2); run(W - 14, 100, W - 14, H - 100, 86, 28, -Math.PI / 2);
+        for (const [x, y] of [[24, 24], [W - 20, 24], [24, H - 26], [W - 20, H - 26]]) medallion(x, y, 40, Math.PI / 4);
+        g.restore();
+        // the paper edge: a dark keyline, a fine light rule outside it
+        g.strokeStyle = 'rgba(255, 255, 255, .45)'; g.lineWidth = 1;
+        g.strokeRect(IN.l - 1.5, IN.t - 1.5, IN.r - IN.l + 3, IN.b - IN.t + 3);
+        g.strokeStyle = 'rgba(45, 55, 65, .85)';
+        g.strokeRect(IN.l - .5, IN.t - .5, IN.r - IN.l + 1, IN.b - IN.t + 1);
+
+        // the Vehicle History box's microtext: rows of tiny marks of uneven length
+        const rnd = seeded('history');
+        g.fillStyle = '#bccaca'; g.fillRect(540, 83, 272, 41);
+        g.fillStyle = 'rgba(70, 90, 100, .35)';
+        for (let y = 85; y < 123; y += 4) {
+            for (let x = 541 + Math.floor(rnd() * 3); x < 811;) {
+                const len = 1 + Math.floor(rnd() * 4);
+                if (![610, 680, 750].some((b) => x > b - 3 && x < b + 3)) {
+                    g.fillRect(x, y + Math.floor(rnd() * 3) - 1, Math.min(len, 811 - x), 1);
+                }
+                x += len + 1 + Math.floor(rnd() * 2);
+            }
+        }
+    }
+
+    // Impact print: a 9-pin printer's own face, 7 columns × 9 rows a character, every pin struck as a round dot
+    // (columns overlap into solid strokes, rows just touch). Square zeros, an open 4, a hooked 6, a footed 1.
+    const GLYPHS = {
+        '0': ['.#####.', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#####.'],
+        '1': ['...#...', '..##...', '.#.#...', '...#...', '...#...', '...#...', '...#...', '...#...', '.#####.'],
+        '2': ['.#####.', '#.....#', '......#', '......#', '.#####.', '#......', '#......', '#......', '#######'],
+        '3': ['.#####.', '#.....#', '......#', '......#', '..####.', '......#', '......#', '#.....#', '.#####.'],
+        '4': ['#......', '#......', '#....#.', '#....#.', '#....#.', '#######', '.....#.', '.....#.', '.....#.'],
+        '5': ['#######', '#......', '#......', '######.', '......#', '......#', '......#', '#.....#', '.#####.'],
+        '6': ['.##....', '#......', '#......', '#......', '######.', '#.....#', '#.....#', '#.....#', '.#####.'],
+        '7': ['#######', '......#', '.....#.', '....#..', '...#...', '...#...', '...#...', '...#...', '...#...'],
+        '8': ['.#####.', '#.....#', '#.....#', '#.....#', '.#####.', '#.....#', '#.....#', '#.....#', '.#####.'],
+        '9': ['.#####.', '#.....#', '#.....#', '#.....#', '.######', '......#', '......#', '.....#.', '.####..'],
+        A: ['...#...', '..#.#..', '.#...#.', '#.....#', '#.....#', '#######', '#.....#', '#.....#', '#.....#'],
+        B: ['######.', '#.....#', '#.....#', '#.....#', '######.', '#.....#', '#.....#', '#.....#', '######.'],
+        C: ['.#####.', '#.....#', '#......', '#......', '#......', '#......', '#......', '#.....#', '.#####.'],
+        D: ['#####..', '#....#.', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#....#.', '#####..'],
+        E: ['#######', '#......', '#......', '#......', '#####..', '#......', '#......', '#......', '#######'],
+        F: ['#######', '#......', '#......', '#......', '#####..', '#......', '#......', '#......', '#......'],
+        G: ['.#####.', '#.....#', '#......', '#......', '#..####', '#.....#', '#.....#', '#.....#', '.#####.'],
+        H: ['#.....#', '#.....#', '#.....#', '#.....#', '#######', '#.....#', '#.....#', '#.....#', '#.....#'],
+        I: ['.#####.', '...#...', '...#...', '...#...', '...#...', '...#...', '...#...', '...#...', '.#####.'],
+        J: ['..#####', '....#..', '....#..', '....#..', '....#..', '....#..', '#...#..', '#...#..', '.###...'],
+        K: ['#.....#', '#....#.', '#...#..', '#..#...', '###....', '#..#...', '#...#..', '#....#.', '#.....#'],
+        L: ['#......', '#......', '#......', '#......', '#......', '#......', '#......', '#......', '#######'],
+        M: ['#.....#', '##...##', '#.#.#.#', '#..#..#', '#..#..#', '#.....#', '#.....#', '#.....#', '#.....#'],
+        N: ['#.....#', '##....#', '#.#...#', '#..#..#', '#...#.#', '#....##', '#.....#', '#.....#', '#.....#'],
+        O: ['.#####.', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#####.'],
+        P: ['######.', '#.....#', '#.....#', '#.....#', '######.', '#......', '#......', '#......', '#......'],
+        Q: ['.#####.', '#.....#', '#.....#', '#.....#', '#.....#', '#...#.#', '#....#.', '#....##', '.####.#'],
+        R: ['######.', '#.....#', '#.....#', '#.....#', '######.', '#..#...', '#...#..', '#....#.', '#.....#'],
+        S: ['.#####.', '#.....#', '#......', '#......', '.#####.', '......#', '......#', '#.....#', '.#####.'],
+        T: ['#######', '...#...', '...#...', '...#...', '...#...', '...#...', '...#...', '...#...', '...#...'],
+        U: ['#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#####.'],
+        V: ['#.....#', '#.....#', '#.....#', '#.....#', '#.....#', '.#...#.', '.#...#.', '..#.#..', '...#...'],
+        W: ['#.....#', '#.....#', '#.....#', '#.....#', '#..#..#', '#..#..#', '#.#.#.#', '##...##', '#.....#'],
+        X: ['#.....#', '.#...#.', '.#...#.', '..#.#..', '...#...', '..#.#..', '.#...#.', '.#...#.', '#.....#'],
+        Y: ['#.....#', '.#...#.', '.#...#.', '..#.#..', '...#...', '...#...', '...#...', '...#...', '...#...'],
+        Z: ['#######', '......#', '.....#.', '....#..', '...#...', '..#....', '.#.....', '#......', '#######'],
+        '/': ['......#', '.....#.', '.....#.', '....#..', '...#...', '..#....', '.#.....', '.#.....', '#......'],
+        '$': ['...#...', '.#####.', '#..#...', '#..#...', '.#####.', '...#..#', '...#..#', '.#####.', '...#...'],
+        '-': ['.......', '.......', '.......', '.......', '#######', '.......', '.......', '.......', '.......'],
+        '.': ['.......', '.......', '.......', '.......', '.......', '.......', '.......', '..##...', '..##...'],
+        "'": ['...#...', '...#...', '..#....', '.......', '.......', '.......', '.......', '.......', '.......'],
+    };
+    function impact(g, text, x, y, scale = 1, adv = 13, colour = '#121212') {
+        const cw = 1.3 * scale, rh = 1.7 * scale, r = 1.05 * scale;
+        adv *= scale;
+        g.save();
+        g.filter = 'blur(.35px)'; // the ribbon's ink spreads a little into the paper
+        g.fillStyle = colour;
+        [...String(text).toUpperCase()].forEach((ch, i) => {
+            const rows = GLYPHS[ch];
+            if (!rows) return; // a space, or nothing the printer has
+            rows.forEach((row, ry) => [...row].forEach((on, cx) => {
+                if (on !== '#') return;
+                for (const dy of [0, .3 * scale]) { // struck twice, the second a hair lower, as these printers do
+                    g.beginPath(); g.arc(x + i * adv + cx * cw + r, y + ry * rh + r + dy, r, 0, Math.PI * 2); g.fill();
+                }
+            }));
+        });
+        g.restore();
+    }
+
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const fmt = (d, long) => `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${long ? d.getFullYear() : String(d.getFullYear()).slice(2)}`;
+    const MAKES = { Albany: 'ALBA', Annis: 'ANNI', Benefactor: 'BENE', Bravado: 'BRAV', Canis: 'CANI', Cheval: 'CHEV', Declasse: 'DECL',
+                    Dinka: 'DINK', Dundreary: 'DUND', Emperor: 'EMPE', Enus: 'ENUS', Gallivanter: 'GALL', Karin: 'KARI', Maibatsu: 'MAIB',
+                    Obey: 'OBEY', Ocelot: 'OCEL', Pfister: 'PFIS', Ubermacht: 'UBER', Vapid: 'VAPI', Vulcar: 'VULC', Weeny: 'WEEN', Zirconium: 'ZIRC' };
+    const CITY = { 'Paleto Boulevard': 'PALETO BAY', 'Duluoz Avenue': 'PALETO BAY', 'Joshua Road': 'SANDY SHORES',
+                   'Panorama Drive': 'SANDY SHORES', 'Algonquin Boulevard': 'SANDY SHORES' };
+
+    /* v = { plate, make, model, year, owner, owner_address, reg_valid, lienholder? }: the vehicle record as the game knows it.
+       Everything a title has that the record doesn't (VIN, dates, numbers) comes from a seed on the plate, so the
+       same car always shows the same title. */
+    function fillTitle(v) {
+        const rnd = seeded('title:' + v.plate), pick = (l) => l[Math.floor(rnd() * l.length)];
+        const digits = (n) => Array.from({ length: n }, () => Math.floor(rnd() * 10)).join('');
+        const year = Number(v.year) || 2014, now = new Date();
+        const issued = new Date(now.getFullYear() - 1 - Math.floor(rnd() * 3), Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 27));
+        const transfer = new Date(issued.getTime() - (20 + Math.floor(rnd() * 200)) * 864e5);
+        const expires = v.reg_valid === false
+            ? new Date(now.getFullYear(), now.getMonth() - 1 - Math.floor(rnd() * 8), 1 + Math.floor(rnd() * 27))
+            : new Date(now.getFullYear() + 1, Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 27));
+        const odo = new Date(year, Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 27));
+        const VIN_CH = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789';
+        const vin = pick(['1', '2', '3', 'J', 'W', 'K']) + Array.from({ length: 16 }, () => VIN_CH[Math.floor(rnd() * VIN_CH.length)]).join('');
+        const make = MAKES[v.make] || String(v.make || 'UNKN').replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase();
+        const city = CITY[String(v.owner_address || '').replace(/^\d+\s+/, '')] || 'LOS SANTOS';
+
+        const cv = document.querySelector('#satitle canvas.ink');
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = W * dpr; cv.height = H * dpr;
+        const g = cv.getContext('2d');
+        g.scale(dpr, dpr);
+        const print = (text, x, y, adv) => impact(g, text, x, y, 1, adv);
+        print(digits(9) + 'L1', 68, 68);
+        print('AUTOMOBILE', 68, 111);
+        print(vin, 70, 155, 13.5);
+        print(year, 482, 155); print(make, 545, 155); print(String(v.plate || ''), 688, 155);
+        print(pick(['4D', '2D', '4W', 'SW', 'PK']), 71, 198);
+        print('G', 366, 198); print(fmt(transfer), 404, 198);
+        print('$' + (90 + Math.floor(rnd() * 260)), 568, 198); print(fmt(expires, true), 688, 198);
+        print(year, 263, 241); print(pick(['BR', 'AU', 'CM']), 335, 241); print(issued.getFullYear(), 383, 241);
+        print(pick(['YN', 'NN', 'YY']), 456, 241); print(fmt(issued), 690, 241);
+        print(fmt(odo, true), 495, 284);
+        print(v.owner || '', 70, 333);
+        print(v.owner_address || '', 70, 356);
+        print(`${city} SA 9${digits(4)}`, 70, 379);
+        const lender = v.lienholder !== undefined ? v.lienholder
+            : rnd() < .4 ? pick(['Maze Bank Auto Loans', 'Fleeca Auto Finance', 'Bank of Liberty', 'Lombank Auto Credit']) : '';
+        if (lender) { v = { ...v, lienholder: lender }; print(v.lienholder, 72, 859); print(pick(['PO BOX ' + digits(4), digits(3) + ' POWER ST']), 72, 883); }
+        document.getElementById('ti-form').innerHTML = `<b>SA</b>${digits(9)}`;
+        impact(g, digits(6), 561, 942, .9, 13.2);
+    }
+
+    { // the seal's relief: short grey strokes over the inner scene
+        const r = seeded('seal'), d = [];
+        for (let i = 0; i < 70; i++) {
+            const a = r() * Math.PI * 2, rad = Math.sqrt(r()) * 52, x = 85 + Math.cos(a) * rad, y = 85 + Math.sin(a) * rad, t = r() * Math.PI;
+            d.push(`M ${x.toFixed(1)} ${y.toFixed(1)} l ${(Math.cos(t) * 4).toFixed(1)} ${(Math.sin(t) * 4).toFixed(1)}`);
+        }
+        for (let y = 92; y < 138; y += 2.2) { // water and ground: fine level hatching across the lower half
+            const half = Math.sqrt(Math.max(0, 55 * 55 - (y - 85) ** 2));
+            for (let x = 85 - half + r() * 4; x < 85 + half - 3; x += 5 + r() * 4) d.push(`M ${x.toFixed(1)} ${y.toFixed(1)} h ${(2 + r() * 3).toFixed(1)}`);
+        }
+        document.getElementById('seal-grain').innerHTML = `<path d="${d.join(' ')}"/>`;
+    }
+        let drawn = false;
+        return { fill(v) { if (!drawn) { drawPaper(document.querySelector('#satitle canvas.paper')); drawn = true; } fillTitle(v); } };
+    })();
+
+    let cardTimer = null, haveCard = false, haveTitle = false;
+    function showDoc(which) { // 'id' or 'title'
+        $('idwrap').classList.toggle('doc-title', which === 'title');
+        document.body.classList.toggle('title-up', which === 'title');
+    }
+    function showCard(up) {
+        $('idwrap').classList.toggle('up', up);
+        document.body.classList.toggle('id-up', up);
+        clearTimeout(cardTimer);
+    }
+    function idcard(d) {
+        if (d.clear) { haveCard = haveTitle = false; return showCard(false); }
+        if (d.card) {
+            fillCard(d.card); haveCard = true;
+            haveTitle = !!d.card.vehicle;
+            if (haveTitle) Title.fill(d.card.vehicle);
+            $('idwrap').classList.toggle('has-title', haveTitle);
+            showDoc('id'); showCard(true);
+            cardTimer = setTimeout(() => showCard(false), 15000);
+        } else if (d.toggle && haveCard) showCard(!$('idwrap').classList.contains('up'));
+        else if (d.swap && haveTitle) { // ← →: the other paper, brought up if it was hidden
+            showDoc($('idwrap').classList.contains('doc-title') ? 'id' : 'title');
+            showCard(true);
+        }
+    }
+    // Tab with the menu open (it has the keyboard then; the game sees Tab otherwise)
+    window.addEventListener('keydown', (e) => {
+        if (!haveCard) return;
+        if (e.key === 'Tab') {
+            e.preventDefault(); e.stopImmediatePropagation();
+            showCard(!$('idwrap').classList.contains('up'));
+        } else if (haveTitle && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            e.preventDefault(); e.stopImmediatePropagation();
+            idcard({ swap: true });
+        }
+    }, true);
+
+    // ── the radial menu: everything said and done to someone (E: open until closed), and the vehicle (G: held) ──
+    // Point with the mouse (the option nearest that direction lights up) and click. ▸ options open a level;
+    // right-click or the centre goes back a level, Esc closes. Held (the vehicle's): letting go chooses.
+    const radSvg = (d, fill) => `<svg viewBox="0 0 40 40" fill="${fill ? '#fff' : 'none'}" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const HAND = '<path d="M14 22V10a2 2 0 0 1 4 0v9M18 18V7a2 2 0 0 1 4 0v11M22 18V9a2 2 0 0 1 4 0v12c0 7-4 12-10 12-4 0-6-2-8-5l-4-7a2 2 0 0 1 3.4-2l4.6 6"/>';
+    const BUBBLE = '<path d="M6 8h28v18H17l-7 6v-6H6z"/>';
+    const PERSON = (x) => `<circle cx="${x}" cy="9" r="3.2"/><path d="M${x} 14v11l-3 10M${x} 25l3 10"/>`;
+    const RAD_ICONS = {
+        search: radSvg('<circle cx="17" cy="17" r="10"/><path d="M24.5 24.5 35 35"/>'),
+        tow: radSvg('<path d="M3 27V17h11l4 5h7v5"/><path d="M14 17v-5h-4l-3 5"/><path d="M25 22 33 9"/><path d="M33 9v8a2.5 2.5 0 1 1-3 2.4"/><circle cx="9" cy="28.5" r="3"/><circle cx="22" cy="28.5" r="3"/><path d="M12 28.5h7"/>'),
+        out: radSvg('<path d="M17 6H8v28h9"/><path d="M17 6l9 3v22l-9 3z"/><path d="M27 20h10M33 16l4 4-4 4"/>'),
+        in: radSvg('<path d="M17 6H8v28h9"/><path d="M17 6l9 3v22l-9 3z"/><path d="M37 20H27M31 16l-4 4 4 4"/>'),
+        hand: radSvg(HAND),
+        wave: radSvg(HAND + '<path d="M30 6c2 1 3 3 3 5M33 3c3 2 4 5 4 8"/>'),
+        id: radSvg('<rect x="4" y="9" width="32" height="22" rx="2.5"/><circle cx="13" cy="18" r="3"/><path d="M8.5 26c1-3 3-4 4.5-4s3.5 1 4.5 4M21 15h10M21 20h10M21 25h6"/>'),
+        talk: radSvg(BUBBLE + '<path d="M12 14h16M12 19h10"/>'),
+        ask: radSvg(BUBBLE + '<path d="M17 14a3 3 0 1 1 4 2.8c-.8.4-1 1-1 1.7M20 22h.01"/>'),
+        asked: radSvg(BUBBLE + '<path d="M14 17l4 4 8-8"/>'),
+        test: radSvg('<rect x="12" y="4" width="14" height="30" rx="3"/><rect x="15" y="8" width="8" height="6" rx="1"/><path d="M19 34v3M16 20h6M16 25h6"/>'),
+        walk: radSvg('<circle cx="21" cy="6" r="3"/><path d="M20 11l-3 10 5 4 2 10M17 21l-3 13M19 13l7 5M19 13l-6 4"/>'),
+        cuffs: radSvg('<circle cx="12" cy="25" r="7"/><circle cx="28" cy="25" r="7"/><path d="M12 18v-4a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v4"/>'),
+        uncuff: radSvg('<circle cx="12" cy="25" r="7"/><path d="M12 18v-4a3 3 0 0 1 3-3h5"/><path d="M27 19a7 7 0 1 0 7 6"/>'),
+        ticket: radSvg('<path d="M10 4h16l6 6v26H10z"/><path d="M26 4v6h6M15 16h12M15 21h12M15 26h8"/>'),
+        warn: radSvg('<path d="M20 5 36 33H4z"/><path d="M20 15v8M20 28h.01"/>'),
+        follow: radSvg('<path d="M12 6c3 0 4 3 4 7s-2 6-4 6-4-2-4-6 1-7 4-7zM10 22h5v3a2.5 2.5 0 0 1-5 0zM28 13c3 0 4 3 4 7s-2 6-4 6-4-2-4-6 1-7 4-7zM26 29h5v3a2.5 2.5 0 0 1-5 0z"/>'),
+        handsup: radSvg('<circle cx="20" cy="9" r="3.5"/><path d="M20 14v11M20 25l-5 10M20 25l5 10M20 17l-8-9M20 17l8-9"/>'),
+        escort: radSvg(PERSON(12) + PERSON(28) + '<path d="M12 18h16"/>'),
+        people: radSvg(PERSON(12) + PERSON(28)),
+        car: radSvg('<path d="M4 26v-6l4-8h18l7 8h3v6z"/><circle cx="11" cy="27" r="3.5"/><circle cx="29" cy="27" r="3.5"/><path d="M10 19h20"/>'),
+        siren: radSvg('<path d="M11 30v-9a9 9 0 0 1 18 0v9M7 30h26v4H7zM20 4v4M8 9l3 3M32 9l-3 3"/>'),
+        wheel: radSvg('<circle cx="20" cy="20" r="14"/><circle cx="20" cy="20" r="3"/><path d="M6.5 17h10M23.5 17h10M20 23v11"/>'),
+        bottle: radSvg('<path d="M16 4h8v8l3 5v19H13V17l3-5z"/><path d="M13 22h14"/>'),
+        bag: radSvg('<path d="M8 14h24l-2 20H10z"/><path d="M15 14v-3a5 5 0 0 1 10 0v3"/>'),
+        file: radSvg('<path d="M8 6h24v28H8z"/><path d="M13 12h14M13 17h14M13 22h9"/>'),
+        plate: radSvg('<rect x="3" y="11" width="34" height="18" rx="3"/><path d="M9 17h4M9 23h4M18 17v6M22 17h4l-2 3 2 3h-4M30 17v6"/>'),
+        radio: radSvg('<rect x="12" y="10" width="16" height="26" rx="3"/><path d="M16 10V3M16 16h8M16 21h8"/><circle cx="20" cy="29" r="2.5"/>'),
+        medic: radSvg('<path d="M15 6h10v9h9v10h-9v9H15v-9H6V15h9z"/>'),
+        wrench: radSvg('<path d="M24 5a8 8 0 0 0-7 11L5 28a3 3 0 0 0 4 4l12-12a8 8 0 0 0 11-7l-5 3-4-1-1-4 5-3a8 8 0 0 0-3-3z"/>'),
+        flame: radSvg('<path d="M20 4c2 6 10 10 10 19a10 10 0 0 1-20 0c0-5 3-8 5-10 0 4 2 6 4 6-2-6 0-11 1-15z"/>'),
+        paw: radSvg('<circle cx="11" cy="16" r="3"/><circle cx="17" cy="9" r="3"/><circle cx="23" cy="9" r="3"/><circle cx="29" cy="16" r="3"/><path d="M20 18c-5 0-9 7-9 11 0 3 3 4 5 3s6-1 8 0 5 0 5-3c0-4-4-11-9-11z"/>'),
+        heli: radSvg('<path d="M6 8h28M20 8v6"/><path d="M10 14h14a8 8 0 0 1 0 16H14l-4-8z"/><path d="M32 20h4M14 34h14M17 30v4M25 30v4"/>'),
+        pulse: radSvg('<path d="M3 21h8l3-8 5 16 4-12 2 4h12"/>'),
+        cpr: radSvg('<path d="M20 34S5 25 5 14a7.5 7.5 0 0 1 15-3 7.5 7.5 0 0 1 15 3c0 11-15 20-15 20z"/><path d="M11 19h5l2-4 3 8 2-4h6"/>'),
+        bandage: radSvg('<rect x="3" y="14" width="34" height="12" rx="6" transform="rotate(-45 20 20)"/><path d="M14 20l6-6 6 6-6 6z"/>'),
+        more: radSvg('<circle cx="10" cy="20" r="2.4"/><circle cx="20" cy="20" r="2.4"/><circle cx="30" cy="20" r="2.4"/>', true),
+    };
+    const CAT_ICONS = { stop: 'siren', id: 'id', vehicle: 'car', driving: 'wheel', intox: 'bottle', contraband: 'bag', record: 'file', passenger: 'people' };
+    const PAGE = 7; // questions per level; more go behind "More questions"
+
+    let rad = null; // { kind: 'person' | 'vehicle', hold, key, s (what the game sent), stack: [level ids], items, hot }
+    let tips = false;
+    try { tips = localStorage.getItem('c3r_tips') === '1'; } catch (e) { /* no storage: tooltips start off */ }
+    const radOpen = () => !!rad;
+    const fresh = (q) => q.follow && !q.asked;
+
+    // The levels of the person's menu, from what's true of them now. off: why it can't be done (greyed).
+    function personLevel(s, at) {
+        const out = s.out, inCar = !s.out, cuffed = s.cuffed, seated = s.seated;
+        const getOut = inCar || seated ? 'Get them out first' : '';
+        if (!at) return { title: `${s.who}${cuffed ? ' · In custody' : ''}`, items: [
+            { label: 'Greet', icon: 'wave', action: 'greet', desc: 'Say hello and explain why you stopped them.' },
+            { label: 'Asking for ID', icon: 'id', action: 'licence',
+              desc: s.role === 'driver' ? 'Their licence and registration.' : 'Their identification.' },
+            { label: 'Questions', icon: 'talk', to: 'cats', badge: s.questions.filter(fresh).length || '', badgeNew: true,
+              desc: 'Ask them something. What they say opens follow-ups.' },
+            { label: 'Tests', icon: 'test', to: 'tests', desc: 'Breathalyzer, drug swab, field sobriety.' },
+            { label: 'Search', icon: 'search', action: 'frisk', off: getOut, desc: 'Pat them down for weapons and contraband.' },
+            cuffed ? { label: 'Custody', icon: 'cuffs', to: 'custody', desc: 'Escort them, seat them in your car, or uncuff them.' }
+                   : { label: 'Handcuffing', icon: 'cuffs', action: 'cuff', off: out ? '' : 'Get them out first',
+                       desc: 'Arrest them. They may not go quietly.' },
+            cuffed ? null : { label: 'Orders', icon: 'hand', to: 'orders', desc: 'Out of the car, back in, follow, hands up, free to go.' },
+            cuffed ? null : { label: 'Issue Violation', icon: 'ticket', to: 'outcome', desc: 'A warning or a ticket.' },
+            { label: 'Backup', icon: 'radio', to: 'backup', desc: 'Call a unit to the scene through dispatch.' },
+        ].filter(Boolean) };
+        // a unit already on its way: called off from the same place
+        const bk = (kind, label, icon, desc) => (s.active || {})[kind]
+            ? { label: `Cancel ${label.toLowerCase()}`, icon, action: 'backup', arg: `cancel:${kind}`, desc: 'Call it off.' }
+            : { label, icon, action: 'backup', arg: kind, desc };
+        if (at === 'backup') return { title: 'Backup', items: [
+            bk('police', 'Prisoner transport', 'cuffs', 'Takes whoever is in cuffs or in your back seat.'),
+            bk('ambulance', 'Ambulance', 'medic', 'Paramedics treat anyone hurt here.'),
+            bk('cover', 'Cover unit', 'siren', 'A patrol car stands by at the scene.'),
+            bk('coroner', 'Coroner', 'file', 'Takes the dead away.'),
+            bk('taxi', 'Taxi', 'car', 'Collects anyone left without a ride.'),
+        ] };
+        if (at === 'tests') return { title: 'Tests', items: [
+            { label: 'Breathalyzer', icon: 'test', action: 'breath', desc: 'Breath test for alcohol.' },
+            { label: 'Drug test', icon: 'test', action: 'drugs', desc: 'Mouth swab for drugs.' },
+            { label: 'Field sobriety', icon: 'walk', action: 'sobriety', off: cuffed ? 'In cuffs' : getOut,
+              desc: 'Eyes, walk-and-turn, one-leg stand.' },
+        ] };
+        if (at === 'orders') return { title: 'Orders', items: [
+            s.foot ? null
+                : out ? { label: 'Back in vehicle', icon: 'in', action: 'back', desc: 'Send them back to their seat.' }
+                : { label: 'Get out', icon: 'out', action: 'exit', desc: 'Order them out of the vehicle.' },
+            s.following ? { label: 'Stay here', icon: 'hand', action: 'stay', desc: 'Stop them following you.' }
+                        : { label: 'Follow me', icon: 'follow', action: 'follow', off: out ? '' : 'Get them out first',
+                            desc: 'Have them walk with you.' },
+            { label: 'Hands up', icon: 'handsup', action: 'handsup', desc: 'Order them to show their hands.' },
+            { label: 'Free to go', icon: 'wave', action: 'release', desc: 'End the stop. They go on their way.' },
+        ].filter(Boolean) };
+        if (at === 'custody') return { title: 'Custody', items: [
+            seated ? { label: 'Take out', icon: 'out', action: 'unseat', desc: 'Out of the back of your car.' }
+                   : { label: 'Put in car', icon: 'car', action: 'seat', desc: 'In the back of your patrol car, to be booked.' },
+            { label: s.escorted ? 'Let go' : 'Escort', icon: s.escorted ? 'wave' : 'escort', action: 'escort',
+              off: seated ? 'In your car' : '', desc: s.escorted ? 'Stop holding them.' : 'Hold their arm and walk them with you.' },
+            { label: 'Uncuff', icon: 'uncuff', action: 'uncuff', off: seated ? 'In your car' : '', desc: 'Take the handcuffs off.' },
+        ] };
+        if (at === 'outcome') return { title: 'Issue Violation', items: [
+            { label: 'Warning', icon: 'warn', action: 'warn', desc: 'Let them off with a warning. They wait to be told they can go.' },
+            { label: 'Ticket', icon: 'ticket', action: 'cite', desc: 'Write a citation. They wait to be told they can go.' },
+        ] };
+        if (at === 'cats') return { title: 'Questions', items: s.categories
+            .map((c) => ({ c, qs: s.questions.filter((q) => q.cat === c.id) }))
+            .filter((x) => x.qs.length) // nothing to ask this person here (a driver-only topic, say)
+            .map(({ c, qs }) => ({ label: c.label, icon: CAT_ICONS[c.id] || 'talk', to: `q:${c.id}:0`, desc: c.desc,
+                                  badge: qs.filter(fresh).length || '', badgeNew: true })) };
+        const [, cat, page] = at.split(':');
+        const c = s.categories.find((x) => x.id === cat) || { label: 'Questions' };
+        const qs = s.questions.filter((q) => q.cat === cat), from = Number(page) * PAGE;
+        const items = qs.slice(from, from + PAGE).map((q) => ({
+            label: q.label, icon: q.asked ? 'asked' : 'ask', action: 'ask', arg: q.id, small: true,
+            note: fresh(q) ? 'Follow-up' : q.asked ? 'Asked' : '', noteNew: fresh(q),
+        }));
+        if (qs.length > from + PAGE) items.push({ label: 'More questions', icon: 'more', to: `q:${cat}:${Number(page) + 1}` });
+        return { title: c.label, items };
+    }
+
+    function level() {
+        const at = rad.stack[rad.stack.length - 1];
+        if (rad.kind === 'person') return personLevel(rad.s, at);
+        return at ? ((rad.s.levels || {})[at] || { title: '', items: [] }) : { title: rad.s.title || 'Vehicle', items: rad.s.items || [] };
+    }
+
+    function setHot(i) {
+        rad.hot = i;
+        document.querySelectorAll('.rad-item').forEach((b) => b.classList.toggle('hot', Number(b.dataset.i) === i));
+    }
+
+    // Draw the current level. animate: open outward (a new level); else redrawn in place, keeping the option.
+    function radShow(animate) {
+        const el = $('radial'), lv = level(), keep = rad.items && rad.items[rad.hot];
+        rad.items = lv.items;
+        const left = Math.ceil(lv.items.length / 2), R = 250, STEP = lv.items.length > 6 ? 88 : 96;
+        $('rad-items').innerHTML = lv.items.map((it, i) => {
+            const onLeft = i < left, k = onLeft ? left : lv.items.length - left, j = onLeft ? i : i - left;
+            const y = (j - (k - 1) / 2) * STEP, x = Math.sqrt(Math.max(R * R - y * y, 0)) * (onLeft ? -1 : 1);
+            it.angle = Math.atan2(y, x);
+            const note = it.off || it.note;
+            return `<button class="rad-item ${onLeft ? 'left' : 'right'}${it.small ? ' small' : ''}" type="button" role="menuitem" data-i="${i}"
+                        ${it.off ? 'disabled aria-disabled="true"' : ''} style="--x:${x}px;--y:${y}px;animation-delay:${animate ? 50 + i * 30 : 0}ms">
+                      <span class="rad-text"><span class="rad-label">${esc(it.label)}${it.to ? ' ▸' : ''}</span>${note ? `<span class="rad-note${it.noteNew ? ' new' : ''}">${esc(note)}</span>` : ''}${it.desc ? `<span class="rad-desc">${esc(it.desc)}</span>` : ''}</span>
+                      <span class="rad-icon" aria-hidden="true">${RAD_ICONS[it.icon] || ''}${it.badge ? `<span class="rad-badge${it.badgeNew ? ' new' : ''}">${esc(it.badge)}</span>` : ''}</span>
+                    </button>`;
+        }).join('');
+        $('rad-title').textContent = lv.title;
+        $('rad-close').textContent = rad.stack.length ? 'Back' : 'Close';
+        const mouse = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 3v6"/><path d="M12 3a6 6 0 0 1 6 6h-6z" fill="currentColor"/></svg>';
+        $('rad-keys').innerHTML = rad.hold
+            ? `<span>${mouse}Back</span><span>Release <span class="kbd">${esc(rad.key)}</span> to choose</span>`
+            : `<span>${mouse}Back</span><span><span class="kbd">Q</span>Toggle Tooltips</span><span><span class="kbd">Esc</span>Close</span>`;
+        el.classList.toggle('tips', tips && !rad.hold);
+        radArcs();
+        const again = keep ? lv.items.findIndex((it) => it.label === keep.label && !it.off) : -1;
+        setHot(animate ? -1 : again);
+        if (animate) {
+            $('rad-pointer').classList.remove('on');
+            $('rad-close').classList.add('hot');
+            el.classList.remove('open');
+            void el.offsetWidth; // restart the opening animation
+        }
+        el.classList.add('open');
+    }
+
+    // The outer arcs sit just outside the widest option, so no label ever crosses them (measured from layout,
+    // not the screen: the opening animation is still moving them). They keep the same height whatever their size.
+    function radArcs() {
+        let need = 0; // the arc curves in as it rises: each option's outer corner, plus a gap, must sit inside it
+        document.querySelectorAll('.rad-item').forEach((el) => {
+            const x = Math.abs(parseFloat(el.style.getPropertyValue('--x'))) - 24 + el.offsetWidth + 36;
+            const y = Math.abs(parseFloat(el.style.getPropertyValue('--y'))) + el.offsetHeight / 2;
+            need = Math.max(need, Math.hypot(x, y));
+        });
+        const R = Math.min(Math.max(420, need), innerWidth / 2 - 8), h = Math.min(250, R * .8), w = Math.sqrt(R * R - h * h);
+        const S = Math.ceil(R + 4), svg = $('rad-arcs');
+        svg.setAttribute('viewBox', `${-S} ${-S} ${2 * S} ${2 * S}`);
+        Object.assign(svg.style, { width: `${2 * S}px`, height: `${2 * S}px`, margin: `${-S}px 0 0 ${-S}px` });
+        $('rad-arc-l').setAttribute('d', `M ${-w} ${-h} A ${R} ${R} 0 0 0 ${-w} ${h}`);
+        $('rad-arc-r').setAttribute('d', `M ${w} ${-h} A ${R} ${R} 0 0 1 ${w} ${h}`);
+    }
+
+    function radial(d) {
+        if (!d.open) { rad = null; $('radial').classList.remove('open'); return; }
+        rad = { kind: ['person', 'casualty'].includes(d.kind) ? d.kind : 'vehicle',
+                hold: d.hold !== undefined ? !!d.hold : d.kind !== 'person' && d.kind !== 'casualty', // (sat in a car: click, not hold)
+                key: String(d.key || 'G').toUpperCase(),
+                s: d, stack: [], items: [], hot: -1 };
+        rad.s.questions = Array.isArray(d.questions) ? d.questions : [];
+        rad.s.categories = Array.isArray(d.categories) ? d.categories : [];
+        radShow(true);
+    }
+
+    const radClose = () => post(rad && rad.kind === 'person' ? 'close' : rad && rad.kind === 'casualty' ? 'medical' : 'radial', {});
+    function radBack() {
+        if (!rad.stack.length) return radClose();
+        rad.stack.pop();
+        radShow(true);
+    }
+    function radPick(i) {
+        const it = rad.items[i];
+        if (!it || it.off) return rad.hold ? radClose() : radBack(); // nothing pointed at: the centre
+        if (it.to) { rad.stack.push(it.to); rad.hold = false; return radShow(true); } // (the key's been let go: click from here)
+        if (rad.kind !== 'person') { // the vehicle's wheel, or first aid: the game takes it from here
+            const { action, arg } = it, cb = rad.kind === 'casualty' ? 'medical' : 'radial';
+            rad = null; $('radial').classList.remove('open'); return post(cb, { action, arg });
+        }
+        post('pick', { action: it.action, arg: it.arg }); // the game closes it, unless it's something said
+    }
+
+    window.addEventListener('mousemove', (e) => {
+        if (!rad) return;
+        const dx = e.clientX - innerWidth / 2, dy = e.clientY - innerHeight / 2;
+        const a = Math.atan2(dy, dx), out = Math.hypot(dx, dy) > 110; // inside the ring: back / close
+        $('rad-pointer').style.transform = `rotate(${a}rad) translateX(132px)`;
+        $('rad-pointer').classList.toggle('on', out);
+        $('rad-close').classList.toggle('hot', !out);
+        let best = -1, bestD = Infinity;
+        if (out) rad.items.forEach((it, i) => {
+            if (it.off) return;
+            let d = Math.abs(it.angle - a);
+            d = Math.min(d, 2 * Math.PI - d);
+            if (d < bestD) { bestD = d; best = i; }
+        });
+        if (best !== rad.hot) setHot(best);
+    });
+    window.addEventListener('mousedown', (e) => {
+        if (!rad) return;
+        e.preventDefault();
+        if (e.button === 2) return radBack();
+        if (e.button === 0) radPick(rad.hot);
+    });
+    window.addEventListener('contextmenu', (e) => { if (rad) e.preventDefault(); });
+    window.addEventListener('keyup', (e) => { if (rad && rad.hold && e.key.toUpperCase() === rad.key) radPick(rad.hot); });
+    window.addEventListener('keydown', (e) => {
+        if (!rad || e.repeat) return;
+        const k = e.key.toUpperCase();
+        if (e.key === 'Escape' || (!rad.hold && k === rad.key)) { e.preventDefault(); return radClose(); } // Esc, or E again
+        if (!rad.hold && k === 'Q') {
+            tips = !tips;
+            try { localStorage.setItem('c3r_tips', tips ? '1' : '0'); } catch (err) { /* not kept */ }
+            $('radial').classList.toggle('tips', tips);
+            radArcs();
+        }
+        if (e.key === 'Backspace') radBack();
+    });
+
+    // ── the service screen (F11): Police goes on or off duty; the rest are coming ──
+    function dutyMenu(d) {
+        const el = $('duty');
+        if (!d.open) { el.classList.remove('open'); el.setAttribute('aria-hidden', 'true'); return; }
+        const police = el.querySelector('[data-svc="police"]');
+        police.classList.toggle('on', !!d.on);
+        police.querySelector('.go').textContent = d.on ? 'End shift' : 'Go on duty';
+        $('duty-key').textContent = d.key || 'F11';
+        el.setAttribute('aria-hidden', 'false');
+        el.classList.remove('open');
+        void el.offsetWidth; // restart the opening animation
+        el.classList.add('open');
+        police.focus();
+    }
+    $('duty').addEventListener('click', (e) => {
+        const b = e.target.closest('.svc');
+        if (b && !b.disabled) post('duty', { service: b.dataset.svc });
+    });
+    window.addEventListener('keydown', (e) => {
+        if (!$('duty').classList.contains('open') || e.repeat) return;
+        if (e.key === 'Escape' || e.key === $('duty-key').textContent) { e.preventDefault(); post('dutyClose'); }
+    });
+
+    window.addEventListener('message', (e) => {
+        const d = e.data || {};
+        if (d.type === 'prompt') prompt(d);
+        else if (d.type === 'voice' && /^[a-z]+$/.test(d.clip)) { // the officer's line out loud (voice/officer_<clip>.ogg)
+            const a = new Audio(`voice/officer_${d.clip}.ogg`);
+            a.volume = Math.min(Math.max(Number(d.volume) || 0, 0), 1);
+            a.play().catch(() => {});
+        }
+        else if (d.type === 'hint') hint(d);
+        else if (d.type === 'modes') modes(d);
+        else if (d.type === 'questions' && rad && rad.kind === 'person') {
+            rad.s.questions = Array.isArray(d.questions) ? d.questions : [];
+            radShow(false); // what they said may open follow-ups: redrawn in place
+        }
+        else if (d.type === 'idcard') idcard(d);
+        else if (d.type === 'radial') radial(d);
+        else if (d.type === 'duty') dutyMenu(d);
+    });
+</script>
+</body>
+</html>

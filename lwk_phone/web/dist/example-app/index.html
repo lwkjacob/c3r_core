@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pizza This</title>
+    <!--
+      An example community app. It is a plain web page: no build step, no framework.
+      The phone loads it in an iframe and adds these globals before sending the message 'componentsLoaded':
+        fetchNui, onNuiEvent, settings, onSettingsChange, sendNotification, createCall, setApp, components.*
+      Copy this folder into your own resource and register it with the AddCustomApp export.
+    -->
+    <style>
+      :root {
+        --bg: #fff; --cell: #f2f2f7; --label: #000; --muted: rgba(60, 60, 67, 0.62); --line: rgba(60, 60, 67, 0.2); --tint: #e0331f;
+        /* The phone sets --safe-top / --safe-bottom: the status bar and home indicator draw over the page. */
+        --safe-top: 54px; --safe-bottom: 34px;
+      }
+      [data-theme='dark'] { --bg: #000; --cell: #1c1c1e; --label: #fff; --muted: rgba(235, 235, 245, 0.62); --line: rgba(84, 84, 88, 0.65); --tint: #ff6a4d; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body { padding: calc(var(--safe-top) + 12px) 16px var(--safe-bottom); background: var(--bg); color: var(--label); font: 17px/1.25 system-ui, 'Segoe UI', sans-serif; letter-spacing: -0.02em; user-select: none; overflow-y: auto; }
+      h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: -0.025em; }
+      p { margin: 0 0 16px; color: var(--muted); font-size: 15px; }
+      #status { display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; background: var(--tint); color: #fff; font-weight: 600; }
+      .list { border-radius: 12px; background: var(--cell); overflow: hidden; margin-bottom: 20px; }
+      button { font: inherit; color: inherit; letter-spacing: inherit; border: 0; background: none; cursor: pointer; }
+      .row { display: flex; align-items: center; width: 100%; min-height: 56px; padding: 8px 16px; text-align: left; border-top: 1px solid var(--line); }
+      .row:first-child { border-top: 0; }
+      .row span { flex: 1; display: flex; flex-direction: column; }
+      .row small { color: var(--muted); font-size: 13px; }
+      .row b { color: var(--tint); font-weight: 600; }
+      .row.act { color: var(--tint); min-height: 44px; }
+    </style>
+  </head>
+  <body>
+    <h1>Pizza This</h1>
+    <p id="hello">Hot pizza, wherever you are.</p>
+    <div id="status" role="status"></div>
+    <div class="list" id="menu"></div>
+    <div class="list">
+      <button class="row act" id="friend">Order for a friend</button>
+      <button class="row act" id="photo">Attach a photo of your door</button>
+      <button class="row act" id="call">Call the shop</button>
+      <button class="row act" id="more">More</button>
+    </div>
+
+    <script>
+      const FALLBACK_MENU = [
+        { name: 'Margherita', note: 'Tomato, mozzarella, basil', price: 14 },
+        { name: 'Pepperoni', note: 'The one everyone orders', price: 17 },
+        { name: 'Vinewood Veggie', note: 'Peppers, olives, regret', price: 16 },
+      ];
+
+      async function start() {
+        // Appearance: the phone sets data-theme on <html> and reports later changes.
+        document.documentElement.dataset.theme = settings.display.theme;
+        onSettingsChange((s) => (document.documentElement.dataset.theme = s.display.theme));
+        document.getElementById('hello').textContent = `Hot pizza, wherever you are, ${settings.name.split(' ')[0]}.`;
+
+        // Ask your own resource for data when the page loads. fetchNui targets the resource that registered the app.
+        const menu = (await fetchNui('getMenu').catch(() => null)) ?? FALLBACK_MENU;
+        document.getElementById('menu').innerHTML = menu.map((m, i) => `<button class="row" data-i="${i}"><span>${m.name}<small>${m.note}</small></span><b>$${m.price}</b></button>`).join('');
+
+        document.getElementById('menu').addEventListener('click', (e) => {
+          const row = e.target.closest('[data-i]');
+          if (!row) return;
+          const item = menu[row.dataset.i];
+          components.setPopUp({
+            title: `Order ${item.name}?`,
+            description: `$${item.price} will be charged on delivery.`,
+            buttons: [
+              { title: 'Cancel' },
+              { title: 'Order', bold: true, cb: () => (fetchNui('order', { item: item.name }), sendNotification({ title: 'Pizza This', content: `${item.name} is in the oven.` })) },
+            ],
+          });
+        });
+
+        document.getElementById('friend').onclick = () =>
+          components.setContactSelector({ onSelect: (c) => components.setPopUp({ title: 'Sent', description: `${c.name} (${c.number}) will get a pizza and no explanation.`, buttons: [{ title: 'OK' }] }) });
+        document.getElementById('photo').onclick = () =>
+          components.setGallery({ includeImages: true, onSelect: () => sendNotification({ title: 'Pizza This', content: 'Photo attached to your order.' }) });
+        document.getElementById('call').onclick = () => createCall({ number: '555-0122' });
+        document.getElementById('more').onclick = () =>
+          components.setContextMenu({
+            title: 'Pizza This',
+            buttons: [
+              { title: 'Open Maps', cb: () => setApp('Maps') },
+              { title: 'Share this app', cb: () => components.setShareComponent({ type: 'link', data: { title: 'Pizza This' } }) },
+              { title: 'Cancel my order', color: 'red', cb: () => sendNotification({ title: 'Pizza This', content: 'Order cancelled.' }) },
+            ],
+          });
+
+        // Pushes from Lua arrive through SendCustomAppMessage as { action, data }.
+        onNuiEvent('orderReady', (data) => {
+          const el = document.getElementById('status');
+          el.textContent = `Your order arrives in ${data.minutes} minutes.`;
+          el.style.display = 'block';
+        });
+      }
+
+      // The globals exist once the phone posts 'componentsLoaded'.
+      window.addEventListener('message', (e) => e.data === 'componentsLoaded' && start());
+    </script>
+  </body>
+</html>

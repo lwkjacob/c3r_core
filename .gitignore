@@ -1,0 +1,13 @@
+# Only what ships is tracked: the scripts as a server runs them, the README below and the licence.
+# Docs, tests, dev tools, source models and notes stay on this machine (the website has the docs).
+docs/
+tools/
+tests/
+models/
+graphify-out/
+README.md
+!/README.md
+*.py
+*.blend
+*.blend1
+.claude/
