@@ -5,7 +5,7 @@ name 'lwk_control_assets'
 description 'Static files for lwk_control: speech model + runtime, dispatcher voice clips, radio clicks'
 version '0.0.1'
 author 'LWK DEVELOPMENT'
-license 'GPL-3.0-only'
+license 'CC-BY-NC-SA-4.0'
 
 -- Kept out of lwk_control so code updates don't rebuild and re-download ~210 MB for every player:
 -- FXServer packs each resource's client files into one archive and re-sends it when any file changes.

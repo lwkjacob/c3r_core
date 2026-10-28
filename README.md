@@ -1,7 +1,7 @@
 # CODE3RESPONSE
 
 A free, open-source police game mode for FiveM by **LWK DEVELOPMENT**: traffic stops, AI drivers with a hidden truth,
-searches, pursuits, arrests, AI backup and voice dispatch. Standalone, no paid scripts, GPL-3.0.
+searches, pursuits, arrests, AI backup and voice dispatch. Standalone, no paid scripts, CC BY-NC-SA 4.0: free to use and share, never to sell.
 
 **Core:** `c3r`, `lwk_control`, `lwk_control_assets`. Everything else here is an official add-on.
 

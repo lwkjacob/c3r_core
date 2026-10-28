@@ -5,7 +5,7 @@ name 'lwk_mdt'
 description 'MDT for c3r, built to work with lwk_control'
 version '0.0.1'
 author 'LWK DEVELOPMENT'
-license 'GPL-3.0-only'
+license 'CC-BY-NC-SA-4.0'
 
 dependencies { 'oxmysql', 'c3r' }
 

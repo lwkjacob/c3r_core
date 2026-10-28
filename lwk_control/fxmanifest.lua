@@ -5,7 +5,7 @@ name 'lwk_control'
 description 'Offline voice dispatch for c3r'
 version '0.0.1'
 author 'LWK DEVELOPMENT'
-license 'GPL-3.0-only'
+license 'CC-BY-NC-SA-4.0'
 
 ui_page 'nui/index.html'
 
