@@ -397,7 +397,16 @@ local function ending(kind, officer_line)
         say(s, still and (s.foot and still.foot or s.parked and still.parked) or officer_line, 'officer')
         say(s, Dialogue.answer(kind, o), o)
         local outcome = ENDINGS[kind]
-        if kind == 'release' then return finish(s.src, s.outcome or outcome) end
+        if kind == 'release' then
+            for _, other in pairs(s.occ) do
+                if other ~= o and other.cuffed and not other.released then -- someone else is under arrest: only this one goes
+                    o.released = true
+                    note(s, ('%s released'):format(label(o)))
+                    return TriggerClientEvent('c3r:stop:released', s.src, o.net)
+                end
+            end
+            return finish(s.src, s.outcome or outcome)
+        end
         if RANK[outcome] > RANK[s.outcome or 'released'] then s.outcome = outcome end
         note(s, ('%s, %s'):format(kind == 'cite' and 'Citation issued' or 'Verbal warning', label(o)))
     end
@@ -505,8 +514,11 @@ function ACT.escort(s, o) -- held at the officer's side, or let go of
     if o.escorted then walk_with(s, o) else stand_there(s, o) end
 end
 local seat = custody('Watch your head.', 'seat', 'seat')
+local sit = custody('Sit down on the ground for me.', 'sit', 'sit')
 function ACT.seat(s, o) o.escorted = nil seat(s, o) end
 ACT.unseat = custody('Step out for me.', 'unseat', 'unseat')
+function ACT.sit(s, o) o.escorted = nil sit(s, o) end
+ACT.getup = custody('Alright, on your feet.', 'getup', 'getup')
 
 -- ─── felony stop ──────────────────────────────────────────────────────────────
 -- High risk: everyone is ordered out one at a time from cover (PA range), walked back and put on their knees.

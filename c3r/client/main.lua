@@ -47,8 +47,50 @@ RegisterNUICallback('dutyClose', function(_, cb)
     close_duty()
 end)
 
+-- /c3rconfig (server/config_edit.lua): the editor, for admins, and its changes, live for everyone.
+local cfg_open = false
+local function close_cfg()
+    if not cfg_open then return end
+    cfg_open = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ type = 'config', open = false })
+    NoPause()
+end
+
+RegisterNetEvent('c3r:config:open', function(files, msg)
+    if IsNuiFocused() and not cfg_open then return end -- another menu is up
+    cfg_open = true
+    SetNuiFocus(true, true)
+    SendNUIMessage({ type = 'config', open = true, files = files, msg = msg })
+end)
+RegisterNUICallback('configSave', function(d, cb)
+    cb({})
+    if cfg_open and type(d.changes) == 'table' then TriggerServerEvent('c3r:config:save', d.changes) end
+end)
+RegisterNUICallback('configList', function(d, cb) -- a list's entry added or taken out
+    cb({})
+    if cfg_open then TriggerServerEvent('c3r:config:list', d.file, d.path, d.action, d.index) end
+end)
+RegisterNUICallback('configHere', function(_, cb) -- "Set here": where the admin is standing
+    local p = GetEntityCoords(PlayerPedId())
+    cb({ x = p.x, y = p.y, z = p.z })
+end)
+RegisterNUICallback('configClose', function(_, cb)
+    cb({})
+    close_cfg()
+end)
+
+RegisterNetEvent('c3r:config:set', function(list)
+    for _, c in ipairs(list) do
+        local t = Config
+        for i = 1, #c.keys - 1 do t = type(t) == 'table' and t[c.keys[i]] or nil end
+        if type(t) == 'table' then t[c.keys[#c.keys]] = c.value end
+    end
+end)
+TriggerServerEvent('c3r:config:sync') -- (changed since c3r started: this game loaded the files as they were)
+
 AddEventHandler('onResourceStop', function(res)
-    if res == GetCurrentResourceName() then close_duty() end
+    if res == GetCurrentResourceName() then close_duty() close_cfg() end
 end)
 
 AddStateBagChangeHandler('c3rDuty', ('player:%d'):format(GetPlayerServerId(PlayerId())), function(_, _, on)

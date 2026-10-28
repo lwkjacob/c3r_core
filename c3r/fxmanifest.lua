@@ -28,6 +28,7 @@ server_scripts {
     'server/dialogue.lua',
     'server/main.lua',
     'server/stops.lua',
+    'server/config_edit.lua',
 }
 
 client_scripts {

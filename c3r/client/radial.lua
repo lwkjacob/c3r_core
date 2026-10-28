@@ -156,7 +156,11 @@ local function close()
 end
 
 RegisterCommand('+c3r_radial', function()
-    if open or IsNuiFocused() or not LocalPlayer.state.c3rDuty then return end
+    if open then -- (sat in a car the game still sees G: it closes the wheel)
+        if IsPedInAnyVehicle(PlayerPedId(), false) then close() end
+        return
+    end
+    if IsNuiFocused() or not LocalPlayer.state.c3rDuty then return end
     if LocalPlayer.state.stopstick then return end -- (carrying a Stop Stick or on its cord: G throws / yanks it, lwk_stopstick)
     if GetGameTimer() - closed_at < 300 then return end -- (G closed it in a car: the game saw that press too)
     local t = target_car()
@@ -210,7 +214,7 @@ CreateThread(function()
     while true do
         local t = target
         if open and (not t or (t.veh and (not DoesEntityExist(t.veh) -- (the on-foot dispatch wheel has no car to walk off from)
-            or (not t.far and IsPedInAnyVehicle(PlayerPedId(), false) ~= (t.backup == true)) -- (got in / out)
+            or (not t.far and (GetVehiclePedIsIn(PlayerPedId(), false) ~= 0) ~= (t.backup == true)) -- (got in / out; IsPedInAnyVehicle gives 1, not true)
             or #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(t.veh)) > (t.far and Config.PaRange + 5.0 or REACH + 1.0)))) then
             close()
         end

@@ -85,7 +85,7 @@ local function open_menu(s, o)
     SetNuiFocus(true, true)
     SendNUIMessage({ type = 'radial', open = true, kind = 'person', key = KeyName('+c3r_interact', 'E'),
                      who = who(o), role = o.role, out = o.out == true, following = o.following == true, foot = s.foot == true,
-                     cuffed = o.cuffed == true, escorted = o.escorted == true, seated = o.seated ~= nil,
+                     cuffed = o.cuffed == true, escorted = o.escorted == true, seated = o.seated ~= nil, sitting = o.sitting == true,
                      categories = s.categories, questions = o.questions or {},
                      active = { police = BackupActive('police'), ambulance = BackupActive('ambulance'), cover = BackupActive('cover'),
                                 coroner = BackupActive('coroner'), taxi = BackupActive('taxi') } })

@@ -617,6 +617,8 @@ local LINES = {
     escort = { default = { "Okay, okay. I'm walking.", 'Alright.' }, rude = { "Don't push me." } },
     seat = { default = { '...', 'Okay.' }, rude = { 'This is ridiculous.', 'I want a lawyer.' } },
     unseat = { default = { 'Okay.', 'Thanks.' } },
+    sit = { default = { 'Okay.', 'Alright, alright.' }, rude = { 'On the ground? Seriously?' } },
+    getup = { default = { 'Okay.', 'Thanks.' } },
     refuse = { default = { "I'm not getting out. What's this about?", 'Why do I need to get out?' },
                rude = { 'No. I know my rights.', "I'm not getting out of my car." } },
     run = { default = { 'No way!', "I'm not going back!", 'Forget this!' } },

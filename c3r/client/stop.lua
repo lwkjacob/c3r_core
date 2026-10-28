@@ -868,6 +868,14 @@ local function cuffed_idle(ped)
     if load_dict('mp_arresting') then TaskPlayAnim(ped, 'mp_arresting', 'idle', 8.0, -8.0, -1, 49, 0.0, false, false, false) end
 end
 
+-- Sat on the ground, the cuffed idle on top (upper body) so the hands stay behind the back.
+local SIT = { 'amb@world_human_picnic@male@base', 'base' } -- UNVERIFIED: the picnic scenario's sitting loop
+local function sit_down(ped)
+    if not load_dict(SIT[1]) then return end
+    TaskPlayAnim(ped, SIT[1], SIT[2], 4.0, -4.0, -1, 1, 0.0, false, false, false)
+    cuffed_idle(ped)
+end
+
 -- Stood still and facing the officer once a task is done with them.
 local function settle(s, o, mine)
     if not current(s, o, mine) then return end
@@ -1040,6 +1048,20 @@ function TASKS.seat(s, o)
     if st then SetNewWaypoint(st.x, st.y) end
     Prompt('custody', 'info', 'Prisoner in custody',
         ('Drive to a police station and stop in the blue circle to book them in. Waypoint set: %s.'):format(st and st.name or 'none'), 9000)
+end
+
+function TASKS.sit(s, o)
+    if not o.cuffed or IsPedInAnyVehicle(o.ped, false) then return end
+    if o.escorted then DetachEntity(o.ped, true, false) end
+    o.escorted, o.sitting = false, true
+    ClearPedTasks(o.ped)
+    o.anchor = GetEntityCoords(o.ped)
+    sit_down(o.ped)
+end
+
+function TASKS.getup(s, o)
+    o.anchor = GetEntityCoords(o.ped) -- (run_task has already stood them up)
+    cuffed_idle(o.ped)
 end
 
 function TASKS.unseat(s, o, mine)
@@ -1307,6 +1329,10 @@ local function run_task(name, net, arg)
     if not o then return end
     local mine = {}
     if o.felony and name:sub(1, 4) ~= 'fel_' and name ~= 'handsup' then DropFelonyPose(o) end
+    if o.sitting and name ~= 'sit' then -- any other order: up off the ground first
+        o.sitting = false
+        StopAnimTask(o.ped, SIT[1], SIT[2], 2.0)
+    end
     o.task, o.doing, o.anchor = mine, name, nil
     CreateThread(function()
         if control(o.ped) then run(s, o, mine, arg) else log('task %s: no control of the %s', name, o.role) end
@@ -1407,7 +1433,8 @@ body = function(s)
                     end
                 end
                 if o.cuffed then
-                    if not IsEntityPlayingAnim(ped, 'mp_arresting', 'idle', 3) then cuffed_idle(ped) end
+                    if o.sitting and not IsEntityPlayingAnim(ped, SIT[1], SIT[2], 3) then sit_down(ped)
+                    elseif not IsEntityPlayingAnim(ped, 'mp_arresting', 'idle', 3) then cuffed_idle(ped) end
                 elseif o.out and not o.fleeing and not o.felony then
                     if WALKS[o.look] and not o.walk then
                         o.walk = true
@@ -1540,6 +1567,23 @@ RegisterKeyMapping('+c3r_mode', 'Traffic stop: what the driver does (c3r)', 'key
 
 -- ─── the end of a stop ────────────────────────────────────────────────────────
 
+-- One person, back to being an ordinary ped the game can clean up.
+local function free_ped(net, o)
+    if o.felony then DropFelonyPose(o) end
+    if o.cuffed then
+        if o.escorted then DetachEntity(o.ped, true, false) end
+        SetEnableHandcuffs(o.ped, false)
+        StopAnimTask(o.ped, 'mp_arresting', 'idle', 1.0)
+    end
+    if o.sitting then StopAnimTask(o.ped, SIT[1], SIT[2], 1.0) end
+    if o.walk then ResetPedMovementClipset(o.ped, 0.0) end
+    SetBlockingOfNonTemporaryEvents(o.ped, false)
+    SetPedKeepTask(o.ped, false)
+    TaskClearLookAt(o.ped)
+    SetNetworkIdCanMigrate(net, true)
+    SetEntityAsNoLongerNeeded(o.ped)
+end
+
 -- Whatever happens, they go back to being ordinary traffic the game can clean up.
 local function let_go(s)
     if DoesEntityExist(s.veh) and not s.towed then -- (a towed car is the tow truck's)
@@ -1554,20 +1598,19 @@ local function let_go(s)
         if Custody[net] or o.transported then
             -- in the back of the officer's car (still theirs, until booked), or in the transport van (its, until it fades)
         elseif DoesEntityExist(o.ped) then
-            if o.felony then DropFelonyPose(o) end
-            if o.cuffed then
-                if o.escorted then DetachEntity(o.ped, true, false) end
-                SetEnableHandcuffs(o.ped, false)
-                StopAnimTask(o.ped, 'mp_arresting', 'idle', 1.0)
-            end
-            if o.walk then ResetPedMovementClipset(o.ped, 0.0) end
-            SetBlockingOfNonTemporaryEvents(o.ped, false)
-            SetPedKeepTask(o.ped, false)
-            TaskClearLookAt(o.ped)
-            SetNetworkIdCanMigrate(net, true)
-            SetEntityAsNoLongerNeeded(o.ped)
+            free_ped(net, o)
         end
     end
+end
+
+-- Out of the car (if they're in it) and away on foot.
+local function walk_off(o)
+    if not control(o.ped) then return end
+    if IsPedInAnyVehicle(o.ped, false) then
+        TaskLeaveVehicle(o.ped, GetVehiclePedIsIn(o.ped, false), 0)
+        wait_until(5000, function() return not IsPedInAnyVehicle(o.ped, false) end)
+    end
+    TaskWanderStandard(o.ped, 10.0, 10)
 end
 
 -- Done: everyone back in their seat, signal, and pull back into traffic. With the car towed or the driver
@@ -1581,16 +1624,7 @@ local function drive_off(s)
     local driver = s.occ[s.ped_net]
     if s.towed or not DoesEntityExist(s.veh) or not driver or driver.cuffed or driver.escaped
         or not DoesEntityExist(s.ped) or IsEntityDead(s.ped) then
-        for _, o in ipairs(free) do
-            CreateThread(function()
-                if not control(o.ped) then return end
-                if IsPedInAnyVehicle(o.ped, false) then
-                    TaskLeaveVehicle(o.ped, GetVehiclePedIsIn(o.ped, false), 0)
-                    wait_until(5000, function() return not IsPedInAnyVehicle(o.ped, false) end)
-                end
-                TaskWanderStandard(o.ped, 10.0, 10)
-            end)
-        end
+        for _, o in ipairs(free) do CreateThread(function() walk_off(o) end) end
         return
     end
     if not (control(s.ped) and control(s.veh)) then return log('drive off: no control of the car or driver') end
@@ -1689,6 +1723,19 @@ RegisterNetEvent('c3r:stop:ended', function(outcome)
     if outcome == 'cancelled' and s and not (s.foot or s.parked) then
         Prompt('stop', 'info', 'Traffic stop cancelled', 'They are free to go.', 3500)
     end
+end)
+
+-- Free to go while someone else is under arrest: only them, and the stop carries on.
+RegisterNetEvent('c3r:stop:released', function(net)
+    local s = Stop
+    local o = s and s.occ[net]
+    if not o then return end
+    s.occ[net] = nil
+    if not DoesEntityExist(o.ped) then return end
+    CreateThread(function()
+        walk_off(o)
+        free_ped(net, o)
+    end)
 end)
 
 -- Getting out ends the driving part: the mode card fades, and a car still being led or steered halts
@@ -1892,7 +1939,7 @@ function TowCar(car, s)
     SetBlipColour(blip, 47)
 
     local stop_at = c + fwd * 10.0
-    local around, still = false, nil
+    local around, still, stuck = false, nil, false
     TaskVehicleDriveToCoord(driver, truck, stop_at.x, stop_at.y, stop_at.z, 12.0, 0, tm, TOW_NORMAL, 4.0, true)
     local arrived = wait_until(Config.Tow.timeout_ms, function()
         if not DoesEntityExist(truck) then return true end
@@ -1902,6 +1949,9 @@ function TowCar(car, s)
         if not around and (d < 80.0 or (still and GetGameTimer() - still > 4000)) then -- close, or boxed in: work round
             around = true
             TaskVehicleDriveToCoord(driver, truck, stop_at.x, stop_at.y, stop_at.z, 7.0, 0, tm, TOW_AROUND, 4.0, true)
+        elseif around and still and GetGameTimer() - still > 5000 then -- still boxed in (behind the patrol car): skip the rest
+            stuck = true
+            return true
         end
         return false
     end)
@@ -1910,13 +1960,15 @@ function TowCar(car, s)
         towing[truck], towing[driver] = nil, nil
         return untow()
     end
-    if not arrived then -- stuck in traffic somewhere: it turns up anyway
+    if not arrived or stuck then -- stuck in traffic somewhere: it turns up anyway
         SetEntityCoords(truck, stop_at.x, stop_at.y, stop_at.z, false, false, false, false)
         SetEntityHeading(truck, GetEntityHeading(car))
         SetVehicleOnGroundProperly(truck)
     end
-    TaskVehicleTempAction(driver, truck, 27, 3000)
-    Wait(3000)
+    TaskVehicleTempAction(driver, truck, 27, 1000)
+    Wait(1000)
+    StartVehicleHorn(truck, 1800, GetHashKey('HELDDOWN'), false) -- one long honk: here for it
+    Wait(1800)
 
     local loaded = control(car) -- (another player's game may own it: then the truck leaves empty, and says so)
     if loaded then

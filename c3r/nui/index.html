@@ -292,12 +292,90 @@
         #duty .foot span { display: inline-flex; align-items: center; gap: 7px; }
         @keyframes svc-in { from { opacity: 0; transform: translateY(40px) scale(.94); } }
         @keyframes brand-in { from { opacity: 0; transform: scale(.92); } }
+        /* ── /c3rconfig: the config editor (admins), a glass panel over a dimmed game ── */
+        #cfg { position: fixed; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden; pointer-events: none;
+               transition: opacity .2s ease-in, visibility 0s linear .2s; user-select: text; }
+        #cfg.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .25s var(--ease); }
+        #cfg .shade { position: absolute; inset: 0; background: rgba(4, 6, 10, .6); }
+        #cfg .box { position: relative; width: min(860px, 92vw); height: min(760px, 88vh); display: flex; flex-direction: column;
+                    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 50px rgba(0, 0, 0, .5); }
+        #cfg header { display: flex; align-items: center; gap: 14px; padding: 16px 20px 0; }
+        #cfg h1 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; }
+        #cfg h1 b { color: #4f8cff; } #cfg h1 i { font-style: normal; color: #fff; } #cfg h1 u { text-decoration: none; color: var(--alert); }
+        #cfg .find { margin-left: auto; width: 220px; }
+        #cfg nav { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); }
+        #cfg nav button { padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted);
+                          cursor: pointer; text-transform: capitalize; }
+        #cfg nav button.on { color: var(--text); border-bottom-color: var(--accent); }
+        #cfg nav button .n { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #1d1405; font-size: 11px; font-weight: 700; }
+        #cfg .list { flex: 1; overflow-y: auto; padding: 4px 20px 20px; }
+        #cfg .group { margin-top: 18px; }
+        #cfg .group h2 { margin: 0 0 2px; font: 600 13px/1.4 ui-monospace, Consolas, monospace; color: var(--accent); }
+        #cfg .about { margin: 0 0 6px; color: var(--muted); font-size: 12px; white-space: pre-line; }
+        #cfg .row { display: grid; grid-template-columns: minmax(160px, 1fr) 300px minmax(28px, auto); gap: 4px 12px; align-items: center;
+                    padding: 7px 10px; border-radius: var(--r); }
+        #cfg .row:nth-child(even) { background: rgba(255, 255, 255, .025); }
+        #cfg .row.dirty { background: rgba(240, 176, 64, .1); }
+        #cfg .row .key { font: 13px/1.3 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+        #cfg .row .note { grid-column: 1 / 3; color: var(--dim); font-size: 12px; }
+        /* a position: x, y, z in one box, and "Set here" */
+        #cfg .vec { display: flex; gap: 6px; }
+        #cfg .vec input { flex: 1; min-width: 0; }
+        #cfg .vec .here { flex: none; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised);
+                          color: var(--text); font-size: 12px; white-space: nowrap; cursor: pointer; }
+        #cfg .vec .here:hover { border-color: var(--accent); color: var(--accent); }
+        /* lists: take an entry out (click twice), or add one (a copy of the last) */
+        #cfg .row .del { grid-column: 3; grid-row: 1; width: 28px; height: 28px; padding: 0; border-radius: var(--r); border: 1px solid transparent;
+                         background: none; color: var(--dim); font-size: 16px; line-height: 1; cursor: pointer; }
+        #cfg .row .del:hover { color: var(--alert); border-color: var(--line); }
+        #cfg .row .del.sure { width: auto; padding: 0 8px; color: #fff; background: var(--alert); font-size: 12px; font-weight: 700; }
+        #cfg .row .del:disabled { visibility: hidden; }
+        #cfg .add { margin: 4px 0 6px 10px; padding: 5px 12px; border-radius: var(--r); border: 1px dashed rgba(255, 255, 255, .25);
+                    background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
+        #cfg .add:hover { color: var(--accent); border-color: var(--accent); }
+        #cfg input[type=text], #cfg input[type=number] { width: 100%; padding: 6px 9px; border-radius: var(--r); border: 1px solid var(--line);
+                    background: var(--sunk); color: var(--text); font: 13px ui-monospace, Consolas, monospace; }
+        #cfg input:focus { outline: none; border-color: var(--accent); }
+        #cfg input.bad { border-color: var(--alert); }
+        /* true / false: a switch, off grey, on in the accent */
+        #cfg input[type=checkbox] { -webkit-appearance: none; appearance: none; position: relative; width: 38px; height: 22px; margin: 0;
+                    justify-self: start; border-radius: 999px; border: 1px solid var(--line); background: var(--sunk); cursor: pointer;
+                    transition: background .15s, border-color .15s; }
+        #cfg input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+                    background: var(--muted); transition: transform .15s var(--ease), background .15s; }
+        #cfg input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+        #cfg input[type=checkbox]:checked::after { transform: translateX(16px); background: #1d1405; }
+        #cfg input[type=checkbox]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        /* scrollbar: thin, dark and rounded, no arrows (as the MDT's) */
+        #cfg ::-webkit-scrollbar { width: 10px; background: transparent; }
+        #cfg ::-webkit-scrollbar-track, #cfg ::-webkit-scrollbar-corner { background: transparent; }
+        #cfg ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .14); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+        #cfg ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, .24); }
+        #cfg ::-webkit-scrollbar-thumb:active { background-color: var(--accent); }
+        #cfg ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+        #cfg footer { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
+        #cfg .msg { color: var(--muted); font-size: 12px; } #cfg .msg.warn { color: var(--accent); }
+        #cfg footer button { padding: 8px 18px; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised); cursor: pointer; }
+        #cfg footer .save { margin-left: auto; background: var(--accent); border-color: var(--accent); color: #1d1405; font-weight: 700; }
+        #cfg footer .save:disabled { opacity: .4; cursor: default; }
     </style>
 </head>
 <body>
 <div id="prompts" aria-live="polite"></div>
 
 <div id="hint" class="glass" role="status"></div>
+
+<section id="cfg" aria-hidden="true">
+    <div class="shade"></div>
+    <div class="box" role="dialog" aria-label="c3r config">
+        <header><h1><b>Code</b><i>3</i><u>Response</u> config</h1>
+            <input class="find" id="cfg-find" type="text" placeholder="Search settings" aria-label="Search settings"></header>
+        <nav id="cfg-tabs"></nav>
+        <div class="list" id="cfg-list"></div>
+        <footer><span class="msg" id="cfg-msg"></span>
+            <button type="button" id="cfg-close">Close</button><button type="button" class="save" id="cfg-save" disabled>Save</button></footer>
+    </div>
+</section>
 
 <section id="modes" class="glass" role="dialog" aria-label="What the driver does">
     <h1>Driver</h1>
@@ -1340,6 +1418,8 @@
             { label: s.escorted ? 'Let go' : 'Escort', icon: s.escorted ? 'wave' : 'escort', action: 'escort',
               off: seated ? 'In your car' : '', desc: s.escorted ? 'Stop holding them.' : 'Hold their arm and walk them with you.' },
             { label: 'Uncuff', icon: 'uncuff', action: 'uncuff', off: seated ? 'In your car' : '', desc: 'Take the handcuffs off.' },
+            s.sitting ? { label: 'Get up', icon: 'handsup', action: 'getup', desc: 'Back on their feet.' }
+                      : { label: 'Sit down', icon: 'hand', action: 'sit', off: seated ? 'In your car' : '', desc: 'Sit them on the ground.' },
         ] };
         if (at === 'outcome') return { title: 'Issue Violation', items: [
             { label: 'Warning', icon: 'warn', action: 'warn', desc: 'Let them off with a warning. They wait to be told they can go.' },
@@ -1429,6 +1509,7 @@
         rad = { kind: ['person', 'casualty'].includes(d.kind) ? d.kind : 'vehicle',
                 hold: d.hold !== undefined ? !!d.hold : d.kind !== 'person' && d.kind !== 'casualty', // (sat in a car: click, not hold)
                 key: String(d.key || 'G').toUpperCase(),
+                up: d.hold !== false, // (sat in a car: G is still down from opening it until it's seen let go)
                 s: d, stack: [], items: [], hot: -1 };
         rad.s.questions = Array.isArray(d.questions) ? d.questions : [];
         rad.s.categories = Array.isArray(d.categories) ? d.categories : [];
@@ -1475,11 +1556,14 @@
         if (e.button === 0) radPick(rad.hot);
     });
     window.addEventListener('contextmenu', (e) => { if (rad) e.preventDefault(); });
-    window.addEventListener('keyup', (e) => { if (rad && rad.hold && e.key.toUpperCase() === rad.key) radPick(rad.hot); });
+    window.addEventListener('keyup', (e) => {
+        if (!rad || e.key.toUpperCase() !== rad.key) return;
+        if (rad.hold) radPick(rad.hot); else rad.up = true;
+    });
     window.addEventListener('keydown', (e) => {
         if (!rad || e.repeat) return;
         const k = e.key.toUpperCase();
-        if (e.key === 'Escape' || (!rad.hold && k === rad.key)) { e.preventDefault(); return radClose(); } // Esc, or E again
+        if (e.key === 'Escape' || (!rad.hold && k === rad.key && rad.up)) { e.preventDefault(); return radClose(); } // Esc, or E again (not G's key repeat)
         if (!rad.hold && k === 'Q') {
             tips = !tips;
             try { localStorage.setItem('c3r_tips', tips ? '1' : '0'); } catch (err) { /* not kept */ }
@@ -1512,6 +1596,196 @@
         if (e.key === 'Escape' || e.key === $('duty-key').textContent) { e.preventDefault(); post('dutyClose'); }
     });
 
+    // ── /c3rconfig: every value in c3r's config files, saved straight into them (server/config_edit.lua) ──
+    let cfg = null; // { files: [{ file, entries }], tab, dirty: Map(file:path -> { file, path, value }), leaving }
+    const CFG_NOTE = 'Saved into the config files and live at once. Keys and command names apply after restart c3r.';
+    function config(d) {
+        if (!d.open) { cfg = null; $('cfg').classList.remove('open'); $('cfg').setAttribute('aria-hidden', 'true'); return; }
+        const files = Array.isArray(d.files) ? d.files : [];
+        cfg = { files, tab: cfg ? Math.min(cfg.tab, files.length - 1) : 0, dirty: new Map(), leaving: false };
+        cfgMsg(d.msg || CFG_NOTE, !!d.msg && d.msg.startsWith('Not saved'));
+        $('cfg').classList.add('open');
+        $('cfg').setAttribute('aria-hidden', 'false');
+        cfgShow();
+    }
+    const cfgMsg = (text, warn) => { $('cfg-msg').textContent = text; $('cfg-msg').classList.toggle('warn', !!warn); };
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    function cfgShow() {
+        const tabs = $('cfg-tabs'), list = $('cfg-list'), q = $('cfg-find').value.trim().toLowerCase();
+        tabs.replaceChildren(...cfg.files.map((f, i) => {
+            const b = el('button', i === cfg.tab ? 'on' : '', f.file.replace(/^config\/|\.lua$/g, ''));
+            const n = [...cfg.dirty.values()].filter((c) => c.file === f.file).length;
+            if (n) b.append(el('span', 'n', n));
+            b.type = 'button';
+            b.onclick = () => { cfg.tab = i; cfgShow(); list.scrollTop = 0; };
+            return b;
+        }));
+        const f = cfg.files[cfg.tab];
+        list.replaceChildren();
+        if (!f) return;
+        let group = null, top = null;
+        // which list entry a value belongs to (the innermost list), and where each list ends
+        const lists = (f.lists || []).slice().sort((a, b) => b.path.length - a.path.length);
+        const itemOf = (path) => {
+            for (const l of lists) {
+                const m = path.startsWith(l.path) && path.slice(l.path.length).match(/^\[(\d+)\]/);
+                if (m) return { l, i: Number(m[1]) };
+            }
+            return null;
+        };
+        const seen = new Set(), ends = new Map(), all = f.entries;
+        for (let k = 0; k < all.length; k++) {
+            const e = all[k];
+            // x, y and z side by side: one position
+            const base = e.path.endsWith('.x') ? e.path.slice(0, -2) : null;
+            const vec = base && all[k + 1]?.path === base + '.y' && all[k + 2]?.path === base + '.z'
+                && [e, all[k + 1], all[k + 2]].every((v) => v.kind === 'number') ? [e, all[k + 1], all[k + 2]] : null;
+            if (vec) k += 2;
+            if (q && !(e.path.toLowerCase().includes(q) || (e.note || '').toLowerCase().includes(q))) continue;
+            const t = e.path.split(/[.[]/)[0];
+            if (t !== top) {
+                top = t;
+                group = el('div', 'group');
+                group.append(el('h2', '', 'Config.' + t));
+                if (e.about) group.append(el('p', 'about', e.about));
+                list.append(group);
+            }
+            const row = vec ? cfgVec(f.file, base, vec) : cfgRow(f.file, e), it = itemOf(e.path);
+            if (it) {
+                if (!seen.has(`${it.l.path}[${it.i}]`)) row.append(cfgDel(f.file, it.l, it.i));
+                seen.add(`${it.l.path}[${it.i}]`);
+                ends.set(it.l, row);
+            }
+            group.append(row);
+        }
+        for (const [l, row] of ends) {
+            const b = el('button', 'add', `+ Add to ${l.path}`);
+            b.type = 'button';
+            b.title = 'A copy of its last entry, to edit';
+            b.onclick = () => cfgList(f.file, l.path, 'add');
+            row.after(b);
+        }
+        if (!list.children.length) list.append(el('p', 'about', 'Nothing matches.'));
+        $('cfg-save').disabled = !cfg.dirty.size;
+        $('cfg-save').textContent = cfg.dirty.size ? `Save ${cfg.dirty.size}` : 'Save';
+    }
+    function cfgRow(file, e) {
+        const id = `${file}:${e.path}`, row = el('label', 'row'), d = cfg.dirty.get(id);
+        const cur = d ? d.value : e.value;
+        row.append(el('span', 'key', e.path));
+        let input;
+        if (e.kind === 'boolean') {
+            input = el('input');
+            input.type = 'checkbox';
+            input.checked = !!cur;
+        } else {
+            input = el('input');
+            input.type = e.kind === 'number' ? 'number' : 'text';
+            if (e.kind === 'number') input.step = 'any';
+            input.value = cur ?? '';
+            if (e.kind === 'nil' || e.kind === 'string') input.placeholder = 'nil';
+        }
+        input.onchange = input.oninput = () => {
+            let v = e.kind === 'boolean' ? input.checked : input.value;
+            if (e.kind === 'number') {
+                v = input.value.trim() === '' ? NaN : Number(input.value);
+                input.classList.toggle('bad', !Number.isFinite(v));
+                if (!Number.isFinite(v)) return;
+            }
+            if (v === (e.value ?? (e.kind === 'boolean' ? false : ''))) cfg.dirty.delete(id);
+            else cfg.dirty.set(id, { file, path: e.path, value: v });
+            cfg.leaving = false;
+            row.classList.toggle('dirty', cfg.dirty.has(id));
+            cfgShowCounts();
+        };
+        row.classList.toggle('dirty', !!d);
+        row.append(input);
+        if (e.note) row.append(el('span', 'note', e.note));
+        return row;
+    }
+    // A position as "441.00, -985.00, 30.70", or where the admin is standing ("Set here").
+    function cfgVec(file, base, vec) {
+        const row = el('label', 'row'), ids = vec.map((e) => `${file}:${e.path}`);
+        const box = el('span', 'vec'), input = el('input'), here = el('button', 'here', 'Set here');
+        const show = (vals) => vals.map((v) => Number(v).toFixed(2)).join(', ');
+        const apply = (vals) => {
+            vec.forEach((e, i) => {
+                if (vals[i] === e.value) cfg.dirty.delete(ids[i]);
+                else cfg.dirty.set(ids[i], { file, path: e.path, value: vals[i] });
+            });
+            cfg.leaving = false;
+            row.classList.toggle('dirty', ids.some((id) => cfg.dirty.has(id)));
+            cfgShowCounts();
+        };
+        input.type = 'text';
+        input.value = show(vec.map((e, i) => cfg.dirty.get(ids[i])?.value ?? e.value));
+        input.oninput = () => {
+            const vals = input.value.split(',').map((v) => (v.trim() === '' ? NaN : Number(v)));
+            const ok = vals.length === 3 && vals.every(Number.isFinite);
+            input.classList.toggle('bad', !ok);
+            if (ok) apply(vals);
+        };
+        here.type = 'button';
+        here.title = 'Where you are standing';
+        here.onclick = (ev) => {
+            ev.preventDefault();
+            post('configHere').then((r) => r && r.json()).then((p) => {
+                const vals = p && [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100);
+                if (!vals || !vals.every(Number.isFinite)) return;
+                input.value = show(vals);
+                input.classList.remove('bad');
+                apply(vals);
+            }).catch(() => {});
+        };
+        box.append(input, here);
+        row.append(el('span', 'key', `${base} (x, y, z)`), box);
+        row.classList.toggle('dirty', ids.some((id) => cfg.dirty.has(id)));
+        return row;
+    }
+    function cfgDel(file, l, i) {
+        const b = el('button', 'del', '×');
+        b.type = 'button';
+        b.title = `Take out ${l.path}[${i}]`;
+        b.disabled = l.count < 2;
+        b.onclick = (ev) => {
+            ev.preventDefault();
+            if (!b.classList.contains('sure')) { // click twice: once to arm it, then to take it out
+                b.classList.add('sure');
+                b.textContent = 'Remove';
+                return setTimeout(() => { b.classList.remove('sure'); b.textContent = '×'; }, 3000);
+            }
+            cfgList(file, l.path, 'remove', i);
+        };
+        return b;
+    }
+    function cfgList(file, path, action, index) {
+        if (cfg.dirty.size) return cfgMsg('Save your changes first.', true);
+        post('configList', { file, path, action, index });
+        cfgMsg('Saving…');
+    }
+    function cfgShowCounts() { // the tab badges and the Save button, without redrawing the rows being typed in
+        [...$('cfg-tabs').children].forEach((b, i) => {
+            const n = [...cfg.dirty.values()].filter((c) => c.file === cfg.files[i].file).length;
+            b.querySelector('.n')?.remove();
+            if (n) b.append(el('span', 'n', n));
+        });
+        $('cfg-save').disabled = !cfg.dirty.size;
+        $('cfg-save').textContent = cfg.dirty.size ? `Save ${cfg.dirty.size}` : 'Save';
+    }
+    function cfgClose() {
+        if (cfg && cfg.dirty.size && !cfg.leaving) { cfg.leaving = true; return cfgMsg('Unsaved changes: close again to throw them away.', true); }
+        post('configClose');
+    }
+    $('cfg-find').addEventListener('input', () => cfg && cfgShow());
+    $('cfg-close').addEventListener('click', cfgClose);
+    $('cfg-save').addEventListener('click', () => {
+        if (!cfg || !cfg.dirty.size) return;
+        post('configSave', { changes: [...cfg.dirty.values()] });
+        $('cfg-save').disabled = true;
+        cfgMsg('Saving…');
+    });
+    window.addEventListener('keydown', (e) => { if (cfg && e.key === 'Escape') { e.preventDefault(); cfgClose(); } });
+
     window.addEventListener('message', (e) => {
         const d = e.data || {};
         if (d.type === 'prompt') prompt(d);
@@ -1529,6 +1803,7 @@
         else if (d.type === 'idcard') idcard(d);
         else if (d.type === 'radial') radial(d);
         else if (d.type === 'duty') dutyMenu(d);
+        else if (d.type === 'config') config(d);
     });
 </script>
 </body>
