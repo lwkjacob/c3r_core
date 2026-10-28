@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'c3r'
 description 'CODE3RESPONSE: free, open-source police game mode'
-version '0.2.0'
+version '0.0.1'
 author 'LWK DEVELOPMENT'
 license 'GPL-3.0-only'
 

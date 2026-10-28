@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'lwk_stopstick'
 description 'Throwable Stop Stick: toss the folded sleeve, pull it into the lane on its cord, yank it clear'
-version '1.0.0'
+version '0.0.1'
 
 shared_scripts { 'config.lua', 'shared/tow.lua' }
 client_script 'client/main.lua'

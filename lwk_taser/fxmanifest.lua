@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'lwk_taser'
 author 'LWK DEVELOPMENT'
-version '1.0.0'
+version '0.0.1'
 description 'TASER 10-style taser: 10-probe magazine, barbs, CID, laser, flashlight, drive stun, audit trail'
 
 dependency 'ox_target'

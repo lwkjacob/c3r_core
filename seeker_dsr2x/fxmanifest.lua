@@ -4,7 +4,7 @@ game 'gta5'
 name 'seeker_dsr2x'
 description 'SEEKER DSR 2X Radar - dual simultaneous front/rear target and fast windows'
 author 'lwkjacob'
-version '1.0.0'
+version '0.0.1'
 
 shared_scripts {
     '@ox_lib/init.lua',

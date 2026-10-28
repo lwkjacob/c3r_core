@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'lwk_control_assets'
 description 'Static files for lwk_control: speech model + runtime, dispatcher voice clips, radio clicks'
-version '0.1.0'
+version '0.0.1'
 author 'LWK DEVELOPMENT'
 license 'GPL-3.0-only'
 

@@ -4,7 +4,7 @@ game 'gta5'
 name 'seeker_dual'
 description 'SEEKER DUAL DSR Radar'
 author 'lwkjacob'
-version '1.0.0'
+version '0.0.1'
 
 shared_scripts {
     '@ox_lib/init.lua',

@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'lwk_mdt'
 description 'MDT for c3r, built to work with lwk_control'
-version '0.1.0'
+version '0.0.1'
 author 'LWK DEVELOPMENT'
 license 'GPL-3.0-only'
 
