@@ -338,16 +338,19 @@ RegisterNetEvent('c3r:callout:found', function(label, text, key)
     if key then looked[key] = true end
 end)
 
--- Evidence I haven't looked at yet glows white (the prop, or the car it's on), so it's easy to spot. Outlines are
--- drawn by each game for itself.
+-- Evidence I haven't looked at yet is outlined in white (the prop, or the car it's on) once I'm within GLOW_RANGE of
+-- it, so it's easy to spot. The thin solid outline: the soft one is a full-screen blur, every frame. Outlines are drawn
+-- by each game for itself.
+local GLOW_RANGE = 30.0
 CreateThread(function()
     local lit = {} -- [entity] = true
     while true do
         local want = {}
+        local me = GetEntityCoords(PlayerPedId())
         for _, cl in ipairs(call and clues or {}) do
             if cl.glow and not looked[cl.key] and NetworkDoesNetworkIdExist(cl.glow) then
                 local ent = NetToEnt(cl.glow)
-                if DoesEntityExist(ent) then want[ent] = true end
+                if DoesEntityExist(ent) and #(GetEntityCoords(ent) - me) < GLOW_RANGE then want[ent] = true end
             end
         end
         for ent in pairs(lit) do
@@ -359,7 +362,7 @@ CreateThread(function()
         for ent in pairs(want) do
             if not lit[ent] then
                 SetEntityDrawOutlineColor(255, 255, 255, 255)
-                SetEntityDrawOutlineShader(0) -- (the soft glow)
+                SetEntityDrawOutlineShader(1)
                 SetEntityDrawOutline(ent, true)
                 lit[ent] = true
             end

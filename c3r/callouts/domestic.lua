@@ -63,7 +63,8 @@ local function card(c, opts)
         hint = 'Keep him away from her while you do.' })
     c:objective('talk_woman', 'Talk to her on her own', { after = { 'house' }, blip = 'woman',
         hint = 'Out of his earshot: more than 10 m apart, or with him in cuffs.' })
-    c:objective('decide', 'Decide: arrest, or release them both', { after = { 'talk_man', 'talk_woman' }, who = 'all', blip = { 'man', 'woman' } })
+    c:objective('decide', 'Decide: arrest, ticket or warn, or let them both go', { after = { 'talk_man', 'talk_woman' }, who = 'all',
+        blip = { 'man', 'woman' } })
 end
 
 -- What marks each objective done: asking the caller what they heard, him what happened, her whether she's safe while
@@ -80,20 +81,30 @@ local function wire(c)
 end
 
 --[[ It's over when: whoever's arrested is taken in (booked at a station, or by prisoner transport); both have been let
-     go; he ran and got away; or, with nobody arrested, both have been spoken to and every unit has left.
-     ends(out) -> the MDT summary, out = { man, woman = 'arrested' | 'released' | 'fled' | 'gone', left = true }. ]]
+     go; both have been spoken to and one of them has been given a ticket or a warning; he ran and got away; or, with
+     nobody arrested, both have been spoken to and every unit has left.
+     ends(out) -> the MDT summary (tickets and warnings are added to it),
+     out = { man, woman = 'arrested' | 'released' | 'cited' | 'warning' | 'fled' | 'gone', left = true }. ]]
 local function resolve(c, ends)
     local out, gone, away_for, done = {}, {}, 0, false
     local function over()
         if done then return end
         done = true
         c:done('decide')
-        c:finish(ends(out))
+        local text = ends(out)
+        for _, who in ipairs({ 'man', 'woman' }) do
+            if out[who] == 'cited' then text = text .. (' %s was given a ticket.'):format(c:name(who))
+            elseif out[who] == 'warning' then text = text .. (' %s was given a warning.'):format(c:name(who)) end
+        end
+        c:finish(text)
     end
+    local function dealt(v) return v == 'cited' or v == 'warning' end
     local function arrest() return out.man == 'arrested' or out.woman == 'arrested' end
     local function check()
         if arrest() then return end -- (ends once they're taken in: 'custody')
-        if (out.man and out.woman) or out.man == 'fled' or out.left or gone.man or gone.woman then
+        local talked = c:is_done('talk_man') and c:is_done('talk_woman')
+        if (out.man and out.woman) or (talked and (dealt(out.man) or dealt(out.woman))) or out.man == 'fled' or out.left
+            or gone.man or gone.woman then
             if gone.man then out.man = out.man or 'gone' end
             if gone.woman then out.woman = out.woman or 'gone' end
             over()
@@ -109,6 +120,8 @@ local function resolve(c, ends)
             elseif action == 'uncuff' then
                 out[who] = nil
                 c:hide('custody:' .. who)
+            elseif (action == 'cite' or action == 'warn') and out[who] ~= 'arrested' then -- (a ticket or a warning: that's them dealt with)
+                out[who] = action == 'cite' and 'cited' or 'warning'
             end
         end
         check()
@@ -117,7 +130,8 @@ local function resolve(c, ends)
     c:on('contact_ended', function(who, outcome)
         if who ~= 'man' and who ~= 'woman' then return end
         if outcome == 'fled' then out[who] = 'fled'
-        elseif (outcome == 'released' or outcome == 'cited' or outcome == 'warning') and out[who] ~= 'arrested' then out[who] = 'released' end
+        elseif outcome == 'released' and not out[who] then out[who] = 'released'
+        elseif (outcome == 'cited' or outcome == 'warning') and out[who] ~= 'arrested' then out[who] = outcome end
         check() -- (walked off from them, 'cancelled': nothing decided)
     end)
     c:on('gone', function(who)
@@ -127,7 +141,8 @@ local function resolve(c, ends)
         check()
     end)
     c:on('tick', function()
-        if not arrest() and c:is_done('talk_man') and c:is_done('talk_woman') and not c:near(nil, 80.0) then
+        local here = c:near(nil, 80.0) or c:near('man', 80.0) or c:talking() -- (at the house, or with him, or mid-conversation)
+        if not arrest() and c:is_done('talk_man') and c:is_done('talk_woman') and not here then
             away_for = away_for + 1
             if away_for >= 15 then out.left = true check() end
         else
@@ -182,6 +197,38 @@ Callout({
             evidence = vector4(407.23, 2954.20, 40.92, 352.8),
             man_drove_to = vector4(225.36, 2883.13, 43.49, 249.6),
             man_car = vector4(218.66, 2880.72, 43.17, 122.9),
+        } },
+        { street = 'Senora Fwy', at = vector3(2632.80, 3258.56, 55.46), points = {
+            neighbour = vector4(2632.80, 3258.56, 55.46, 322.1),
+            woman = vector4(2634.11, 3291.89, 55.73, 174.3),
+            man = vector4(2626.59, 3293.84, 55.43, 174.8),
+            evidence = vector4(2631.22, 3301.63, 55.35, 161.3),
+            man_drove_to = vector4(2686.81, 3286.79, 55.24, 255.7),
+            man_car = vector4(2684.20, 3293.00, 54.66, 59.0),
+        } },
+        { street = 'Nikola Pl', at = vector3(1388.49, -569.63, 74.50), points = {
+            neighbour = vector4(1388.49, -569.63, 74.50, 81.0),
+            woman = vector4(1385.28, -592.50, 74.49, 47.8),
+            man = vector4(1383.12, -598.31, 74.34, 48.2),
+            evidence = vector4(1389.85, -585.60, 74.41, 356.8),
+            man_drove_to = vector4(1268.30, -377.77, 69.00, 112.0),
+            man_car = vector4(1269.84, -373.72, 68.52, 52.0),
+        } },
+        { street = 'Cockingend Dr', at = vector3(-1042.41, 503.58, 84.17), points = {
+            neighbour = vector4(-1042.41, 503.58, 84.17, 178.6),
+            woman = vector4(-1008.69, 480.12, 79.41, 331.6),
+            man = vector4(-1001.48, 468.10, 78.72, 165.9),
+            evidence = vector4(-1006.32, 490.23, 79.33, 26.4),
+            man_drove_to = vector4(-986.89, 334.33, 70.64, 295.9),
+            man_car = vector4(-995.72, 342.05, 70.63, 287.0),
+        } },
+        { street = 'Forum Dr', at = vector3(-37.12, -1452.05, 31.43), points = {
+            neighbour = vector4(-37.12, -1452.05, 31.43, 182.1),
+            woman = vector4(-14.20, -1442.90, 31.10, 160.4),
+            man = vector4(-20.81, -1451.35, 30.64, 170.3),
+            evidence = vector4(-10.21, -1448.11, 30.72, 288.0),
+            man_drove_to = vector4(71.40, -1566.22, 29.60, 12.6),
+            man_car = vector4(59.19, -1547.01, 28.97, 50.5),
         } },
     },
 

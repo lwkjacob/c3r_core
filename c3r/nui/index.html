@@ -359,6 +359,9 @@
         #cfg footer .save { margin-left: auto; background: var(--accent); border-color: var(--accent); color: #1d1405; font-weight: 700; }
         #cfg footer .save:disabled { opacity: .4; cursor: default; }
         /* ── callouts: the offer card and the objective card (right side, glass), and "leave this call?" ── */
+        /* (up the whole call: a live backdrop blur would redraw the game behind them every frame) */
+        #callout .glass { -webkit-backdrop-filter: none; backdrop-filter: none;
+                          background: linear-gradient(160deg, rgba(30, 36, 46, .82), rgba(14, 18, 26, .78)); }
         #callout { position: fixed; top: 24%; right: 26px; width: 330px; display: flex; flex-direction: column; gap: 12px; pointer-events: none;
                    text-align: right; } /* (against the screen's edge) */
         #co-offer, #co-card { padding: 14px 16px; opacity: 0; transform: translateX(24px); transition: opacity .2s ease-in, transform .2s ease-in; }

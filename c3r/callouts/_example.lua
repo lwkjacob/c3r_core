@@ -17,6 +17,8 @@
           the usual menu (ID, questions, search, cuffs, tests...) plus their own questions under "The call".
             at        a point name from the location's points, or a vector3 / vector4
             items     what a search finds on them that matters (it shows as evidence)
+            pockets   everyday things a search finds that aren't evidence ('Gas station receipt')
+            age       { min, max }: how old their ID says they are ({ 18, 19 } for a teenager)
             scene     what they're doing: a scenario ('WORLD_HUMAN_SMOKING') or an anim { dict, name, flag }
             questions { { id = 'c_...', label = 'What did you see?', needs?, hide?, press?, stress? } }
                       needs = { c_fact = 'value' | true | { list } }: only once they've said it (see lines)
@@ -54,6 +56,8 @@
       c:custody(person)        they're under arrest: "Take <name> in: book them at a station, or call prisoner
                                transport" goes on the card (with a blip on them) until they are; then 'custody' fires
       c:hide(id)               an objective off the card again (e.g. custody, after an uncuff)
+      c:talking()              is an officer talking to anyone on the call right now
+      c:questions(person)      after giving them a fact from elsewhere: the officer talking to them sees what it opens
       c:who(person)            their record on the call: .facts, .cuffed, .identified ...
       c:name(person)           their real name; c:plate(vehicle) its plate; c:street() the call's street
       c:apart(a, b)            out of each other's earshot (10 m, or either cuffed / in a car)
@@ -177,7 +181,7 @@ Callout({
                 c:objective('caller', 'Talk to the caller', { hint = 'They said they would wait nearby.', blip = 'caller' })
                 c:objective('find', 'Find the person they called about', { hint = 'Near the parked cars.', blip = 'subject' })
                 c:objective('car', 'Check the car they tried', { hidden = true, hint = 'The caller said the silver one.', blip = 'car' })
-                c:objective('deal', 'Deal with them: arrest, or let them go', { after = { 'find' }, who = 'all', blip = 'subject' })
+                c:objective('deal', 'Deal with them: arrest, ticket or warn, or let them go', { after = { 'find' }, who = 'all', blip = 'subject' })
 
                 c:on('act', function(who, action, arg)
                     if who == 'caller' and action == 'ask' and arg == 'c_what' then c:done('caller') end
@@ -196,7 +200,12 @@ Callout({
                 end
                 -- cuffed: the card says to take him in, and it's over when he's booked or transported
                 c:on('act', function(who, action)
-                    if who == 'subject' and action == 'cuff' and c:who('subject').cuffed then c:custody('subject') end
+                    if who ~= 'subject' then return end
+                    if action == 'cuff' and c:who('subject').cuffed then c:custody('subject') end
+                    if action == 'cite' or action == 'warn' then -- (a ticket or a warning: dealt with)
+                        c:finish(('Subject given a %s%s.'):format(action == 'cite' and 'ticket' or 'warning',
+                            proof() and ' despite evidence of tampering' or ''))
+                    end
                 end)
                 c:on('custody', function()
                     c:finish(proof() and 'Suspect arrested for vehicle tampering; tools and damage recorded.'
@@ -240,7 +249,7 @@ Callout({
                 c:objective('caller', 'Talk to the caller', { hint = 'They said they would wait nearby.', blip = 'caller' })
                 c:objective('find', 'Find the person they called about', { hint = 'Near the parked cars.', blip = 'subject' })
                 c:objective('car', 'Check the car they tried', { hidden = true, hint = 'The caller said the silver one.', blip = 'car' })
-                c:objective('deal', 'Deal with them: arrest, or let them go', { after = { 'find' }, who = 'all', blip = 'subject' })
+                c:objective('deal', 'Deal with them: arrest, ticket or warn, or let them go', { after = { 'find' }, who = 'all', blip = 'subject' })
 
                 c:on('act', function(who, action, arg)
                     if who == 'caller' and action == 'ask' and arg == 'c_what' then c:done('caller') end
@@ -254,7 +263,11 @@ Callout({
                 c:on('contact', function(who) if who == 'subject' then c:done('find') end end)
                 c:on('inspect', function(clue) if clue == 'car' then c:done('car') end end)
                 c:on('act', function(who, action)
-                    if who == 'subject' and action == 'cuff' and c:who('subject').cuffed then c:custody('subject') end
+                    if who ~= 'subject' then return end
+                    if action == 'cuff' and c:who('subject').cuffed then c:custody('subject') end
+                    if action == 'cite' or action == 'warn' then
+                        c:finish(('The owner, locked out of his own car, given a %s. No crime.'):format(action == 'cite' and 'ticket' or 'warning'))
+                    end
                 end)
                 c:on('custody', function() c:finish('Arrested the owner of the car. No crime found: he was locked out.') end)
                 c:on('contact_ended', function(who, outcome)

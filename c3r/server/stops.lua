@@ -126,6 +126,9 @@ local function send_questions(s)
     end
 end
 
+-- That officer's menu, brought up to date (a callout opened a question from somewhere else).
+function StopQuestions(src) local s = Stops[src] if s then send_questions(s) end end
+
 -- Someone on foot the officer walked up to: their own person and story (a pedestrian's, like a passenger's),
 -- and the same menu, less what's about a car. p = { net, male }.
 local function start_foot(src, p)

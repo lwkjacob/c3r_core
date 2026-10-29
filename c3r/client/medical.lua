@@ -40,10 +40,8 @@ function DownedNear()
     if IsPedInAnyVehicle(me, false) then return nil end
     local pos, best, best_d = GetEntityCoords(me), nil, REACH
     for _, p in ipairs(GetGamePool('CPed')) do
-        if p ~= me then
-            local d = #(GetEntityCoords(p) - pos)
-            if d < best_d and IsDowned(p) then best, best_d = p, d end
-        end
+        local d = p ~= me and #(GetEntityCoords(p) - pos)
+        if d and d < best_d and IsDowned(p) then best, best_d = p, d end
     end
     return best
 end

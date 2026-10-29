@@ -113,13 +113,11 @@ local function nearest_contact(s)
     for _, o in pairs(s and s.occ or {}) do mine[o.ped] = true end
     local pos, best, best_d = GetEntityCoords(me), nil, NEAR_PERSON
     for _, ped in ipairs(GetGamePool('CPed')) do
-        if ped ~= me and not mine[ped] and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped) and not IsBackup(ped)
+        local d = ped ~= me and not mine[ped] and #(GetEntityCoords(ped) - pos) -- (distance first: the rest only for someone close)
+        if d and d < best_d and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped) and not IsBackup(ped)
             and not IsDowned(ped) then
-            local d = #(GetEntityCoords(ped) - pos)
-            if d < best_d then
-                local veh = GetVehiclePedIsIn(ped, false)
-                if veh == 0 or (GetEntitySpeed(veh) < 1.0 and GetPedInVehicleSeat(veh, -1) ~= 0) then best, best_d = ped, d end
-            end
+            local veh = GetVehiclePedIsIn(ped, false)
+            if veh == 0 or (GetEntitySpeed(veh) < 1.0 and GetPedInVehicleSeat(veh, -1) ~= 0) then best, best_d = ped, d end
         end
     end
     return best
@@ -168,12 +166,13 @@ RegisterKeyMapping('+c3r_interact', 'Traffic stop: talk to someone in the car (c
 -- The hint (and, while picking, the marker and the arrow keys), every frame while in reach.
 CreateThread(function()
     local shown, sent_at, contact, scan_at, down = false, 0, nil, 0, nil
+    local last = {} -- (what the page was last told: only send again when it moves or changes)
     while true do
         local s = Stop
         local free = not s or (Casual(s) and not in_reach(s)) -- E would start talking to someone new
         local down_open = MedicalOpen()
         if not open and GetGameTimer() >= scan_at then -- anyone nearby (a few times a second is plenty)
-            scan_at = GetGameTimer() + 300
+            scan_at = GetGameTimer() + 400
             down = LocalPlayer.state.c3rDuty and DownedNear() or nil
             contact = free and nearest_contact(s) or nil
         end
@@ -198,13 +197,18 @@ CreateThread(function()
             -- beside the officer, a little above the shoulder
             local me = GetEntityCoords(PlayerPedId())
             local on, x, y = GetScreenCoordFromWorldCoord(me.x, me.y, me.z + 0.85)
-            if on and not open and GetGameTimer() - sent_at >= 33 then -- ~30 updates a second follow it smoothly
-                sent_at = GetGameTimer()
+            if on and not open and GetGameTimer() - sent_at >= 33 then -- (at most ~30 a second, to follow it smoothly)
                 local o = browsing and browsing.list[browsing.i]
-                SendNUIMessage({ type = 'hint', show = true, x = x, y = y, browse = browsing ~= nil,
-                                 key = KeyName('+c3r_interact', 'E'), who = o and who(o) or nil,
-                                 count = browsing and #browsing.list or nil, index = browsing and browsing.i or nil })
-                shown = true
+                local i = browsing and browsing.i or nil
+                if not shown or math.abs(x - (last.x or 0)) > 0.002 or math.abs(y - (last.y or 0)) > 0.002 or i ~= last.i
+                    or (browsing ~= nil) ~= last.browse then
+                    sent_at = GetGameTimer()
+                    last.x, last.y, last.i, last.browse = x, y, i, browsing ~= nil
+                    SendNUIMessage({ type = 'hint', show = true, x = x, y = y, browse = browsing ~= nil,
+                                     key = KeyName('+c3r_interact', 'E'), who = o and who(o) or nil,
+                                     count = browsing and #browsing.list or nil, index = i })
+                    shown = true
+                end
             end
             Wait(0)
         else

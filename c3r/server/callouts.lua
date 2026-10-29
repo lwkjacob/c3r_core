@@ -135,6 +135,7 @@ end
 --[[ Someone in the story. spec = {
        at = 'point' (the location's points) | vector3 / vector4, model?, male?, label ('Caller': on screen until named),
        secret?, demeanor?, flags?, warrant?, items? (what's on them that matters: a search finds it as evidence),
+       pockets? (everyday things a search finds that aren't evidence: a receipt, keys), age? ({ min, max }: their ID),
        scene? ('WORLD_HUMAN_...' scenario, or { dict, anim }), questions? (asked under "The call"), lines?, facts? } ]]
 function C:person(key, spec)
     local inc = self.inc
@@ -209,6 +210,19 @@ end
 function C:hide(id)
     local o = self.inc.objectives.by[id]
     if o and not o.hidden then o.hidden = true Callouts.refresh(self.inc) end
+end
+
+-- Is an officer talking to anyone on the call right now? (Not "everyone's left" while someone's mid-conversation.)
+function C:talking()
+    for _, p in ipairs(self.inc.people_list) do if p.in_contact then return true end end
+    return false
+end
+
+-- After a story gives someone a fact from elsewhere (c:who(key).facts.x = ...): the officer talking to them now sees
+-- the questions it opens without having to do something first.
+function C:questions(key)
+    local p = self.inc.people[key]
+    if p and p.in_contact then StopQuestions(p.in_contact) end
 end
 
 -- Something one officer notices (a card on their screen), e.g. "a fresh mark on her cheek".
@@ -437,6 +451,10 @@ local function make_record(inc, spec)
             inc.surname = inc.surname or p.last
             p.last = inc.surname
         end
+        if type(spec.age) == 'table' then -- (their ID says what the story says: a teenager is a teenager)
+            p.dob = ('%02d/%02d/%d'):format(math.random(1, 12), math.random(1, 28),
+                os.date('*t').year - math.random(spec.age[1], spec.age[2] or spec.age[1]))
+        end
         if spec.demeanor then p.truth.demeanor = spec.demeanor end
         if spec.flags then p.flags = spec.flags end
         if spec.warrant then p.warrant = spec.warrant end
@@ -487,6 +505,7 @@ local function records(inc)
                     answers = {}, facts = copy(spec.facts), callout = inc.id, key = p.key,
                     extra = { questions = spec.questions, lines = spec.lines } }
         o.pockets = Generator.some(Data.pockets, math.random(1, 3))
+        for _, item in ipairs(spec.pockets or {}) do table.insert(o.pockets, 1, item) end -- (theirs, not evidence)
         for _, item in ipairs(items) do table.insert(o.pockets, 1, item) end
         p.o, p.male, p.inc = o, male, inc
     end
@@ -640,7 +659,8 @@ local function clean(inc)
             ByNet[p.net] = nil
             if p.ent and DoesEntityExist(p.ent) then
                 SetEntityOrphanMode(p.ent, 0)
-                if not (p.o and p.o.cuffed) and p.owner then TriggerClientEvent('c3r:callout:task', p.owner, p.net, 'wander') end
+                -- (not someone an officer's still talking to, or has in cuffs: they're that officer's to finish with)
+                if not (p.o and p.o.cuffed) and not p.in_contact and p.owner then TriggerClientEvent('c3r:callout:task', p.owner, p.net, 'wander') end
             end
             local net = p.net
             SetTimeout(120000, function() UnbindSubject(net) end)
@@ -697,8 +717,19 @@ function Callouts.contact_ended(s, outcome)
     end
 end
 
--- A new call near an officer (near = src), or near anyone on duty. -> incident | nil, reason
-function Callouts.create(near)
+-- The callout an officer named: its id or its file's name (example, _example, domestic...). -> def | nil
+function Callouts.find(name)
+    name = type(name) == 'string' and name:lower():gsub('%.lua$', '') or ''
+    for _, def in ipairs(DefList) do
+        local file = def.file and def.file:match('([^/]+)%.lua$')
+        if def.id:lower() == name or file == name or (file and file:gsub('^_', '') == name) then return def end
+    end
+end
+
+-- A new call near an officer (near = src), or near anyone on duty. only = one callout (by name, even one switched
+-- off: someone asked for it), and then the nearest free location if none is within the usual distances.
+-- -> incident | nil, reason
+function Callouts.create(near, only)
     local c = cfg()
     local officers = near and { near } or on_duty_players()
     if not officers[1] then return nil, 'nobody_on_duty' end
@@ -706,16 +737,18 @@ function Callouts.create(near)
     for _, inc in pairs(Open) do used[inc.def.id .. ':' .. inc.loc_index] = true end
     local options = {}
     for _, def in ipairs(DefList) do
-        if def.enabled ~= false then
-            local locs = {}
+        if (only and def == only) or (not only and def.enabled ~= false) then
+            local locs, nearest, nearest_d = {}, nil, math.huge
             for i, l in ipairs(def.locations) do
                 if not used[def.id .. ':' .. i] then
                     for _, src in ipairs(officers) do
                         local d = #(pos(src) - l.at)
+                        if d < nearest_d then nearest, nearest_d = i, d end
                         if d >= (c.min_distance or 0) and d <= (c.max_distance or math.huge) then locs[#locs + 1] = i break end
                     end
                 end
             end
+            if not locs[1] and only and nearest then locs[1] = nearest end
             if locs[1] then options[#options + 1] = { def = def, locs = locs, weight = def.weight or 1 } end
         end
     end
@@ -739,6 +772,8 @@ function Callouts.create(near)
     offer(inc)
     return inc
 end
+
+function Callouts.open_list() local l = {} for _, inc in pairs(Open) do l[#l + 1] = inc end return l end
 
 -- Respond: to call id, or (nil) the nearest open one. -> true | nil, reason
 function Callouts.respond(src, id)
@@ -911,12 +946,22 @@ RegisterNetEvent('c3r:callout:inspect', function(id, key)
     fire(inc, 'inspect', key, src)
 end)
 
--- /requestcall: a new call now, near you, put out to everyone (instead of waiting for the next one).
-RegisterCommand('requestcall', function(src)
+-- /requestcall [callout]: a new call now, near you, put out to everyone (instead of waiting for the next one). Name
+-- one (its file: /requestcall domestic) for that one; none for any.
+RegisterCommand('requestcall', function(src, args)
     if src <= 0 then return end
     if not IsOnDuty(src) then return TriggerClientEvent('c3r:callout:refused', src, 'off_duty') end
-    local inc, why = Callouts.create(src)
-    if not inc then TriggerClientEvent('c3r:callout:refused', src, why) end
+    local only
+    if args[1] then
+        only = Callouts.find(args[1])
+        if not only then
+            local names = {}
+            for _, d in ipairs(DefList) do names[#names + 1] = d.file and d.file:match('([^/]+)%.lua$'):gsub('^_', '') or d.id end
+            return TriggerClientEvent('c3r:callout:refused', src, ('No callout "%s". Callouts: %s'):format(args[1], table.concat(names, ', ')))
+        end
+    end
+    local inc, why = Callouts.create(src, only)
+    if not inc then TriggerClientEvent('c3r:callout:refused', src, only and why == 'no_callout' and (only.name .. ': every location is in use.') or why) end
 end, false)
 
 -- A game starting up (or c3r restarting on it): the calls open now.
