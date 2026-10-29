@@ -8,7 +8,7 @@
       argument   a loud row about money; nobody touched anybody, and the neighbour calls every week
       left       he drove off drunk before you got there; she knows where he's gone and in what
       caller     she rang it in herself, drunk, and she's the one who went for him; the lamp she says he threw at her
-                 is out on the porch, where she threw it at him
+                 is out in the yard, where she threw it at him
     It's dealt with when whoever's arrested is taken in (the card says so once they're cuffed: book them at a station
     or call prisoner transport), both are let go, or both have been spoken to and every unit has left.
 
@@ -17,7 +17,8 @@
       woman          her, at the front door
       man            him, in the yard: well within 10 m of her, so he can hear what she says until you separate them
       evidence       what's out in the yard (a smashed phone, a broken plate, tyre marks or a lamp, by story)
-      man_drove_to   where he is in the "left" story, having driven off: within ~150 m of the house
+      man_drove_to   where he is in the "left" story, having driven off: round the corner (any distance: he's made when
+                     a unit gets near)
       man_car        his car, parked there (sit in a car where it should be and /c3rpos man_car)
 ]]
 
@@ -158,12 +159,30 @@ Callout({
         'Caller can hear a woman crying and a door slamming at the house next door.',
         'Shouting and banging at a residence. Caller is concerned for the woman who lives there.',
     },
-    -- Rough placeholders: replace every point with /c3rpos in game.
+    -- The points each location needs, in the order /c3rplace domestic walks you through them ('car': sit in a car).
+    -- The first is where the call is (units are on scene within Config.Callouts.arrive m of it).
+    points = {
+        { 'neighbour', 'Where the neighbour who called it in waits: their own lawn, on the phone.' },
+        { 'woman', 'Her, at the front door.' },
+        { 'man', 'Him, in the yard: well within 10 m of her, so he can hear what she says.' },
+        { 'evidence', 'What is out in the yard (a phone, a plate, a lamp...): on the ground.' },
+        { 'man_drove_to', 'Where he is in the story where he drove off: round the corner, a street or two away.' },
+        { 'man_car', 'His car, parked there. Sit in a car parked where it should be.', 'car' },
+    },
+    -- Add more with /c3rplace domestic in game (it writes them here), or by hand.
     locations = {
         house('Paleto Bay', vector3(-128.49, 6549.86, 28.51), {
             neighbour = vector4(-129.26, 6550.46, 29.52, 241.0), woman = vector4(-105.16, 6529.10, 30.17, 30.2),
             man = vector4(-111.54, 6533.10, 29.81, 357.8), evidence = vector4(-98.27, 6540.20, 29.81, 135.1),
             man_drove_to = vector4(-85.11, 6601.18, 29.47, 46.4), man_car = vector4(-73.23, 6603.38, 29.03, 97.9), }),
+        { street = 'Joshua Rd', at = vector3(421.79, 2992.90, 40.62), points = {
+            neighbour = vector4(421.79, 2992.90, 40.62, 109.2),
+            woman = vector4(412.09, 2966.05, 41.89, 352.7),
+            man = vector4(405.50, 2963.92, 40.92, 84.3),
+            evidence = vector4(407.23, 2954.20, 40.92, 352.8),
+            man_drove_to = vector4(225.36, 2883.13, 43.49, 249.6),
+            man_car = vector4(218.66, 2880.72, 43.17, 122.9),
+        } },
     },
 
     stories = {
@@ -204,7 +223,7 @@ Callout({
                         c_where_he = { "Right there. He's not going anywhere." },
                     }) })
                 c:clue('yard', { at = 'evidence', label = 'The yard', prop = 'prop_npc_phone_02',
-                    text = 'A phone in the grass, screen shattered: thrown hard. The lock screen is a photo of her.' })
+                    text = 'A phone lying in the yard, screen shattered: thrown out of the house, hard. The lock screen is a photo of her.' })
                 card(c)
                 wire(c)
                 -- what the first officer to face her sees
@@ -251,7 +270,7 @@ Callout({
                         c_night = { "We had a row. About money, if you must know. Nobody touched anybody." },
                         c_hands = { "My hands? They're fine. Look." },
                         c_partner = { "She's fine. She's the one who threw the plate." },
-                        c_smash = { "That was a plate. She threw it at the wall. Not at me. At the wall." },
+                        c_smash = { "That was a plate. She threw it out the door after me. Not AT me. Out the door." },
                     }) })
                 c:person('woman', { at = 'woman', label = 'Woman', male = false, home = true, family = true, secret = 'clean', demeanor = 'rude',
                     scene = 'WORLD_HUMAN_STAND_IMPATIENT', questions = HER_Q, lines = at_home(c, {
@@ -262,7 +281,7 @@ Callout({
                         c_where_he = { 'In the yard, sulking.' },
                     }) })
                 c:clue('yard', { at = 'evidence', label = 'The yard', prop = 'prop_plate_01',
-                    text = 'A dinner plate face down by the step, a chunk snapped out of the rim. Thrown, by where it landed: at the wall, not at anyone.' })
+                    text = 'A dinner plate lying in the yard, a chunk snapped out of the rim. Thrown out of the house: there is no blood, and nobody was hit.' })
                 card(c)
                 wire(c)
                 shouting(c, { { 'woman', 'Your mother, always your mother!' }, { 'man', 'Do NOT start on my mother!' } })
@@ -308,7 +327,7 @@ Callout({
                 c:vehicle('car', { at = 'man_car', model = 'asea', make = 'Declasse', name = 'Asea', color = 'Silver', paint = 4,
                     label = 'His car', owner = 'man', locked = false })
                 c:clue('yard', { at = 'evidence', label = 'The yard', -- (no prop: marks on the ground)
-                    text = 'Black tyre marks over the kerb and a garden light snapped off: a car pulled away fast and clipped it.' })
+                    text = 'Fresh tyre marks dug into the ground and a garden light snapped off: a car pulled away from the house fast and clipped it.' })
                 c:clue('car', { on = 'car', label = 'His car', hidden = true,
                     text = 'Bonnet still warm. Keys in the ignition, an empty vodka bottle in the footwell.' })
                 card(c, { away = true })
@@ -368,10 +387,10 @@ Callout({
                         c_hands = { { "These? She scratched me when I took the keys. I didn't hit her back. I've never hit her.",
                                       set = { c_scratches = 'yes' } } },
                         c_partner = { "She's not hurt. She's drunk. That's all this is." },
-                        c_smash = { "That lamp? She threw it out the door at me. Missed by a mile. It's on the porch. Look at it." },
+                        c_smash = { "That lamp? She threw it out the door at me. Missed by a mile. It's lying out there in the yard. Look at it." },
                     }) })
                 c:clue('yard', { at = 'evidence', label = 'The yard', prop = 'v_res_m_lamptbl',
-                    text = 'A table lamp lying on the porch step, flex trailing out of the open door. Not a crack or a dent on it.' })
+                    text = 'A table lamp lying in the yard, its flex ripped out of the plug. Not a crack or a dent on it.' })
                 card(c)
                 wire(c)
                 shouting(c, { { 'woman', "Give me my keys! They're MY keys!" }, { 'man', "You're not driving like this!" } })

@@ -67,6 +67,9 @@ function Callout(def)
     table.sort(stories, function(a, b) return tostring(a.id) < tostring(b.id) end) -- (pairs order: same weights, same pick)
     def.story_list = stories
     def.priority = tonumber(def.priority) or 2
+    -- the file it's in (for /c3rplace to write new locations into)
+    local source = debug and debug.getinfo and (debug.getinfo(2, 'S') or {}).source or ''
+    def.file = source:match('(callouts/[%w_%-]+%.lua)$')
     Defs[def.id] = def
     DefList[#DefList + 1] = def
 end
@@ -472,33 +475,20 @@ function Callouts.send_clues(inc)
     for src in pairs(inc.responders) do TriggerClientEvent('c3r:callout:clues', src, inc.id, list) end
 end
 
-local function build(inc)
-    inc.building = true
+-- Who everyone is: their records (a real person, the story's truth, what they carry) and the cars' papers. Made once,
+-- when the first unit gets close: what a story knows about someone doesn't depend on where the officers are.
+local function records(inc)
     for _, p in ipairs(inc.people_list) do
         if inc.state ~= 'open' then return end
         local spec = p.spec
         local male, person, truth = make_record(inc, spec)
-        local models = spec.model and { spec.model } or (male and MODELS.male or MODELS.female)
-        local at = point(inc, spec.at)
-        local ent = CreatePed(4, GetHashKey(models[math.random(#models)]), at.x, at.y, at.z, heading_of(at) or 0.0, true, true)
-        local net = net_of(ent)
-        if inc.state ~= 'open' then if ent ~= 0 then DeleteEntity(ent) end return end
-        if not net then
-            print(('[c3r] callout %s: could not make "%s" (no game near the scene?)'):format(inc.def.id, p.key))
-            if ent ~= 0 and DoesEntityExist(ent) then DeleteEntity(ent) end
-            return Callouts.cancel(inc)
-        end
-        SetEntityOrphanMode(ent, 2) -- (kept while the call is open, whoever's game it moves to)
         local items = spec.items or Generator.items(truth.secret)
-        local o = { net = net, role = 'pedestrian', part = spec.label, person = person, truth = truth, items = items,
+        local o = { role = 'pedestrian', part = spec.label, person = person, truth = truth, items = items,
                     answers = {}, facts = copy(spec.facts), callout = inc.id, key = p.key,
                     extra = { questions = spec.questions, lines = spec.lines } }
         o.pockets = Generator.some(Data.pockets, math.random(1, 3))
         for _, item in ipairs(items) do table.insert(o.pockets, 1, item) end
-        p.ent, p.net, p.o, p.male = ent, net, o, male
-        ByNet[net] = p
-        p.inc = inc
-        BindSubject(net, person, nil, items, truth)
+        p.o, p.male, p.inc = o, male, inc
     end
     for _, v in ipairs(inc.vehicle_list) do
         if inc.state ~= 'open' then return end
@@ -514,32 +504,92 @@ local function build(inc)
             spec.stolen and 'stolen' or 'clean', owner and owner.id)
         rec.stolen = spec.stolen == true
         Db.createVehicle(rec)
-        local at = point(inc, spec.at)
-        local ent = CreateVehicleServerSetter(GetHashKey(spec.model), 'automobile', at.x, at.y, at.z, heading_of(at) or 0.0)
-        local net = net_of(ent)
-        if not net then
-            print(('[c3r] callout %s: could not make vehicle "%s" (%s)'):format(inc.def.id, v.key, spec.model))
-            return Callouts.cancel(inc)
+        v.plate = plate
+    end
+end
+
+-- Is any unit on the call within the build distance of that point?
+local function in_range(inc, at)
+    local r = cfg().build or 300.0
+    for src in pairs(inc.responders) do
+        if #(pos(src) - vector3(at.x, at.y, at.z)) < r then return true end
+    end
+    return false
+end
+
+-- The people, cars and props, each made once a unit is near its own point: a game has to be close to a spot for the
+-- server to make something there, and this way a point can be any distance from the call (round the corner, or
+-- across town). Cancels the call if someone can't be made at all.
+local function make_near(inc)
+    local made = false
+    for _, p in ipairs(inc.people_list) do
+        if inc.state ~= 'open' then return end
+        local at = point(inc, p.spec.at)
+        if not p.ent and in_range(inc, at) then
+            local spec = p.spec
+            local models = spec.model and { spec.model } or (p.male and MODELS.male or MODELS.female)
+            local ent = CreatePed(4, GetHashKey(models[math.random(#models)]), at.x, at.y, at.z, heading_of(at) or 0.0, true, true)
+            local net = net_of(ent)
+            if inc.state ~= 'open' then if ent ~= 0 then DeleteEntity(ent) end return end
+            if not net then
+                print(('[c3r] callout %s: could not make "%s" (no game near that point?)'):format(inc.def.id, p.key))
+                if ent ~= 0 and DoesEntityExist(ent) then DeleteEntity(ent) end
+                return Callouts.cancel(inc)
+            end
+            SetEntityOrphanMode(ent, 2) -- (kept while the call is open, whoever's game it moves to)
+            p.ent, p.net, p.o.net = ent, net, net
+            ByNet[net] = p
+            BindSubject(net, p.o.person, nil, p.o.items, p.o.truth)
+            made = true
         end
-        SetEntityOrphanMode(ent, 2)
-        SetVehicleNumberPlateText(ent, plate)
-        v.ent, v.net, v.plate = ent, net, plate
+    end
+    for _, v in ipairs(inc.vehicle_list) do
+        if inc.state ~= 'open' then return end
+        local at = point(inc, v.spec.at)
+        if not v.ent and in_range(inc, at) then
+            local ent = CreateVehicleServerSetter(GetHashKey(v.spec.model), 'automobile', at.x, at.y, at.z, heading_of(at) or 0.0)
+            local net = net_of(ent)
+            if not net then
+                print(('[c3r] callout %s: could not make vehicle "%s" (%s)'):format(inc.def.id, v.key, v.spec.model))
+                return Callouts.cancel(inc)
+            end
+            SetEntityOrphanMode(ent, 2)
+            SetVehicleNumberPlateText(ent, v.plate)
+            v.ent, v.net = ent, net
+            made = true
+        end
     end
     for _, cl in ipairs(inc.clue_list) do
         local prop = cl.spec.prop
-        if prop and not cl.spec.on then
+        if prop and not cl.spec.on and not cl.tried then
             local at = point(inc, cl.spec.at)
-            cl.ent = CreateObjectNoOffset(GetHashKey(prop), at.x, at.y, at.z, true, true, false)
-            cl.net = cl.ent ~= 0 and net_of(cl.ent) or nil
-            if cl.net then SetEntityOrphanMode(cl.ent, 2)
-            else print(('[c3r] callout %s: no prop "%s" for clue "%s" (the marker still shows it)'):format(inc.def.id, prop, cl.key)) end
+            if in_range(inc, at) then
+                cl.tried = true
+                cl.ent = CreateObjectNoOffset(GetHashKey(prop), at.x, at.y, at.z, true, true, false)
+                cl.net = cl.ent ~= 0 and net_of(cl.ent) or nil
+                if cl.net then SetEntityOrphanMode(cl.ent, 2)
+                else print(('[c3r] callout %s: no prop "%s" for clue "%s" (the marker still shows it)'):format(inc.def.id, prop, cl.key)) end
+                made = true
+            end
         end
     end
+    if made and inc.built then
+        Callouts.send_clues(inc)
+        Callouts.refresh(inc) -- (the map's blips can follow them now)
+    end
+end
+
+local function build(inc)
+    inc.building = true
+    records(inc)
+    if inc.state ~= 'open' then return end
+    make_near(inc)
+    if inc.state ~= 'open' then return end
     inc.built, inc.building = true, false
     log('callout %d: scene built (%d people)', inc.id, #inc.people_list)
     fire(inc, 'build')
     Callouts.send_clues(inc)
-    Callouts.refresh(inc) -- (the map's blips can follow the people and cars now)
+    Callouts.refresh(inc)
 end
 
 -- Each person's AI runs on whichever game owns them: tell that game what they're doing, again whenever it changes
@@ -775,7 +825,7 @@ function Callouts.tick(now)
         else
             if not inc.built and not inc.building then
                 for src in pairs(inc.responders) do
-                    if #(pos(src) - inc.loc.at) < (c.build or 250.0) then
+                    if #(pos(src) - inc.loc.at) < (c.build or 300.0) then
                         CreateThread(function()
                             local ok, err = pcall(build, inc)
                             if not ok then
@@ -787,7 +837,20 @@ function Callouts.tick(now)
                     end
                 end
             end
-            if inc.built then keep_up(inc) end
+            if inc.built then
+                keep_up(inc)
+                if not inc.making then -- (the rest of the scene, as units get near it)
+                    inc.making = true
+                    CreateThread(function()
+                        local ok, err = pcall(make_near, inc)
+                        inc.making = false
+                        if not ok then
+                            print(('[c3r] callout %s (%s) build: %s'):format(inc.def.id, tostring(inc.story.id), tostring(err)))
+                            Callouts.cancel(inc)
+                        end
+                    end)
+                end
+            end
             for src, r in pairs(inc.responders) do
                 if not r.arrived and #(pos(src) - inc.loc.at) < (c.arrive or 40.0) then
                     r.arrived = now + src / 1e6 -- (when, and a tie-break: the order units pick objectives in)
@@ -863,6 +926,118 @@ AddEventHandler('c3r:duty', function(src, on) if not on then Callouts.leave(src)
 AddEventHandler('playerDropped', function()
     Callouts.leave(source)
     Held[source] = nil
+end)
+
+-- ─── /c3rplace: a new location for a callout, walked out in game ─────────────
+-- An admin (the command.c3rconfig ace, as /c3rconfig) types /c3rplace <callout> [n]: their game walks them through the
+-- callout's points (def.points), and the location is written into the callout's file (added to its locations, or
+-- replacing location n) and used straight away.
+
+local function admin(src) return src > 0 and IsPlayerAceAllowed(src, 'command.c3rconfig') end
+
+-- The items of the Lua table whose '{' is at `open` in text: { { s, e } } (where each one's text is), and where it
+-- closes. Strings and comments are skipped.
+local function table_items(text, open)
+    local i, n, depth, list, start, last = open + 1, #text, 0, {}, nil, open
+    while i <= n do
+        local ch = text:sub(i, i)
+        if text:sub(i, i + 1) == '--' then
+            local eq = text:match('^%-%-%[(=*)%[', i)
+            if eq then i = (text:find(']' .. eq .. ']', i, true) or n) + #eq + 2
+            else i = (text:find('\n', i, true) or n) + 1 end
+        elseif ch == '"' or ch == "'" then
+            if depth == 0 and not start then start = i end
+            local j = i + 1
+            while j <= n and text:sub(j, j) ~= ch do j = j + (text:sub(j, j) == '\\' and 2 or 1) end
+            last, i = j, j + 1
+        elseif ch:match('%s') then
+            i = i + 1
+        else
+            if depth == 0 and ch == '}' then
+                if start then list[#list + 1] = { s = start, e = last } end
+                return list, i
+            elseif depth == 0 and ch == ',' then
+                if start then list[#list + 1] = { s = start, e = last } end
+                start = nil
+            else
+                if depth == 0 and not start then start = i end
+                if ch == '{' or ch == '(' or ch == '[' then depth = depth + 1
+                elseif ch == '}' or ch == ')' or ch == ']' then depth = depth - 1 end
+            end
+            last, i = i, i + 1
+        end
+    end
+end
+Callouts.table_items = table_items
+
+local function num(v) return type(v) == 'number' and v == v and math.abs(v) < 100000 end
+
+-- data = { street, points = { [name] = { x, y, z, h } } } from the admin's game -> the location's Lua text, and the table
+local function location_of(def, data, indent)
+    local pts, lines = {}, {}
+    for _, pt in ipairs(def.points) do
+        local p = data.points[pt[1]]
+        pts[pt[1]] = vector4(p.x, p.y, p.z, p.h)
+        lines[#lines + 1] = ('%s    %s = vector4(%.2f, %.2f, %.2f, %.1f),'):format(indent, pt[1], p.x, p.y, p.z, p.h)
+    end
+    local first = data.points[def.points[1][1]]
+    local at = vector3(first.x, first.y, first.z) -- (the first point, the caller's: on scene within Config.Callouts.arrive m of it)
+    local head = ("{ street = '%s', at = vector3(%.2f, %.2f, %.2f), points = {"):format(data.street, at.x, at.y, at.z)
+    return head .. '\n' .. table.concat(lines, '\n') .. '\n' .. indent .. '} }', { street = data.street, at = at, points = pts }
+end
+
+RegisterCommand('c3rplace', function(src, args)
+    if not admin(src) then return end
+    local def = Defs[args[1] or '']
+    if not def or not def.points or not def.file then
+        local ids = {}
+        for _, d in ipairs(DefList) do if d.points and d.file then ids[#ids + 1] = d.id end end
+        return TriggerClientEvent('c3r:place:msg', src, 'Usage: /c3rplace <callout> [location number]. Callouts: ' .. table.concat(ids, ', '))
+    end
+    local n = tonumber(args[2])
+    TriggerClientEvent('c3r:place:start', src, { id = def.id, name = def.name, points = def.points,
+        index = n and def.locations[n] and math.floor(n) or nil, count = #def.locations })
+end, false)
+
+RegisterNetEvent('c3r:place:save', function(id, index, data)
+    local src = source
+    local def = admin(src) and type(id) == 'string' and Defs[id]
+    if not (def and def.points and def.file and type(data) == 'table' and type(data.points) == 'table') then return end
+    for _, pt in ipairs(def.points) do
+        local p = data.points[pt[1]]
+        if type(p) ~= 'table' or not (num(p.x) and num(p.y) and num(p.z) and num(p.h)) then
+            return TriggerClientEvent('c3r:place:msg', src, 'Not saved: point ' .. pt[1] .. ' is missing.')
+        end
+    end
+    data.street = (type(data.street) == 'string' and data.street or 'Unknown'):gsub("[%c'\\]", ''):sub(1, 40)
+    local text = LoadResourceFile(GetCurrentResourceName(), def.file)
+    local at_id = text and (text:find("id = '" .. id .. "'", 1, true) or text:find('id = "' .. id .. '"', 1, true))
+    local brace = text and select(2, text:find('locations%s*=%s*{', at_id or 1)) -- (where its '{' is)
+    local list = brace and table_items(text, brace)
+    if not list then return TriggerClientEvent('c3r:place:msg', src, 'Not saved: no locations = { ... } found in ' .. def.file) end
+    local first = list[1] and text:sub(1, list[1].s - 1):match('\n([ \t]*)$')
+    local indent = first or '        '
+    local entry, loc = location_of(def, data, indent)
+    index = math.type(index) == 'integer' and list[index] and index or nil
+    if index then
+        local it = list[index]
+        text = text:sub(1, it.s - 1) .. entry .. text:sub(it.e + 1)
+        def.locations[index] = loc
+    else
+        local at, sep = brace, ''
+        if list[1] then
+            local last = list[#list]
+            local comma = text:match('^%s*(),', last.e + 1)
+            if comma then at = comma else at, sep = last.e, ',' end
+        end
+        text = text:sub(1, at) .. sep .. '\n' .. indent .. entry .. ',' .. text:sub(at + 1)
+        def.locations[#def.locations + 1] = loc
+        index = #def.locations
+    end
+    if not load(text) then return TriggerClientEvent('c3r:place:msg', src, 'Not saved: the file would not load (nothing changed).') end
+    SaveResourceFile(GetCurrentResourceName(), def.file, text, -1)
+    print(('[c3r] %s placed %s location %d (%s) with /c3rplace'):format(GetPlayerName(src) or src, id, index, data.street))
+    TriggerClientEvent('c3r:place:saved', src, ('%s: location %d saved to %s, in use now.'):format(def.name, index, def.file), entry)
 end)
 
 -- ─── the contract (docs/contract.md) ──────────────────────────────────────────

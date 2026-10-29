@@ -81,6 +81,11 @@ function CloseMenu()
 end
 
 local function open_menu(s, o)
+    -- following the officer: talking to them stops that, and they stand where they are (as "Stay here")
+    if o.following and not o.cuffed then
+        o.following = false -- (now, so the menu offers "Follow me" again)
+        TriggerEvent('c3r:stop:task', 'stay', o.net)
+    end
     browsing, open, target = nil, true, o
     SetNuiFocus(true, true)
     SendNUIMessage({ type = 'radial', open = true, kind = 'person', key = KeyName('+c3r_interact', 'E'),
@@ -131,6 +136,7 @@ end)
 RegisterCommand('+c3r_interact', function()
     local s = Stop
     if open or MedicalOpen() then return end
+    if CalloutPlacing and CalloutPlacing() then return end -- (/c3rplace: E sets a point)
     if CalloutInspect and CalloutInspect() then return end -- evidence on a call, right beside you (client/callouts.lua)
     local down = LocalPlayer.state.c3rDuty and DownedNear()
     if down then return OpenMedical(down) end -- someone down beside you: first aid (client/medical.lua)

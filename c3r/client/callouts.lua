@@ -164,7 +164,7 @@ end, false)
 
 RegisterCommand('+c3r_objective', function()
     -- (Backspace also closes the who-to-talk-to and driver pickers: those turn it off while they're open)
-    if not call or IsNuiFocused() or not IsControlEnabled(0, 177) then return end
+    if not call or CalloutPlacing() or IsNuiFocused() or not IsControlEnabled(0, 177) then return end
     hidden = not hidden
     SendNUIMessage({ type = 'callout', hidden = hidden })
 end, false)
@@ -173,7 +173,7 @@ RegisterKeyMapping('+c3r_objective', 'Callout: hide / show the objective (c3r)',
 
 RegisterCommand('+c3r_leavecall', function()
     -- (X is also the taser's arc and the Stop Stick's let-go: not while either is in hand)
-    if confirming or IsNuiFocused() or LocalPlayer.state.taser or LocalPlayer.state.stopstick then return end
+    if confirming or CalloutPlacing() or IsNuiFocused() or LocalPlayer.state.taser or LocalPlayer.state.stopstick then return end
     if not call and offer and GetGameTimer() < offer.until_t then -- an offer up: decline it (it stays open for others)
         offer = nil
         return SendNUIMessage({ type = 'callout', offer = false })
@@ -302,10 +302,13 @@ local looked = {} -- [clue key] = true: inspected by me (it stops glowing)
 RegisterNetEvent('c3r:callout:clues', function(id, list) clue_call, clues = id, type(list) == 'table' and list or {} end)
 AddEventHandler('c3r:callout:ended', function() clues, clue_call, looked = {}, nil, {} end)
 
+-- Where it is: the person or car it's on, its prop (which may have rolled a little as it landed), or its point.
 local function clue_pos(cl)
-    if cl.on then
-        local ent = NetworkDoesNetworkIdExist(cl.on) and NetToEnt(cl.on) or 0
-        return DoesEntityExist(ent) and GetEntityCoords(ent) or nil
+    local net = cl.on or cl.glow
+    if net then
+        local ent = NetworkDoesNetworkIdExist(net) and NetToEnt(net) or 0
+        if DoesEntityExist(ent) then return GetEntityCoords(ent) end
+        if cl.on then return nil end
     end
     return cl.at and vector3(cl.at.x, cl.at.y, cl.at.z)
 end
@@ -386,6 +389,112 @@ CreateThread(function()
 end)
 
 TriggerServerEvent('c3r:callout:sync') -- (the calls open now)
+
+-- ─── /c3rplace (server/callouts.lua): walk out a new location for a callout, point by point ──────────────────────
+
+local placing = nil -- { id, name, points = { { name, what, kind } }, index, i, got = { [name] = { x, y, z, h } }, ghosts }
+function CalloutPlacing() return placing ~= nil end -- (client/menu.lua: E sets a point, it doesn't talk to anyone)
+
+-- A see-through stand-in where a point was set, so the whole layout shows as it's built (only in this game).
+local function ghost(kind, p)
+    local model = GetHashKey(kind == 'car' and 'asea' or 'a_m_y_hipster_01')
+    RequestModel(model)
+    local deadline = GetGameTimer() + 2000
+    while not HasModelLoaded(model) and GetGameTimer() < deadline do Wait(0) end
+    if not HasModelLoaded(model) then return nil end
+    local e = kind == 'car' and CreateVehicle(model, p.x, p.y, p.z, p.h, false, false)
+        or CreatePed(4, model, p.x, p.y, p.z - 1.0, p.h, false, false) -- (a ped's position is its hips: its feet are lower)
+    SetModelAsNoLongerNeeded(model)
+    if kind == 'car' then SetVehicleOnGroundProperly(e) else SetBlockingOfNonTemporaryEvents(e, true) end
+    SetEntityAlpha(e, 140, false)
+    SetEntityCollision(e, false, false)
+    SetEntityInvincible(e, true)
+    FreezeEntityPosition(e, true)
+    return e
+end
+
+local function clear_ghosts()
+    for _, e in pairs(placing and placing.ghosts or {}) do if DoesEntityExist(e) then DeleteEntity(e) end end
+end
+
+local function stop_placing(msg)
+    clear_ghosts()
+    placing = nil
+    ClearPrompt('place')
+    if msg then Prompt('place', 'info', 'Placing', msg, 5000) end
+end
+
+local function show_point()
+    local pt = placing.points[placing.i]
+    Prompt('place', 'info', ('%s %d/%d: %s'):format(placing.name, placing.i, #placing.points, pt[1]),
+        pt[2] .. (pt[3] == 'car' and ' Sit in the car, then E.' or ' Stand there, facing their way, then E.')
+        .. ' Backspace: back. X: cancel.')
+end
+
+local function where(at)
+    local s1 = GetStreetNameAtCoord(at.x, at.y, at.z)
+    local street = s1 and s1 ~= 0 and GetStreetNameFromHashKey(s1) or ''
+    if street == '' then street = GetLabelText(GetNameOfZone(at.x, at.y, at.z)) end
+    return street
+end
+
+local function finish_placing()
+    local first = placing.got[placing.points[1][1]] -- (the scene: where the first point is, the caller's)
+    Prompt('place', 'info', 'Placing', 'Saving...', 4000)
+    TriggerServerEvent('c3r:place:save', placing.id, placing.index, { street = where(vector3(first.x, first.y, first.z)), points = placing.got })
+end
+
+RegisterNetEvent('c3r:place:start', function(d)
+    if placing then stop_placing() end
+    placing = { id = d.id, name = d.name, points = d.points, index = d.index, i = 1, got = {}, ghosts = {} }
+    show_point()
+    CreateThread(function()
+        while placing and placing.i <= #placing.points do
+            for _, c in ipairs({ 38, 73, 177 }) do DisableControlAction(0, c, true) end -- (E, X, Backspace are the placer's)
+            local me = PlayerPedId()
+            if IsDisabledControlJustPressed(0, 38) then
+                local pt = placing.points[placing.i]
+                local veh = GetVehiclePedIsIn(me, false)
+                if pt[3] == 'car' and veh == 0 then
+                    Prompt('place_warn', 'info', 'A car point', 'Sit in a car parked where it should be, then E.', 4000)
+                elseif pt[3] ~= 'car' and veh ~= 0 then
+                    Prompt('place_warn', 'info', 'On foot', 'Get out and stand where they should stand, then E.', 4000)
+                else
+                    local e = pt[3] == 'car' and veh or me
+                    local c, h = GetEntityCoords(e), GetEntityHeading(e)
+                    local p = { x = c.x, y = c.y, z = c.z, h = h }
+                    placing.got[pt[1]] = p
+                    CreateThread(function() local g = ghost(pt[3], p) if g and placing then placing.ghosts[pt[1]] = g elseif g then DeleteEntity(g) end end)
+                    placing.i = placing.i + 1
+                    if placing.i > #placing.points then finish_placing() else show_point() end
+                end
+            elseif IsDisabledControlJustPressed(0, 177) and placing.i > 1 then
+                placing.i = placing.i - 1
+                local name = placing.points[placing.i][1]
+                placing.got[name] = nil
+                if placing.ghosts[name] and DoesEntityExist(placing.ghosts[name]) then DeleteEntity(placing.ghosts[name]) end
+                placing.ghosts[name] = nil
+                show_point()
+            elseif IsDisabledControlJustPressed(0, 73) then
+                return stop_placing('Cancelled: nothing saved.')
+            end
+            Wait(0)
+        end
+    end)
+end)
+
+RegisterNetEvent('c3r:place:saved', function(msg, entry)
+    stop_placing()
+    Prompt('place', 'ok', 'Location saved', msg, 7000)
+    SendNUIMessage({ type = 'copy', text = entry }) -- (and on the clipboard, in case)
+end)
+
+RegisterNetEvent('c3r:place:msg', function(msg)
+    if placing and placing.i > #placing.points then stop_placing() end -- (the save was refused)
+    Prompt('place', 'info', 'Placing', tostring(msg), 8000)
+end)
+
+AddEventHandler('onResourceStop', function(res) if res == GetCurrentResourceName() and placing then stop_placing() end end)
 
 -- ─── the contract (docs/contract.md) ──────────────────────────────────────────
 

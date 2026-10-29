@@ -10,6 +10,6 @@ Config.Callouts = {
     expire = 300,           -- s a call nobody responds to stays open
     offer_window = 30,      -- s the offer card stays up
     arrive = 40.0,          -- m from the call: on scene
-    build = 250.0,          -- m: the scene is made when the first unit is this close
+    build = 300.0,          -- m: each person, car and prop is made when a unit gets this close to it
     max_minutes = 30,       -- a call still open after this long is cancelled
 }

@@ -103,6 +103,11 @@ Callout({
     --   suspicious_person   the man they called about
     --   parked_car          the silver car he was at (sit in a car parked where it should be, then /c3rpos parked_car)
     -- To get one, stand there in game and type /c3rpos <name>: it's copied, ready to paste.
+    points = { -- the order /c3rplace example walks you through them ('car': sit in a car)
+        { 'caller', 'The person who rang it in, waiting nearby on their phone.' },
+        { 'suspicious_person', 'The man they called about.' },
+        { 'parked_car', 'The silver car he was at. Sit in a car parked where it should be.', 'car' },
+    },
     locations = {
         { street = 'Panorama Drive', at = vector3(1781.00, 3329.44, 40.25), points = {
             caller = vector4(1777.95, 3326.33, 41.43, 297.6),
