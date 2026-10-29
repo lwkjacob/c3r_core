@@ -1929,6 +1929,14 @@
         else if (d.type === 'duty') dutyMenu(d);
         else if (d.type === 'config') config(d);
         else if (d.type === 'callout') callout(d);
+        else if (d.type === 'copy' && typeof d.text === 'string') { // /c3rpos: onto the clipboard
+            const t = document.createElement('textarea');
+            t.value = d.text;
+            document.body.append(t);
+            t.select();
+            document.execCommand('copy');
+            t.remove();
+        }
     });
 </script>
 </body>

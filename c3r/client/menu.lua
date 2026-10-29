@@ -131,6 +131,7 @@ end)
 RegisterCommand('+c3r_interact', function()
     local s = Stop
     if open or MedicalOpen() then return end
+    if CalloutInspect and CalloutInspect() then return end -- evidence on a call, right beside you (client/callouts.lua)
     local down = LocalPlayer.state.c3rDuty and DownedNear()
     if down then return OpenMedical(down) end -- someone down beside you: first aid (client/medical.lua)
     if not s then -- anyone at all: they become the stop

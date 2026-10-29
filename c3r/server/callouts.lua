@@ -16,7 +16,14 @@ local DefList = {}
 local Open = {}     -- [incident id] = incident
 local OnCall = {}   -- [officer src] = incident
 local Held = {}     -- [officer src] = true: offers held ("hold my call outs")
+local ByNet = {}    -- [ped net id] = person (built, on an open call): talking to them goes through the call
 local seq, next_at = 0, nil
+
+-- Who a callout person looks like when the story doesn't say (ordinary townspeople).
+local MODELS = {
+    male = { 'a_m_y_downtown_01', 'a_m_m_skater_01', 'a_m_y_hipster_01', 'a_m_y_stwhi_01', 'a_m_m_bevhills_01' },
+    female = { 'a_f_y_hipster_01', 'a_f_m_downtown_01', 'a_f_y_business_01', 'a_f_y_tourist_01' },
+}
 
 local function log(fmt, ...)
     if Config.Debug then print(('[c3r] ' .. fmt):format(...)) end
@@ -70,12 +77,14 @@ local C = {}
 C.__index = C
 
 -- An objective on the card. opts = { after = { ids }, who = 'one' (a unit holds it) | 'all' (on everyone's card),
--- hint, hidden (off the card until c:reveal) }.
+-- hint, hidden (off the card until c:reveal), blip = person / vehicle / clue key (or a list): marked on the map of
+-- whoever has it }.
 function C:objective(id, text, opts)
     opts = opts or {}
     local inc = self.inc
+    local blip = opts.blip
     local o = { id = id, text = text, after = opts.after or {}, who = opts.who == 'all' and 'all' or 'one', hint = opts.hint,
-                hidden = opts.hidden == true, done = false }
+                hidden = opts.hidden == true, done = false, blips = type(blip) == 'table' and blip or { blip } }
     if not inc.objectives.by[id] then inc.objectives.list[#inc.objectives.list + 1] = o end
     inc.objectives.by[id] = o
     Callouts.refresh(inc)
@@ -89,9 +98,12 @@ function C:done(id)
     Callouts.refresh(self.inc)
 end
 
+-- An objective, or a clue, that was hidden: on the card / inspectable now.
 function C:reveal(id)
     local o = self.inc.objectives.by[id]
     if o and o.hidden then o.hidden = false Callouts.refresh(self.inc) end
+    local cl = self.inc.clues[id]
+    if cl and cl.hidden then cl.hidden = false Callouts.send_clues(self.inc) end
 end
 
 function C:is_done(id) local o = self.inc.objectives.by[id] return o and o.done or false end
@@ -101,6 +113,150 @@ function C:on(event, fn)
     local h = self.inc.handlers
     h[event] = h[event] or {}
     table.insert(h[event], fn)
+end
+
+-- Story facts must be the callout's own ("c_..."): the dialogue engine has its own (ran, found, dest...).
+local function check_facts(t, where)
+    if type(t) ~= 'table' then return end
+    for k, v in pairs(t) do
+        if k == 'set' and type(v) == 'table' then
+            for f in pairs(v) do
+                if not tostring(f):match('^c_') then error(('%s sets fact "%s": callout facts start with c_'):format(where, f), 0) end
+            end
+        elseif type(v) == 'table' then
+            check_facts(v, where)
+        end
+    end
+end
+
+--[[ Someone in the story. spec = {
+       at = 'point' (the location's points) | vector3 / vector4, model?, male?, label ('Caller': on screen until named),
+       secret?, demeanor?, flags?, warrant?, items? (what's on them that matters: a search finds it as evidence),
+       scene? ('WORLD_HUMAN_...' scenario, or { dict, anim }), questions? (asked under "The call"), lines?, facts? } ]]
+function C:person(key, spec)
+    local inc = self.inc
+    if inc.people[key] then error('person "' .. key .. '" twice', 0) end
+    for _, q in ipairs(spec.questions or {}) do
+        if type(q.id) ~= 'string' or type(q.label) ~= 'string' then error('person "' .. key .. '": a question needs id and label', 0) end
+    end
+    check_facts(spec.lines, 'person "' .. key .. '"')
+    check_facts({ set = spec.facts }, 'person "' .. key .. '"')
+    local p = { key = key, spec = spec }
+    inc.people[key] = p
+    inc.people_list[#inc.people_list + 1] = p
+end
+
+-- A parked car in the story, on file: run its plate and it's registered to `owner` (a person key), or to someone
+-- else. spec = { at, model ('asea'), make ('Declasse'), name ('Asea'), color ('Silver'), paint? (GTA colour id),
+-- owner?, stolen?, locked? (default true), label? (on the map) }
+function C:vehicle(key, spec)
+    if type(spec.model) ~= 'string' then error('vehicle "' .. key .. '" needs a model', 0) end
+    if self.inc.vehicles[key] then error('vehicle "' .. key .. '" twice', 0) end
+    self.inc.vehicles[key] = { key = key, spec = spec }
+    self.inc.vehicle_list[#self.inc.vehicle_list + 1] = self.inc.vehicles[key]
+end
+
+-- Evidence. spec = { at = 'point' | vector3, or on = a person or vehicle key; label; text (what inspecting it shows);
+-- prop?; hidden? }
+function C:clue(key, spec)
+    if type(spec.label) ~= 'string' or type(spec.text) ~= 'string' then error('clue "' .. key .. '" needs label and text', 0) end
+    self.inc.clues[key] = { key = key, spec = spec, hidden = spec.hidden == true }
+    self.inc.clue_list[#self.inc.clue_list + 1] = self.inc.clues[key]
+end
+
+-- Their occupant table once the scene is built (facts, answers, cuffed...): read it, don't replace it.
+function C:who(key) local p = self.inc.people[key] return p and p.o end
+
+-- Their real name (once built), for summaries and radio updates.
+function C:name(key)
+    local o = self:who(key)
+    return o and o.person and (o.person.first .. ' ' .. o.person.last) or (self.inc.people[key] and self.inc.people[key].spec.label) or key
+end
+
+-- A story car's plate (once built).
+function C:plate(key) local v = self.inc.vehicles[key] return v and v.plate end
+
+-- The street the call is on.
+function C:street() return self.inc.loc.street end
+
+-- Change what an objective marks on the map (keys, or nil for nothing), e.g. once someone's said where he went.
+function C:blip(id, keys)
+    local o = self.inc.objectives.by[id]
+    if not o then return end
+    o.blips = type(keys) == 'table' and keys or { keys }
+    Callouts.refresh(self.inc)
+end
+
+-- Someone's under arrest: the card says to take them in (book them at a station, or call prisoner transport), with a
+-- blip on them; it's done, and 'custody' (person, 'booked' | 'transport', src) fires, when they're taken in.
+-- Call it again after an uncuff + re-arrest: the same objective comes back. -> its objective id
+function C:custody(key)
+    local id = 'custody:' .. key
+    local o = self.inc.objectives.by[id]
+    if o then
+        if o.hidden then o.hidden = false Callouts.refresh(self.inc) end
+        return id
+    end
+    self:objective(id, ('Take %s in: book them at a station, or call prisoner transport'):format(self:name(key)),
+        { who = 'all', blip = key, hint = 'Seat them in your car and drive to a station, or radio for prisoner transport.' })
+    return id
+end
+
+-- Off the card again (not done), e.g. the custody objective once they're uncuffed.
+function C:hide(id)
+    local o = self.inc.objectives.by[id]
+    if o and not o.hidden then o.hidden = true Callouts.refresh(self.inc) end
+end
+
+-- Something one officer notices (a card on their screen), e.g. "a fresh mark on her cheek".
+function C:tell(src, title, text) TriggerClientEvent('c3r:callout:found', src, title, text) end
+
+-- Is any unit on the call within m metres of that person (or, with no key, of the call's location)?
+function C:near(key, m)
+    local p = key and self.inc.people[key]
+    if key and not (p and p.ent and DoesEntityExist(p.ent)) then return false end
+    local at = p and GetEntityCoords(p.ent) or self.inc.loc.at
+    for src in pairs(self.inc.responders) do
+        if #(pos(src) - vector3(at.x, at.y, at.z)) < m then return true end
+    end
+    return false
+end
+
+-- Out of each other's earshot: more than 10 m apart, or either cuffed or sat in a car.
+function C:apart(a, b)
+    local pa, pb = self.inc.people[a], self.inc.people[b]
+    if not (pa and pb and pa.ent and pb.ent) then return true end
+    if (pa.o and pa.o.cuffed) or (pb.o and pb.o.cuffed) then return true end
+    if GetVehiclePedIsIn(pa.ent, false) ~= 0 or GetVehiclePedIsIn(pb.ent, false) ~= 0 then return true end
+    return #(GetEntityCoords(pa.ent) - GetEntityCoords(pb.ent)) > 10.0
+end
+
+-- A line heard on scene (a shout through a door), by the units near them.
+function C:say(key, text)
+    local p = self.inc.people[key]
+    if not (p and p.ent) then return end
+    for src in pairs(self.inc.responders) do
+        if #(pos(src) - GetEntityCoords(p.ent)) < 30.0 then
+            TriggerClientEvent('c3r:stop:say', src, text, (p.o and p.o.identified and (p.o.identified.first .. ' ' .. p.o.identified.last))
+                or p.spec.label or 'Someone', p.net)
+        end
+    end
+end
+
+-- What they do now: 'scene' (back to what they were doing), 'go' (args = point), 'flee', 'surrender', 'wander'.
+-- While an officer is talking to them, only flee and surrender go through (the stop runs them).
+local STOP_TASKS = { flee = 'flee', surrender = 'surrender' }
+function C:task(key, name, args)
+    local p = self.inc.people[key]
+    if not p then return end
+    if type(args) == 'string' then args = self.inc.loc.points and self.inc.loc.points[args] or nil end
+    p.task = name ~= 'scene' and { name = name, args = args } or nil
+    if not p.net then return end
+    if p.in_contact then
+        if STOP_TASKS[name] then TriggerClientEvent('c3r:stop:task', p.in_contact, STOP_TASKS[name], p.net) end
+    elseif p.owner then
+        TriggerClientEvent('c3r:callout:task', p.owner, p.net, name, args, p.spec.scene)
+    end
 end
 
 function C:set(k, v) self.inc.facts[k] = v end
@@ -152,6 +308,25 @@ end
 
 local function name_of(src) return GetPlayerName(src) or ('Unit ' .. src) end
 
+-- Where an objective's people / cars / evidence are, for the map: { net?, at, label, kind }.
+local function blips_for(inc, o)
+    local out = {}
+    for _, key in ipairs(o.blips) do
+        local p, v, cl = inc.people[key], inc.vehicles[key], inc.clues[key]
+        local t = p or v
+        if t then
+            local at = t.ent and DoesEntityExist(t.ent) and GetEntityCoords(t.ent) or inc.loc.points and inc.loc.points[t.spec.at]
+                or (type(t.spec.at) ~= 'string' and t.spec.at) or inc.loc.at
+            out[#out + 1] = { net = t.net, at = vector3(at.x, at.y, at.z), label = t.spec.label or (v and t.spec.name) or key,
+                              kind = v and 'vehicle' or 'person' }
+        elseif cl and not cl.hidden then
+            local at = inc.loc.points and inc.loc.points[cl.spec.at] or (type(cl.spec.at) ~= 'string' and cl.spec.at) or inc.loc.at
+            out[#out + 1] = { at = vector3(at.x, at.y, at.z), label = cl.spec.label, kind = 'clue' }
+        end
+    end
+    return out
+end
+
 -- Each unit on scene holds one objective: theirs if it's still open, else the first free one. Then everyone's card.
 function Callouts.refresh(inc)
     if inc.state ~= 'open' then return end
@@ -180,9 +355,11 @@ function Callouts.refresh(inc)
             card.mine[1] = { text = 'Respond to ' .. inc.loc.street }
         else
             local o = r.holds and inc.objectives.by[r.holds]
-            if o then card.mine[1] = { text = o.text, hint = o.hint } end
+            if o then card.mine[1] = { text = o.text, hint = o.hint, blips = blips_for(inc, o) } end
             for _, a in ipairs(inc.objectives.list) do
-                if a.who == 'all' and available(inc, a) then card.mine[#card.mine + 1] = { text = a.text, hint = a.hint } end
+                if a.who == 'all' and available(inc, a) then
+                    card.mine[#card.mine + 1] = { text = a.text, hint = a.hint, blips = blips_for(inc, a) }
+                end
             end
             for other, ro in pairs(inc.responders) do
                 local oo = other ~= src and ro.holds and inc.objectives.by[ro.holds]
@@ -229,11 +406,245 @@ local function offer(inc)
     board()
 end
 
+-- ─── the scene: made by the server, so every unit sees the same people ───────
+
+local function point(inc, at)
+    if type(at) == 'string' then
+        local p = inc.loc.points and inc.loc.points[at]
+        if not p then error(('location %s has no point "%s"'):format(inc.loc.street, at), 0) end
+        return p
+    end
+    return at or inc.loc.at
+end
+
+-- Their record: a real person (name checks find them), with the story's secret and record. home = they live at the
+-- call's address; family = one surname for everyone in the household with family = true.
+local function make_record(inc, spec)
+    local male = spec.male
+    if male == nil then male = math.random() < .5 end
+    local secret = spec.secret or 'clean'
+    local person, truth
+    for _ = 1, 3 do -- a name already on file keeps its own story: try another
+        local p = Generator.person(male, secret)
+        if spec.home then
+            inc.address = inc.address or (math.random(10, 999) .. ' ' .. inc.loc.street)
+            p.address = inc.address
+        end
+        if spec.family then
+            inc.surname = inc.surname or p.last
+            p.last = inc.surname
+        end
+        if spec.demeanor then p.truth.demeanor = spec.demeanor end
+        if spec.flags then p.flags = spec.flags end
+        if spec.warrant then p.warrant = spec.warrant end
+        person, truth = Db.createPerson(p)
+        if truth.secret == secret then break end
+    end
+    return male, person, truth
+end
+
+-- Server-made entities exist at once but get a net id once a game near them has made them: wait for it.
+local function net_of(ent)
+    local deadline = GetGameTimer() + 5000
+    while (ent == 0 or not DoesEntityExist(ent) or NetworkGetNetworkIdFromEntity(ent) == 0) and GetGameTimer() < deadline do Wait(50) end
+    local net = ent ~= 0 and DoesEntityExist(ent) and NetworkGetNetworkIdFromEntity(ent) or 0
+    return net ~= 0 and net or nil
+end
+
+local function copy(t) local o = {} for k, v in pairs(t or {}) do o[k] = v end return o end
+
+-- A point's heading: vector4s have one (vector3s don't, and asking one for .w is an error).
+local function heading_of(at)
+    if type(at) == 'vector4' then return at.w end
+    return type(at) == 'table' and at.w or nil
+end
+
+function Callouts.send_clues(inc)
+    local list = {}
+    for _, cl in ipairs(inc.clue_list) do
+        if not cl.hidden then
+            local on = cl.spec.on and (inc.people[cl.spec.on] or inc.vehicles[cl.spec.on])
+            local car = on and inc.vehicles[cl.spec.on]
+            list[#list + 1] = { key = cl.key, label = cl.spec.label, at = not on and point(inc, cl.spec.at) or nil, on = on and on.net or nil,
+                                range = car and 3.2 or 1.6, glow = cl.net or (car and car.net) or nil }
+        end
+    end
+    for src in pairs(inc.responders) do TriggerClientEvent('c3r:callout:clues', src, inc.id, list) end
+end
+
+local function build(inc)
+    inc.building = true
+    for _, p in ipairs(inc.people_list) do
+        if inc.state ~= 'open' then return end
+        local spec = p.spec
+        local male, person, truth = make_record(inc, spec)
+        local models = spec.model and { spec.model } or (male and MODELS.male or MODELS.female)
+        local at = point(inc, spec.at)
+        local ent = CreatePed(4, GetHashKey(models[math.random(#models)]), at.x, at.y, at.z, heading_of(at) or 0.0, true, true)
+        local net = net_of(ent)
+        if inc.state ~= 'open' then if ent ~= 0 then DeleteEntity(ent) end return end
+        if not net then
+            print(('[c3r] callout %s: could not make "%s" (no game near the scene?)'):format(inc.def.id, p.key))
+            if ent ~= 0 and DoesEntityExist(ent) then DeleteEntity(ent) end
+            return Callouts.cancel(inc)
+        end
+        SetEntityOrphanMode(ent, 2) -- (kept while the call is open, whoever's game it moves to)
+        local items = spec.items or Generator.items(truth.secret)
+        local o = { net = net, role = 'pedestrian', part = spec.label, person = person, truth = truth, items = items,
+                    answers = {}, facts = copy(spec.facts), callout = inc.id, key = p.key,
+                    extra = { questions = spec.questions, lines = spec.lines } }
+        o.pockets = Generator.some(Data.pockets, math.random(1, 3))
+        for _, item in ipairs(items) do table.insert(o.pockets, 1, item) end
+        p.ent, p.net, p.o, p.male = ent, net, o, male
+        ByNet[net] = p
+        p.inc = inc
+        BindSubject(net, person, nil, items, truth)
+    end
+    for _, v in ipairs(inc.vehicle_list) do
+        if inc.state ~= 'open' then return end
+        local spec = v.spec
+        local owner = spec.owner and inc.people[spec.owner] and inc.people[spec.owner].o.person
+        owner = owner or Db.createPerson(Generator.person(math.random() < .5, 'clean'))
+        local plate
+        repeat -- a plate nobody has
+            plate = ('%d%s%03d'):format(math.random(1, 9), string.char(math.random(65, 90), math.random(65, 90), math.random(65, 90)),
+                math.random(0, 999))
+        until not Db.findVehicle(plate)
+        local rec = Generator.vehicle(plate, { make = spec.make, model = spec.name, color = spec.color },
+            spec.stolen and 'stolen' or 'clean', owner and owner.id)
+        rec.stolen = spec.stolen == true
+        Db.createVehicle(rec)
+        local at = point(inc, spec.at)
+        local ent = CreateVehicleServerSetter(GetHashKey(spec.model), 'automobile', at.x, at.y, at.z, heading_of(at) or 0.0)
+        local net = net_of(ent)
+        if not net then
+            print(('[c3r] callout %s: could not make vehicle "%s" (%s)'):format(inc.def.id, v.key, spec.model))
+            return Callouts.cancel(inc)
+        end
+        SetEntityOrphanMode(ent, 2)
+        SetVehicleNumberPlateText(ent, plate)
+        v.ent, v.net, v.plate = ent, net, plate
+    end
+    for _, cl in ipairs(inc.clue_list) do
+        local prop = cl.spec.prop
+        if prop and not cl.spec.on then
+            local at = point(inc, cl.spec.at)
+            cl.ent = CreateObjectNoOffset(GetHashKey(prop), at.x, at.y, at.z, true, true, false)
+            cl.net = cl.ent ~= 0 and net_of(cl.ent) or nil
+            if cl.net then SetEntityOrphanMode(cl.ent, 2)
+            else print(('[c3r] callout %s: no prop "%s" for clue "%s" (the marker still shows it)'):format(inc.def.id, prop, cl.key)) end
+        end
+    end
+    inc.built, inc.building = true, false
+    log('callout %d: scene built (%d people)', inc.id, #inc.people_list)
+    fire(inc, 'build')
+    Callouts.send_clues(inc)
+    Callouts.refresh(inc) -- (the map's blips can follow the people and cars now)
+end
+
+-- Each person's AI runs on whichever game owns them: tell that game what they're doing, again whenever it changes
+-- hands. Not while an officer is talking to them (the stop runs them then).
+local function keep_up(inc)
+    for _, p in ipairs(inc.people_list) do
+        if p.ent and not p.in_contact and DoesEntityExist(p.ent) and not (p.o and p.o.cuffed) -- (in cuffs: the officer's now)
+            and GetVehiclePedIsIn(p.ent, false) == 0 then
+            local owner = NetworkGetEntityOwner(p.ent)
+            if owner and owner > 0 and owner ~= p.owner then
+                p.owner = owner
+                TriggerClientEvent('c3r:callout:apply', owner, { net = p.net, scene = p.spec.scene, task = p.task,
+                    place = not p.placed, heading = heading_of(point(inc, p.spec.at)) })
+                p.placed = true
+            end
+        elseif p.ent and not p.gone and not DoesEntityExist(p.ent) then
+            p.gone = true
+            fire(inc, 'gone', p.key)
+        end
+    end
+    for _, cl in ipairs(inc.clue_list) do
+        if cl.net and DoesEntityExist(cl.ent) then
+            local owner = NetworkGetEntityOwner(cl.ent)
+            if owner and owner > 0 and owner ~= cl.owner then
+                cl.owner = owner
+                TriggerClientEvent('c3r:callout:apply', owner, { net = cl.net, prop = true, place = not cl.placed })
+                cl.placed = true
+            end
+        end
+    end
+    for _, v in ipairs(inc.vehicle_list) do
+        if v.ent and DoesEntityExist(v.ent) then
+            local owner = NetworkGetEntityOwner(v.ent)
+            if owner and owner > 0 and owner ~= v.owner then
+                v.owner = owner
+                TriggerClientEvent('c3r:callout:apply', owner, { net = v.net, vehicle = true, paint = v.spec.paint, plate = v.plate,
+                    locked = v.spec.locked ~= false, place = not v.placed })
+                v.placed = true
+            end
+        end
+    end
+end
+
+-- The call's over: people not under arrest walk off and are left to the game; props go; nobody is the call's any more.
+local function clean(inc)
+    for _, p in ipairs(inc.people_list) do
+        if p.net then
+            ByNet[p.net] = nil
+            if p.ent and DoesEntityExist(p.ent) then
+                SetEntityOrphanMode(p.ent, 0)
+                if not (p.o and p.o.cuffed) and p.owner then TriggerClientEvent('c3r:callout:task', p.owner, p.net, 'wander') end
+            end
+            local net = p.net
+            SetTimeout(120000, function() UnbindSubject(net) end)
+        end
+    end
+    for _, v in ipairs(inc.vehicle_list) do
+        if v.ent and DoesEntityExist(v.ent) then SetEntityOrphanMode(v.ent, 0) end -- (stays parked: the game tidies it up)
+    end
+    for _, cl in ipairs(inc.clue_list) do
+        if cl.ent and cl.ent ~= 0 and DoesEntityExist(cl.ent) then DeleteEntity(cl.ent) end
+    end
+end
+
 local function close(inc, state)
     inc.state = state
     Open[inc.id] = nil
     for src in pairs(inc.responders) do if OnCall[src] == inc then OnCall[src] = nil end end
+    if inc.built or inc.building then clean(inc) end
     board()
+end
+
+-- ─── stops.lua: talking to callout people ─────────────────────────────────────
+
+-- The callout person with this ped net id (on an open call), or nil.
+function Callouts.person(net)
+    local p = ByNet[net]
+    return p and p.inc.state == 'open' and p or nil
+end
+
+-- An officer started talking to them (s = their contact).
+function Callouts.contact(s, p)
+    p.in_contact = s.src
+    fire(p.inc, 'contact', p.key, s.src)
+end
+
+-- After anything the officer did with them: facts they gave away, then the action itself.
+function Callouts.acted(s, o, action, arg, before)
+    local p = ByNet[o.net]
+    if not p or p.inc.state ~= 'open' then return end
+    for k, v in pairs(o.facts) do
+        if before[k] ~= v then fire(p.inc, 'fact', p.key, k, v, s.src) end
+    end
+    fire(p.inc, 'act', p.key, action, arg, s.src)
+end
+
+-- The officer's done talking to them (walked off, let them go, took them in): back to the call's hands.
+function Callouts.contact_ended(s, outcome)
+    for net in pairs(s.occ) do
+        local p = ByNet[net]
+        if p then
+            p.in_contact, p.owner = nil, nil -- (keep_up gives their task back to whoever owns them)
+            fire(p.inc, 'contact_ended', p.key, outcome, s.src)
+        end
+    end
 end
 
 -- A new call near an officer (near = src), or near anyone on duty. -> incident | nil, reason
@@ -264,6 +675,7 @@ function Callouts.create(near)
     seq = seq + 1
     local inc = { id = seq, def = def, loc = def.locations[li], loc_index = li, story = weighted(def.story_list),
                   report = def.reports[math.random(#def.reports)], objectives = { list = {}, by = {} }, responders = {},
+                  people = {}, people_list = {}, vehicles = {}, vehicle_list = {}, clues = {}, clue_list = {},
                   facts = {}, handlers = {}, state = 'open', created = os.time() }
     inc.c = setmetatable({ inc = inc }, C)
     Open[inc.id] = inc
@@ -296,6 +708,7 @@ function Callouts.respond(src, id)
     TriggerEvent('c3r:calloutAccepted', src, record(inc))
     TriggerClientEvent('c3r:callout:joined', src, record(inc))
     Callouts.refresh(inc)
+    if inc.built then Callouts.send_clues(inc) end
     board()
     return true
 end
@@ -360,6 +773,21 @@ function Callouts.tick(now)
             log('callout %d: time limit', inc.id)
             Callouts.cancel(inc)
         else
+            if not inc.built and not inc.building then
+                for src in pairs(inc.responders) do
+                    if #(pos(src) - inc.loc.at) < (c.build or 250.0) then
+                        CreateThread(function()
+                            local ok, err = pcall(build, inc)
+                            if not ok then
+                                print(('[c3r] callout %s (%s) build: %s'):format(inc.def.id, tostring(inc.story.id), tostring(err)))
+                                Callouts.cancel(inc)
+                            end
+                        end)
+                        break
+                    end
+                end
+            end
+            if inc.built then keep_up(inc) end
             for src, r in pairs(inc.responders) do
                 if not r.arrived and #(pos(src) - inc.loc.at) < (c.arrive or 40.0) then
                     r.arrived = now + src / 1e6 -- (when, and a tie-break: the order units pick objectives in)
@@ -388,6 +816,37 @@ RegisterNetEvent('c3r:callout:respond', function(id)
 end)
 
 RegisterNetEvent('c3r:callout:leave', function() Callouts.leave(source) end)
+
+-- A prisoner booked at a station or loaded into prisoner transport (the officer's game says who): if they're someone's
+-- callout prisoner, that call's custody objective is done.
+RegisterNetEvent('c3r:callout:custody', function(nets, how)
+    local src = source
+    if not IsOnDuty(src) or type(nets) ~= 'table' or #nets > 8 then return end
+    for _, net in ipairs(nets) do
+        local p = math.type(net) == 'integer' and Callouts.person(net)
+        if p and p.o and p.o.cuffed and not p.taken then
+            p.taken = how == 'booked' and 'booked' or 'transport'
+            p.inc.c:done('custody:' .. p.key)
+            fire(p.inc, 'custody', p.key, p.taken, src)
+        end
+    end
+end)
+
+-- "E Inspect": a unit on the call, beside the evidence (checked here). The first look puts it on everyone's MDT.
+RegisterNetEvent('c3r:callout:inspect', function(id, key)
+    local src = source
+    local inc = OnCall[src]
+    local cl = inc and inc.id == id and type(key) == 'string' and inc.clues[key]
+    if not cl or cl.hidden or not inc.built then return end
+    local on = cl.spec.on and (inc.people[cl.spec.on] or inc.vehicles[cl.spec.on])
+    local at = on and on.ent and GetEntityCoords(on.ent) or (cl.ent and cl.ent ~= 0 and GetEntityCoords(cl.ent)) or point(inc, cl.spec.at)
+    if #(pos(src) - vector3(at.x, at.y, at.z)) > (on and inc.vehicles[cl.spec.on] and 5.0 or 3.0) then return end
+    TriggerClientEvent('c3r:callout:found', src, cl.spec.label, cl.spec.text, cl.key)
+    if cl.found then return end
+    cl.found = src
+    inc.c:note(('Evidence: %s. %s'):format(cl.spec.label, cl.spec.text))
+    fire(inc, 'inspect', key, src)
+end)
 
 -- /requestcall: a new call now, near you, put out to everyone (instead of waiting for the next one).
 RegisterCommand('requestcall', function(src)

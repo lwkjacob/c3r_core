@@ -14,11 +14,17 @@
     {driver_first} {driver_dest} {p_dest}. A line is a string, or { 'text', set = { fact = 'value' } }; a list
     can carry a `set` for all its lines. LINES[q] picks: a question's own chooser, then passenger, the
     secret, the demeanor, default.
+
+    Callout people (server/callouts.lua) bring their own: o.extra = { questions, lines }. Their questions are asked
+    under "The call"; their lines (for those, or to replace the usual answer to any question) are a list, or keyed
+    like LINES (secret / demeanor / default), or a function returning one (decided at the moment they're asked).
 ]]
 
 Dialogue = {}
 
 -- ─── the questions ────────────────────────────────────────────────────────────
+
+Dialogue.CALL = { id = 'call', label = 'The call', desc = 'What happened, and what they know about it.' } -- (callout people only)
 
 Dialogue.CATEGORIES = {
     { id = 'stop',       label = 'The stop',              desc = 'Why they were stopped, where they are going and coming from.' },
@@ -687,8 +693,9 @@ local function fill(text, vars)
 end
 
 -- The set of lines for question q.
-local function lines_for(q, o, ctx)
-    local t, lines = o.truth, LINES[q]
+local function lines_for(q, o, ctx, lines)
+    local t = o.truth
+    if lines[1] then return lines end -- (a callout's plain list)
     if o.facts and o.facts.ran and lines.ran then return lines.ran end -- they know what they did
     if o.role == 'pedestrian' and lines.foot then lines = lines.foot
     elseif (o.role == 'pedestrian' or ctx.still) and lines.still then lines = lines.still end
@@ -743,28 +750,37 @@ end
 
 --[[ What they answer. o = the person: { person, truth, vehicle, items, role, answers = {}, facts = {} }.
      ctx = { stop = s } so they can weigh what the others in the car have said. ]]
+local function extra_def(q, o)
+    for _, d in ipairs(o.extra and o.extra.questions or {}) do if d.id == q then return d end end
+end
+local function def_of(q, o) return extra_def(q, o) or DEF[q] end
+
 function Dialogue.answer(q, o, ctx)
-    if not LINES[q] then return nil end
+    local own = o.extra and o.extra.lines and o.extra.lines[q]
+    if type(own) == 'function' then own = own(o) end -- (a callout's: decided as it's asked, e.g. who can hear)
+    if not (own or LINES[q]) then return nil end
     o.facts = o.facts or {}
     o.asked = o.asked or {}
     o.asked[q] = true -- (the menu's "Asked": pressing questions aren't in o.answers)
-    local again = REMEMBERED[q] and o.answers[q]
+    local xd = extra_def(q, o)
+    local remembered = REMEMBERED[q] or (xd and not xd.press)
+    local again = remembered and o.answers[q]
     if again then return 'Like I said... ' .. again end -- unchanged: it may start with a name or "I"
 
     ctx = context(o, ctx)
     local vars = vars_for(o, ctx)
-    local text, set = entry(lines_for(q, o, ctx))
+    local text, set = entry(lines_for(q, o, ctx, own or LINES[q]))
     for k, v in pairs(set or {}) do o.facts[k] = fill(v, vars) end
     for k, v in pairs(o.facts) do vars[k] = v end
     text = fill(text, vars)
 
     local t = o.truth
-    if FLAVOURED[q] then
+    if FLAVOURED[q] or (xd and xd.stress) then
         local open, close = OPENERS[t.demeanor], CLOSERS[t.demeanor]
         if open then text = pick(open) .. text:gsub('^%u', string.lower) end
         if close then text = text .. pick(close) end
     end
-    if REMEMBERED[q] then o.answers[q] = text end
+    if remembered then o.answers[q] = text end
     return text
 end
 
@@ -792,13 +808,13 @@ end
 
 -- The officer's question, as asked of this person (some name what the other person said).
 function Dialogue.label(q, o, ctx)
-    local def = DEF[q]
+    local def = def_of(q, o)
     o.facts = o.facts or {}
     return def and fill(o.role == 'pedestrian' and def.foot or def.label, vars_for(o, context(o, ctx))) or q
 end
 
 function Dialogue.can_ask(q, o, ctx)
-    local def = DEF[q]
+    local def = def_of(q, o)
     return def ~= nil and open(def, o, context(o, ctx))
 end
 
@@ -808,6 +824,12 @@ function Dialogue.available(o, ctx)
     o.facts = o.facts or {}
     ctx = context(o, ctx)
     local vars, out = vars_for(o, ctx), {}
+    for _, def in ipairs(o.extra and o.extra.questions or {}) do -- a callout person's own, under "The call"
+        if open(def, o, ctx) then
+            out[#out + 1] = { id = def.id, cat = 'call', label = fill(def.label, vars),
+                              asked = (o.asked or {})[def.id] == true, follow = def.needs ~= nil or def.when ~= nil }
+        end
+    end
     for _, def in ipairs(Dialogue.QUESTIONS) do
         if open(def, o, ctx) then
             out[#out + 1] = { id = def.id, cat = def.cat, label = fill(o.role == 'pedestrian' and def.foot or def.label, vars),

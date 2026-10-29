@@ -358,6 +358,14 @@ local function prisoners()
         if o.cuffed and not o.transported and not seen[o.ped] and DoesEntityExist(o.ped) and not IsEntityDead(o.ped)
             and #(GetEntityCoords(o.ped) - pos()) < 60.0 then
             list[#list + 1] = { ped = o.ped, net = net, o = o }
+            seen[o.ped] = true
+        end
+    end
+    -- anyone else in cuffs here: someone from a callout left standing cuffed while the officer talked to the next person
+    for _, ped in ipairs(GetGamePool('CPed')) do
+        if not seen[ped] and IsPedCuffed(ped) and not IsPedAPlayer(ped) and not IsEntityDead(ped) and not IsBackup(ped)
+            and not IsPedInAnyVehicle(ped, false) and NetworkGetEntityIsNetworked(ped) and #(GetEntityCoords(ped) - pos()) < 60.0 then
+            list[#list + 1] = { ped = ped, net = PedToNet(ped) }
         end
     end
     return list
@@ -389,6 +397,9 @@ function JOB.police(u)
         end
     end
     if taken > 0 then
+        local nets = {}
+        for _, ped in ipairs(u.carried) do if NetworkGetEntityIsNetworked(ped) then nets[#nets + 1] = PedToNet(ped) end end
+        TriggerServerEvent('c3r:callout:custody', nets, 'transport') -- (a callout's prisoner: taken in)
         note('transported', 'police', taken)
         Prompt('backup', 'ok', 'Prisoner transport', ('%d in custody, on the way to be booked.'):format(taken), 6000)
     else

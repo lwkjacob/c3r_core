@@ -44,7 +44,7 @@ end
 -- What the officer calls them on screen: their name once they've given one, else driver / passenger / person.
 local function label(o)
     local p = o.identified
-    return p and (p.first .. ' ' .. p.last) or ({ driver = 'Driver', passenger = 'Passenger' })[o.role] or 'Person'
+    return p and (p.first .. ' ' .. p.last) or ({ driver = 'Driver', passenger = 'Passenger' })[o.role] or o.part or 'Person'
 end
 
 -- who = 'officer', or the occupant speaking
@@ -74,8 +74,9 @@ local function note(s, text) TriggerEvent('c3r:note', s.src, text) end
 
 -- Told who they are (ID handed over, or a name given): name checks and the MDT can use it now.
 local function identify(s, o, person)
-    if o.identified == person then return end
-    o.identified = person
+    o.identified_by = o.identified_by or {}
+    if o.identified_by[s.src] == person then return end
+    o.identified_by[s.src], o.identified = person, person
     TriggerEvent('c3r:contact', s.src, person)
 end
 
@@ -87,6 +88,11 @@ local function finish(src, outcome)
         if o.cuffed then outcome = 'arrested' end -- whatever else happened, someone is going to jail
     end
     if s.pursuit then TriggerEvent('c3r:pursuitEnded', src) end
+    if s.callout then -- (no stop on the MDT: it's the call's incident; the call keeps its people)
+        TriggerClientEvent('c3r:stop:ended', src, outcome)
+        Callouts.contact_ended(s, outcome)
+        return log('callout contact by %d ended: %s', src, outcome)
+    end
     TriggerEvent('c3r:stopEnded', src, outcome)
     TriggerClientEvent('c3r:stop:ended', src, outcome)
     -- lwk_npcai can still talk to them as they leave; then they're just traffic again
@@ -127,6 +133,18 @@ local function start_foot(src, p)
     if ped == 0 or IsPedAPlayer(ped) or GetVehiclePedIsIn(ped, false) ~= 0 or dist(src, ped) > TALK_RANGE then return end
     local key = 'ped:' .. p.net
     if ByVehicle[key] then return refuse(src, 'Another unit is already talking to them.') end
+    local co = Callouts.person(p.net)
+    if co then -- someone in a callout: who they are and what they know is the call's (and carries on between officers)
+        local o = co.o
+        local s = { src = src, key = key, occ = { [p.net] = o }, driver = o, car_items = {}, foot = true, callout = co.inc }
+        ByVehicle[key], Stops[src] = src, s
+        TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(o.truth),
+            callout = true, cuffed = o.cuffed == true } }, { foot = true, contact = p.net },
+            { Dialogue.CALL, table.unpack(Dialogue.CATEGORIES) })
+        Callouts.contact(s, co)
+        send_questions(s)
+        return log('callout contact by %d: %s', src, co.key)
+    end
     ByVehicle[key] = src
     local ok, g = pcall(Generator.passenger, p.male == true) -- waits on SQL
     if not ok or Stops[src] or not IsOnDuty(src) or not GetPlayerName(src) then
@@ -608,7 +626,10 @@ RegisterNetEvent('c3r:stop:act', function(action, arg, target, pa)
         if radio_tow then TriggerClientEvent('c3r:stop:towRefused', src) end
         return
     end
+    local before = s.callout and o and {}
+    for k, v in pairs(before and o.facts or {}) do before[k] = v end
     fn(s, o, type(arg) == 'string' and arg or nil)
+    if before then Callouts.acted(s, o, action, arg, before) end -- (a callout person: the story hears about it)
     if Stops[src] == s then send_questions(s) end -- what they said may open (or close) questions, theirs or the others'
 end)
 

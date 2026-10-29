@@ -17,6 +17,50 @@ local function clear_blip()
     if call and call.blip and DoesBlipExist(call.blip) then RemoveBlip(call.blip) end
 end
 
+-- The map marks who / what my objective is about (the caller, then the person or the car...), following them once
+-- they're near enough to be in my game.
+local marks = {} -- { { blip, net?, label, kind } }
+local SPRITE = { person = 280, vehicle = 225, clue = 586 } -- UNVERIFIED: blip sprite ids (person / car / magnifier)
+
+local function clear_marks()
+    for _, m in ipairs(marks) do if DoesBlipExist(m.blip) then RemoveBlip(m.blip) end end
+    marks = {}
+end
+
+local function mark(m)
+    local ent = m.net and NetworkDoesNetworkIdExist(m.net) and NetToEnt(m.net) or 0
+    local blip = DoesEntityExist(ent) and AddBlipForEntity(ent) or AddBlipForCoord(m.at.x, m.at.y, m.at.z)
+    SetBlipSprite(blip, SPRITE[m.kind] or 1)
+    SetBlipColour(blip, 5)
+    SetBlipScale(blip, 0.85)
+    BeginTextCommandSetBlipName('STRING')
+    AddTextComponentSubstringPlayerName(m.label or 'Objective')
+    EndTextCommandSetBlipName(blip)
+    m.blip, m.on_entity = blip, DoesEntityExist(ent)
+    marks[#marks + 1] = m
+end
+
+local function set_marks(card)
+    clear_marks()
+    for _, item in ipairs(card and card.mine or {}) do
+        for _, b in ipairs(item.blips or {}) do mark(b) end
+    end
+end
+
+CreateThread(function() -- a mark on a spot becomes one on the person / car once they're in my game
+    while true do
+        Wait(2000)
+        for i, m in ipairs(marks) do
+            if not m.on_entity and m.net and NetworkDoesNetworkIdExist(m.net) and DoesEntityExist(NetToEnt(m.net)) then
+                if DoesBlipExist(m.blip) then RemoveBlip(m.blip) end
+                table.remove(marks, i)
+                mark(m)
+                break
+            end
+        end
+    end
+end)
+
 RegisterNetEvent('c3r:callout:board', function(list) board = type(list) == 'table' and list or {} end)
 
 RegisterNetEvent('c3r:callout:offer', function(r)
@@ -27,8 +71,11 @@ RegisterNetEvent('c3r:callout:offer', function(r)
     for _, b in ipairs(board) do if b.id == r.id then r.units = b.units end end
     SendNUIMessage({ type = 'callout', offer = { name = r.name, street = r.street, distance = r.distance, report = r.description,
         priority = r.priority, units = r.units, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = ms } })
-    pcall(function() exports.lwk_control:say(nil, ('All units, %s, %s. Priority %d.'):format(r.name:lower(), r.street, r.priority)) end)
-    PlaySoundFrontend(-1, 'Event_Start_Text', 'GTAO_FM_Events_Soundset', false) -- UNVERIFIED: sound name / set
+    -- dispatch over the radio: "Incoming 911 call." (lwk_control_assets voice/incoming_call_*.ogg), the details as text
+    local said = pcall(function()
+        exports.lwk_control:say({ 'incoming_call' }, ('Incoming 911 call: %s, %s. Priority %d.'):format(r.name:lower(), r.street, r.priority))
+    end)
+    if not said then Notify(('~b~DISPATCH~s~ Incoming 911 call: %s, %s.'):format(r.name:lower(), r.street)) end
 end)
 
 RegisterNetEvent('c3r:callout:joined', function(r)
@@ -53,6 +100,7 @@ RegisterNetEvent('c3r:callout:card', function(card)
     local text = card.mine[1] and card.mine[1].text
     if hidden and text and text ~= last_text then Prompt('callout', 'info', 'New objective', text, 5000) end
     last_text = text
+    set_marks(card)
     SendNUIMessage({ type = 'callout', card = card, hidden = hidden, keys = { hide = KeyName('+c3r_objective', 'BACKSPACE'),
         leave = KeyName('+c3r_leavecall', 'X') } })
 end)
@@ -68,6 +116,7 @@ end
 RegisterNetEvent('c3r:callout:ended', function(completed, summary)
     close_confirm()
     clear_blip()
+    clear_marks()
     call = nil
     SendNUIMessage({ type = 'callout', card = false })
     if completed then
@@ -99,6 +148,19 @@ RegisterCommand('-c3r_respond', function() end, false)
 RegisterKeyMapping('+c3r_respond', 'Callout: respond (c3r)', 'keyboard', Config.RespondKey or 'Y')
 
 RegisterCommand('respond', function() if not call then respond(nil) end end, false) -- the nearest open call
+
+-- /c3rpos [name]: where you are, as a callout point, copied to the clipboard (and printed in F8) to paste into a
+-- callout's locations. Sat in a car: the car's position and heading (for a c:vehicle point).
+RegisterCommand('c3rpos', function(_, args)
+    local ped = PlayerPedId()
+    local veh = GetVehiclePedIsIn(ped, false)
+    local e = veh ~= 0 and veh or ped
+    local p, h = GetEntityCoords(e), GetEntityHeading(e)
+    local text = ('%svector4(%.2f, %.2f, %.2f, %.1f),'):format(args[1] and (args[1] .. ' = ') or '', p.x, p.y, p.z, h)
+    print(text)
+    SendNUIMessage({ type = 'copy', text = text })
+    Notify('~b~C~w~3~r~R~s~ Copied: ' .. text)
+end, false)
 
 RegisterCommand('+c3r_objective', function()
     -- (Backspace also closes the who-to-talk-to and driver pickers: those turn it off while they're open)
@@ -134,6 +196,193 @@ AddEventHandler('onResourceStop', function(res)
     if res ~= GetCurrentResourceName() then return end
     close_confirm()
     clear_blip()
+    clear_marks()
+end)
+
+-- ─── the call's people, on whichever game owns them (any player's: the server sends it to that one) ───────
+
+local function with_dict(dict)
+    RequestAnimDict(dict)
+    local deadline = GetGameTimer() + 1000
+    while not HasAnimDictLoaded(dict) and GetGameTimer() < deadline do Wait(0) end
+    return HasAnimDictLoaded(dict)
+end
+
+-- What they're doing when nobody's dealing with them: a scenario ('WORLD_HUMAN_...'), an anim { dict, name, flag },
+-- or just standing there.
+local function scene(ped, sc)
+    ClearPedTasks(ped)
+    if type(sc) == 'string' then
+        TaskStartScenarioInPlace(ped, sc, 0, true) -- UNVERIFIED per scenario: the callout names it
+    elseif type(sc) == 'table' and sc[1] and with_dict(sc[1]) then
+        TaskPlayAnim(ped, sc[1], sc[2], 4.0, -4.0, -1, sc[3] or 1, 0.0, false, false, false)
+    else
+        TaskStandStill(ped, -1)
+    end
+end
+
+local function nearest_player_ped(from)
+    local best, best_d = PlayerPedId(), math.huge
+    for _, pl in ipairs(GetActivePlayers()) do
+        local p = GetPlayerPed(pl)
+        local d = #(GetEntityCoords(p) - from)
+        if d < best_d then best, best_d = p, d end
+    end
+    return best
+end
+
+local function run(ped, name, args, sc)
+    if name == 'go' and args then
+        TaskGoStraightToCoord(ped, args.x, args.y, args.z, 1.0, 30000, GetEntityHeading(ped), 0.5)
+    elseif name == 'flee' then
+        RunFrom(ped, nearest_player_ped(GetEntityCoords(ped))) -- (client/stop.lua)
+    elseif name == 'surrender' then
+        TaskHandsUp(ped, -1, nearest_player_ped(GetEntityCoords(ped)), -1, false)
+    elseif name == 'wander' then
+        SetBlockingOfNonTemporaryEvents(ped, false)
+        SetPedKeepTask(ped, false)
+        TaskWanderStandard(ped, 10.0, 10)
+    else
+        scene(ped, sc)
+    end
+end
+
+local function their_ped(net)
+    local deadline = GetGameTimer() + 2000
+    while not NetworkDoesNetworkIdExist(net) and GetGameTimer() < deadline do Wait(50) end
+    local ped = NetworkDoesNetworkIdExist(net) and NetToEnt(net) or 0
+    return DoesEntityExist(ped) and ped or nil
+end
+
+-- Evidence: lying on the ground (a /c3rpos point is at hip height), and staying there.
+local function lay(obj, a)
+    SetEntityAsMissionEntity(obj, true, true)
+    if a.place then PlaceObjectOnGroundProperly(obj) end
+    FreezeEntityPosition(obj, true)
+end
+
+-- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground.
+local function park(veh, a)
+    SetEntityAsMissionEntity(veh, true, true)
+    if a.place then SetVehicleOnGroundProperly(veh) end
+    if a.paint then SetVehicleColours(veh, a.paint, a.paint) end
+    if a.plate then SetVehicleNumberPlateText(veh, a.plate) end
+    SetVehicleEngineOn(veh, false, true, true)
+    SetVehicleDoorsLocked(veh, a.locked and 2 or 1)
+end
+
+-- a = { net, scene, task, place (the first time: facing the point's heading), heading } (a person), or
+-- { net, vehicle = true, paint, plate, locked, place } (a car)
+RegisterNetEvent('c3r:callout:apply', function(a)
+    CreateThread(function()
+        local ped = their_ped(a.net)
+        if not ped then return end
+        if a.vehicle then return park(ped, a) end
+        if a.prop then return lay(ped, a) end
+        SetEntityAsMissionEntity(ped, true, true)
+        SetBlockingOfNonTemporaryEvents(ped, true) -- (they do the story, not whatever the street is doing)
+        SetPedKeepTask(ped, true)
+        if a.place and a.heading then SetEntityHeading(ped, a.heading) end -- (stood exactly where the callout says)
+        if a.task then run(ped, a.task.name, a.task.args, a.scene) else scene(ped, a.scene) end
+    end)
+end)
+
+RegisterNetEvent('c3r:callout:task', function(net, name, args, sc)
+    CreateThread(function()
+        local ped = their_ped(net)
+        if ped then run(ped, name, args, sc) end
+    end)
+end)
+
+-- ─── evidence ─────────────────────────────────────────────────────────────────
+
+local clues, clue_call = {}, nil -- what can be inspected on my call: { { key, label, at | on (a net), range, glow } }
+local looked = {} -- [clue key] = true: inspected by me (it stops glowing)
+
+RegisterNetEvent('c3r:callout:clues', function(id, list) clue_call, clues = id, type(list) == 'table' and list or {} end)
+AddEventHandler('c3r:callout:ended', function() clues, clue_call, looked = {}, nil, {} end)
+
+local function clue_pos(cl)
+    if cl.on then
+        local ent = NetworkDoesNetworkIdExist(cl.on) and NetToEnt(cl.on) or 0
+        return DoesEntityExist(ent) and GetEntityCoords(ent) or nil
+    end
+    return cl.at and vector3(cl.at.x, cl.at.y, cl.at.z)
+end
+
+local function nearest_clue()
+    local me = PlayerPedId()
+    if not call or IsPedInAnyVehicle(me, false) then return nil end
+    local here, best, best_d = GetEntityCoords(me), nil, math.huge
+    for _, cl in ipairs(clues) do
+        local at = clue_pos(cl)
+        local d = at and #(at - here)
+        if d and d < (cl.range or 1.6) and d < best_d then best, best_d = cl, d end
+    end
+    return best, best and clue_pos(best)
+end
+
+-- E (client/menu.lua asks first): evidence beside you is looked at before anyone's talked to.
+function CalloutInspect()
+    local cl = nearest_clue()
+    if not cl then return false end
+    TriggerServerEvent('c3r:callout:inspect', clue_call, cl.key)
+    return true
+end
+
+RegisterNetEvent('c3r:callout:found', function(label, text, key)
+    Prompt('evidence', 'info', tostring(label), tostring(text), 9000)
+    if key then looked[key] = true end
+end)
+
+-- Evidence I haven't looked at yet glows white (the prop, or the car it's on), so it's easy to spot. Outlines are
+-- drawn by each game for itself.
+CreateThread(function()
+    local lit = {} -- [entity] = true
+    while true do
+        local want = {}
+        for _, cl in ipairs(call and clues or {}) do
+            if cl.glow and not looked[cl.key] and NetworkDoesNetworkIdExist(cl.glow) then
+                local ent = NetToEnt(cl.glow)
+                if DoesEntityExist(ent) then want[ent] = true end
+            end
+        end
+        for ent in pairs(lit) do
+            if not want[ent] then
+                if DoesEntityExist(ent) then SetEntityDrawOutline(ent, false) end
+                lit[ent] = nil
+            end
+        end
+        for ent in pairs(want) do
+            if not lit[ent] then
+                SetEntityDrawOutlineColor(255, 255, 255, 255)
+                SetEntityDrawOutlineShader(0) -- (the soft glow)
+                SetEntityDrawOutline(ent, true)
+                lit[ent] = true
+            end
+        end
+        Wait(500)
+    end
+end)
+
+-- Up close: a small marker on it, and the game's help text with the key.
+CreateThread(function()
+    while true do
+        local cl, at = nil, nil
+        if call and clues[1] then cl, at = nearest_clue() end
+        if cl then
+            if not cl.on or (cl.range or 0) > 2 then -- (on the spot, or above the car; not on a person's head)
+                DrawMarker(20, at.x, at.y, at.z + (cl.on and 1.3 or 0.6), 0.0, 0.0, 0.0, 180.0, 0.0, 0.0, 0.25, 0.25, 0.2, 240, 176, 64, 200,
+                    true, true, 2, false, nil, nil, false)
+            end
+            BeginTextCommandDisplayHelp('STRING')
+            AddTextComponentSubstringPlayerName('~INPUT_CONTEXT~ Inspect: ' .. cl.label)
+            EndTextCommandDisplayHelp(0, false, false, -1)
+            Wait(0)
+        else
+            Wait(call and clues[1] and 250 or 1000)
+        end
+    end
 end)
 
 TriggerServerEvent('c3r:callout:sync') -- (the calls open now)

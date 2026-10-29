@@ -711,7 +711,9 @@ local pursuit, body -- the chase and their body language, further down with what
 function Casual(s)
     if not s or s.felony or s.pursuit or not (s.foot or s.parked) then return false end
     for _, o in pairs(s.occ) do
-        if o.cuffed or o.escorted then return false end
+        -- (a callout prisoner stays cuffed where they are, or in the car: the officer can go and talk to the next person,
+        -- and come back to them with E. Not while holding them by the arm.)
+        if (o.cuffed and not o.callout) or o.escorted then return false end
     end
     return true
 end
@@ -735,7 +737,7 @@ local function start_foot(people, hint, categories)
     local p = type(people) == 'table' and people[1]
     local ped = p and NetToPed(p.net) or 0
     if not DoesEntityExist(ped) then return TriggerServerEvent('c3r:stop:act', 'cancel') end
-    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = true }
+    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = true, callout = p.callout, cuffed = p.cuffed }
     local s = { foot = true, veh = 0, ped = ped, ped_net = p.net, hint = hint, categories = categories or {},
                 occ = { [p.net] = o }, stopped = true }
     Stop = s
@@ -1093,6 +1095,7 @@ local function in_circle(p)
 end
 
 local function book(ped, st)
+    if NetworkGetEntityIsNetworked(ped) then TriggerServerEvent('c3r:callout:custody', { PedToNet(ped) }, 'booked') end -- (a callout's prisoner)
     NetworkFadeOutEntity(ped, false, true)
     SetTimeout(1500, function() if DoesEntityExist(ped) then DeleteEntity(ped) end end)
     Prompt('custody', 'ok', 'Prisoner booked', ('Booked into %s.'):format(st.name), 6000)
@@ -1275,6 +1278,21 @@ local function give_up(s, o)
     TriggerServerEvent('c3r:stop:pursuit', 'caught', o.net)
 end
 
+-- Off and running from someone. A flee task doesn't always take (the server's own peds, a callout's, ignore it), so
+-- if they aren't moving in a moment they're sent sprinting straight away instead. -> true once they're running.
+function RunFrom(ped, from)
+    ClearPedTasks(ped)
+    SetBlockingOfNonTemporaryEvents(ped, false) -- (held still for a story or a stop: let them react again)
+    TaskSmartFleePed(ped, from, 1000.0, -1, false, false)
+    if wait_until(1500, function() return GetEntitySpeed(ped) > 1.5 end) then return true end
+    local p, at = GetEntityCoords(ped), GetEntityCoords(from)
+    local dir = p - at
+    if #dir < 0.1 then dir = GetEntityForwardVector(ped) end
+    local to = p + dir / #dir * 150.0
+    TaskGoToCoordAnyMeans(ped, to.x, to.y, to.z, 3.0, 0, false, 786603, 0.0) -- (3.0: a sprint)
+    return wait_until(2000, function() return GetEntitySpeed(ped) > 1.5 end)
+end
+
 -- They give up when the officer catches up (or tases them); far enough ahead for 10 s, they got away.
 local function since(t, yes) return yes and (t or GetGameTimer()) or nil end
 local function chase(s, o, mine)
@@ -1307,7 +1325,10 @@ function TASKS.flee(s, o, mine)
         wait_until(4000, function() return not IsPedInAnyVehicle(o.ped, false) end)
     end
     if not current(s, o, mine) then return end
-    TaskSmartFleePed(o.ped, PlayerPedId(), 1000.0, -1, false, false)
+    if not RunFrom(o.ped, PlayerPedId()) then -- (couldn't get going: they think better of it)
+        if current(s, o, mine) then give_up(s, o) end
+        return
+    end
     Prompt('stop', 'alert', 'Foot pursuit', 'They ran! Catch up with them, or tase them.', 6000)
     chase(s, o, mine)
 end
@@ -1567,8 +1588,16 @@ RegisterKeyMapping('+c3r_mode', 'Traffic stop: what the driver does (c3r)', 'key
 
 -- ─── the end of a stop ────────────────────────────────────────────────────────
 
--- One person, back to being an ordinary ped the game can clean up.
+-- One person, back to being an ordinary ped the game can clean up. A callout person is still the call's: they're
+-- only let go of (another officer's game may need them), and the call gives them back what they were doing.
 local function free_ped(net, o)
+    if o.callout then
+        if o.walk then ResetPedMovementClipset(o.ped, 0.0) end
+        TaskClearLookAt(o.ped)
+        if o.cuffed and not o.seated then cuffed_idle(o.ped) end -- (left standing in cuffs: hands stay behind the back)
+        SetPedKeepTask(o.ped, o.cuffed == true)
+        return SetNetworkIdCanMigrate(net, true)
+    end
     if o.felony then DropFelonyPose(o) end
     if o.cuffed then
         if o.escorted then DetachEntity(o.ped, true, false) end
@@ -1605,7 +1634,7 @@ end
 
 -- Out of the car (if they're in it) and away on foot.
 local function walk_off(o)
-    if not control(o.ped) then return end
+    if o.callout or not control(o.ped) then return end -- (the call says what they do next)
     if IsPedInAnyVehicle(o.ped, false) then
         TaskLeaveVehicle(o.ped, GetVehiclePedIsIn(o.ped, false), 0)
         wait_until(5000, function() return not IsPedInAnyVehicle(o.ped, false) end)
@@ -1832,8 +1861,7 @@ local function speak_next()
     local l = table.remove(lines, 1)
     local ms = 1800 + #l.text * 55
     animate(l)
-    BeginTextCommandPrint('STRING')
-    AddTextComponentSubstringPlayerName((l.who == 'officer' and '~b~You:~s~ ' or ('~y~' .. l.who .. ':~s~ ')) .. l.text)
+    BeginLongText(BeginTextCommandPrint, (l.who == 'officer' and '~b~You:~s~ ' or ('~y~' .. l.who .. ':~s~ ')) .. l.text) -- (lines run past 99 characters)
     EndTextCommandPrint(ms, true)
     SetTimeout(l.who == 'officer' and 1300 or ms, speak_next)
 end

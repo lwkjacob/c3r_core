@@ -1,8 +1,34 @@
 --[[ c3r — client: duty, and the exports other resources read the officer's state from. ]]
 
+-- GTA cuts a text component off at 99 bytes, and its 'STRING' label holds only one. Longer text goes in as several
+-- pieces (never split inside a ~colour~ code or a multi-byte character), under a label with a slot for each:
+-- BeginLongText(BeginTextCommandPrint, text), then end the command as usual.
+local function pieces_of(text)
+    local out, i = {}, 1
+    while i <= #text do
+        local j = math.min(i + 98, #text)
+        if j < #text then
+            local piece = text:sub(i, j)
+            local _, tildes = piece:gsub('~', '')
+            if tildes % 2 == 1 then j = i + piece:match('.*()~') - 2 end -- (a ~code~ would be cut: stop before it)
+            while j > i and text:byte(j + 1) and text:byte(j + 1) >= 0x80 and text:byte(j + 1) < 0xC0 do j = j - 1 end
+        end
+        out[#out + 1] = text:sub(i, j)
+        i = j + 1
+    end
+    return out
+end
+
+function BeginLongText(begin, text)
+    local list = pieces_of(tostring(text))
+    local label = 'C3R_TEXT_' .. #list
+    AddTextEntry(label, string.rep('~a~', #list))
+    begin(label)
+    for _, p in ipairs(list) do AddTextComponentSubstringPlayerName(p) end
+end
+
 function Notify(msg)
-    BeginTextCommandThefeedPost('STRING')
-    AddTextComponentSubstringPlayerName(msg)
+    BeginLongText(BeginTextCommandThefeedPost, msg)
     EndTextCommandThefeedPostTicker(false, true)
 end
 
