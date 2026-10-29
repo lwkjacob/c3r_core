@@ -358,12 +358,74 @@
         #cfg footer button { padding: 8px 18px; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised); cursor: pointer; }
         #cfg footer .save { margin-left: auto; background: var(--accent); border-color: var(--accent); color: #1d1405; font-weight: 700; }
         #cfg footer .save:disabled { opacity: .4; cursor: default; }
+        /* ── callouts: the offer card and the objective card (right side, glass), and "leave this call?" ── */
+        #callout { position: fixed; top: 24%; right: 26px; width: 330px; display: flex; flex-direction: column; gap: 12px; pointer-events: none;
+                   text-align: right; } /* (against the screen's edge) */
+        #co-offer, #co-card { padding: 14px 16px; opacity: 0; transform: translateX(24px); transition: opacity .2s ease-in, transform .2s ease-in; }
+        #co-offer.on, #co-card.on { opacity: 1; transform: none; transition: opacity .3s var(--ease), transform .3s var(--ease); }
+        #co-card.on.hidden { opacity: 0; transform: translateX(24px); }
+        #callout .tag { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: .16em;
+                        text-transform: uppercase; color: rgba(255, 255, 255, .8); }
+        #callout .tag .p { padding: 1px 7px; border-radius: 999px; background: rgba(255, 125, 112, .25); border: 1px solid var(--red); letter-spacing: .04em; }
+        #callout .name { margin-top: 6px; font-size: 19px; font-weight: 700; }
+        #callout .where { color: rgba(255, 255, 255, .78); font-size: 13px; }
+        #callout .report { margin-top: 8px; font-size: 13px; line-height: 1.4; color: rgba(255, 255, 255, .9); }
+        #callout .units { margin-top: 6px; font-size: 12px; color: var(--green); }
+        #callout .foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; font-size: 13px; }
+        #co-o-bar { height: 2px; margin-top: 12px; background: rgba(255, 255, 255, .7); border-radius: 2px; transform-origin: right; }
+        #co-card .obj { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .18); }
+        #co-card .label { font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: rgba(255, 255, 255, .6); }
+        #co-card .mine { margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+        #co-card .mine .t { font-size: 15px; font-weight: 700; }
+        #co-card .mine .h { font-size: 12px; color: rgba(255, 255, 255, .75); }
+        #co-card .team { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: rgba(255, 255, 255, .8); }
+        #co-card .team b { color: #fff; }
+        #co-card .foot { color: rgba(255, 255, 255, .7); font-size: 12px; gap: 14px; }
+        #co-card .foot span { display: inline-flex; align-items: center; gap: 6px; }
+        #co-confirm { position: fixed; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden; pointer-events: none;
+                      background: rgba(4, 6, 10, .45); transition: opacity .15s, visibility 0s linear .15s; }
+        #co-confirm.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .2s var(--ease); }
+        #co-confirm .box { width: 340px; padding: 20px; text-align: center; }
+        #co-confirm h2 { margin: 0; font-size: 17px; }
+        #co-confirm p { margin: 6px 0 16px; font-size: 13px; color: rgba(255, 255, 255, .8); }
+        #co-confirm .btns { display: flex; gap: 10px; justify-content: center; }
+        #co-confirm button { padding: 8px 20px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .5); background: rgba(255, 255, 255, .12);
+                             color: #fff; font-weight: 700; cursor: pointer; }
+        #co-confirm button:hover, #co-confirm button:focus-visible { background: rgba(255, 255, 255, .24); outline: none; }
+        #co-confirm button.leave { border-color: var(--red); background: rgba(255, 125, 112, .25); }
     </style>
 </head>
 <body>
 <div id="prompts" aria-live="polite"></div>
 
 <div id="hint" class="glass" role="status"></div>
+
+<aside id="callout" aria-live="polite">
+    <section id="co-offer" class="glass" aria-label="Callout offered">
+        <div class="tag">Callout <span class="p" id="co-o-prio"></span></div>
+        <div class="name" id="co-o-name"></div>
+        <div class="where" id="co-o-where"></div>
+        <div class="report" id="co-o-report"></div>
+        <div class="units" id="co-o-units"></div>
+        <div class="foot"><span class="kbd" id="co-o-key">Y</span> Respond <span class="kbd" id="co-o-dkey">X</span> Decline</div>
+        <div id="co-o-bar"></div>
+    </section>
+    <section id="co-card" class="glass" aria-label="Callout objective">
+        <div class="tag">On call</div>
+        <div class="name" id="co-c-name"></div>
+        <div class="where" id="co-c-where"></div>
+        <div class="obj"><div class="label">Objective</div><div class="mine" id="co-c-mine"></div></div>
+        <div class="obj" id="co-c-teamwrap"><div class="label">Team</div><div class="team" id="co-c-team"></div></div>
+        <div class="foot"><span><span class="kbd" id="co-c-hide"></span> hide</span><span><span class="kbd" id="co-c-leave"></span> leave call</span></div>
+    </section>
+</aside>
+<section id="co-confirm" aria-hidden="true">
+    <div class="box glass" role="dialog" aria-label="Leave this call?">
+        <h2>Leave this call?</h2>
+        <p id="co-c-confirm"></p>
+        <div class="btns"><button type="button" id="co-stay">Stay</button><button type="button" class="leave" id="co-leave">Leave call</button></div>
+    </div>
+</section>
 
 <section id="cfg" aria-hidden="true">
     <div class="shade"></div>
@@ -1786,6 +1848,68 @@
     });
     window.addEventListener('keydown', (e) => { if (cfg && e.key === 'Escape') { e.preventDefault(); cfgClose(); } });
 
+    // ── callouts (client/callouts.lua): the offer card, the objective card, and "leave this call?" ──
+    let coTimer = null;
+    const coEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = text ?? ''; return e; };
+    const dist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 10) * 10} m`);
+    function callout(d) {
+        if ('offer' in d) {
+            const el = $('co-offer'), o = d.offer;
+            clearTimeout(coTimer);
+            if (!o) el.classList.remove('on');
+            else {
+                $('co-o-prio').textContent = `P${o.priority || 2}`;
+                $('co-o-name').textContent = o.name || '';
+                $('co-o-where').textContent = `${o.street || ''} · ${dist(Number(o.distance) || 0)}`;
+                $('co-o-report').textContent = o.report || '';
+                $('co-o-units').textContent = o.units ? `${o.units} unit${o.units === 1 ? '' : 's'} responding` : '';
+                $('co-o-key').textContent = o.key || 'Y';
+                $('co-o-dkey').textContent = o.decline || 'X';
+                const bar = $('co-o-bar');
+                bar.style.transition = 'none';
+                bar.style.transform = 'scaleX(1)';
+                void bar.offsetWidth; // (restart the countdown)
+                bar.style.transition = `transform ${o.ms}ms linear`;
+                bar.style.transform = 'scaleX(0)';
+                el.classList.add('on');
+                coTimer = setTimeout(() => el.classList.remove('on'), o.ms);
+            }
+        }
+        if ('card' in d) {
+            const el = $('co-card'), c = d.card;
+            if (!c) el.classList.remove('on');
+            else {
+                $('co-c-name').textContent = c.name || '';
+                $('co-c-where').textContent = c.street || '';
+                $('co-c-mine').replaceChildren(...(c.mine || []).map((m) => {
+                    const w = coEl('div');
+                    w.append(coEl('div', 't', m.text));
+                    if (m.hint) w.append(coEl('div', 'h', m.hint));
+                    return w;
+                }));
+                const team = c.team || [];
+                $('co-c-team').replaceChildren(...team.map((t) => { const r = coEl('div'); r.append(coEl('b', '', t.unit), ` ${t.text}`); return r; }));
+                $('co-c-teamwrap').style.display = team.length ? '' : 'none';
+                if (d.keys) { $('co-c-hide').textContent = d.keys.hide; $('co-c-leave').textContent = d.keys.leave; }
+                el.classList.add('on');
+            }
+        }
+        if ('hidden' in d) $('co-card').classList.toggle('hidden', !!d.hidden);
+        if ('confirm' in d) {
+            $('co-confirm').classList.toggle('open', !!d.confirm);
+            $('co-confirm').setAttribute('aria-hidden', d.confirm ? 'false' : 'true');
+            if (d.confirm) {
+                $('co-c-confirm').textContent = `${d.name || 'The call'}: the other units on it carry on. If you're the last, it's cancelled.`;
+                $('co-stay').focus();
+            }
+        }
+    }
+    $('co-stay').addEventListener('click', () => post('calloutLeave', { leave: false }));
+    $('co-leave').addEventListener('click', () => post('calloutLeave', { leave: true }));
+    window.addEventListener('keydown', (e) => {
+        if ($('co-confirm').classList.contains('open') && e.key === 'Escape') { e.preventDefault(); post('calloutLeave', { leave: false }); }
+    });
+
     window.addEventListener('message', (e) => {
         const d = e.data || {};
         if (d.type === 'prompt') prompt(d);
@@ -1804,6 +1928,7 @@
         else if (d.type === 'radial') radial(d);
         else if (d.type === 'duty') dutyMenu(d);
         else if (d.type === 'config') config(d);
+        else if (d.type === 'callout') callout(d);
     });
 </script>
 </body>

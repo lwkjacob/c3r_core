@@ -18,6 +18,7 @@ shared_scripts { -- config/main.lua first: it makes Config
     'config/patrol.lua',
     'config/backup.lua',
     'config/medical.lua',
+    'config/callouts.lua',
 }
 
 server_scripts {
@@ -28,6 +29,8 @@ server_scripts {
     'server/dialogue.lua',
     'server/main.lua',
     'server/stops.lua',
+    'server/callouts.lua',
+    'callouts/*.lua', -- the calls (server only: the truth never reaches a game)
     'server/config_edit.lua',
 }
 
@@ -41,6 +44,7 @@ client_scripts {
     'client/staged.lua',
     'client/backup.lua',
     'client/medical.lua',
+    'client/callouts.lua',
 }
 
 files { 'nui/index.html', 'nui/img/code3response.png', 'nui/voice/*.ogg' }

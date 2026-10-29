@@ -16,6 +16,9 @@ Config.TargetKey = 'LSHIFT' -- in a police vehicle: the red circle ahead; drive 
 Config.ModeKey = 'U'        -- during a stop: what the driver does (follow in front / behind, steer, halt, cancel)
 Config.InteractKey = 'E'    -- on foot next to the car: talk to someone in it
 Config.RadialKey = 'G'      -- on foot at their car, held: the vehicle's radial menu (search, tow, everyone out / in)
+Config.RespondKey = 'Y'     -- a callout offered: respond to it
+Config.ObjectiveKey = 'BACK' -- on a callout: hide / show the objective card
+Config.LeaveCallKey = 'X'   -- a callout offered: decline it; on a callout: leave the call (asks first)
 
 -- Tab with someone's ID or registration showing: a tap hides / shows it, held this long (ms) it opens the weapon wheel.
 Config.WeaponWheelHold = 500
