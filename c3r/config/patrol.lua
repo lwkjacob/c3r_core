@@ -6,12 +6,13 @@ Config.Staged = {
     enabled = true,
     every = { 180, 300 },  -- s between violators
     lasts = 90,            -- s it keeps it up (pull it over before then)
+    -- what they're up to (relative weights, any numbers; a car already on file keeps its own story)
     secrets = { drunk = 4, stolen = 2, drugs = 2, warrant = 2, suspended = 2, unlicensed = 1, expired = 1, clean = 1 },
 }
 
 -- Arrested people in the back of your car are booked when you stop in the blue circle at any of these
 -- (the circle shows while you have someone in custody). Positions are approximate: move them to suit.
-Config.BookingRadius = 5.0
+Config.BookingRadius = 5.0 -- m
 Config.Stations = {
     { name = 'Mission Row', x = 441.0, y = -985.0, z = 30.7 },
     { name = 'Vespucci', x = -1108.0, y = -845.0, z = 19.3 },

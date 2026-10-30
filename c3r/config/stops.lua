@@ -34,7 +34,7 @@ Config.Modes = {
     steer_speed = 8.0,  -- m/s (~18 mph) top speed while you steer them with the arrow keys
 }
 
--- Roadside tests.
+-- Roadside tests. bac_limit: at or over this, the breathalyzer shows over the limit.
 Config.Tests = { bac_limit = 0.08 }
 
 -- Not everyone goes quietly. Chances by hidden truth (0-1; missing = never).
@@ -48,7 +48,7 @@ Config.Flee = {
 }
 
 -- Shouted orders (the PA, a felony stop) reach this far; talking to someone still needs you beside them.
-Config.PaRange = 40.0
+Config.PaRange = 40.0 -- m
 
 -- Felony stops (G at a stopped car, or "felony stop" on the PA): each person is ordered out, walked back and put on
 -- their knees, one at a time. Chances by hidden truth (0-1).
