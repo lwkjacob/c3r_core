@@ -317,7 +317,9 @@ RegisterNetEvent('c3r:plateResult', function(plate, v)
 end)
 
 -- A plate run that isn't on file (the server's LookupPlate): the car with that plate near the officer, if any,
--- as their game sees it: make, model, colour, and whether a man or a woman is at the wheel.
+-- as their game sees it: make, model, colour, and whether a man or a woman is at the wheel. ours: not ordinary traffic
+-- (an emergency or military vehicle, an aircraft or boat, a script's car, a player's): nothing's wrong with its papers.
+local NOT_TRAFFIC = { [13] = true, [14] = true, [15] = true, [16] = true, [18] = true, [19] = true, [21] = true }
 RegisterNetEvent('c3r:describePlate', function(plate, id)
     local me = GetEntityCoords(PlayerPedId())
     for _, veh in ipairs(GetGamePool('CVehicle')) do
@@ -330,6 +332,8 @@ RegisterNetEvent('c3r:describePlate', function(plate, id)
                 make = label(GetMakeNameFromVehicleModel(model)),
                 model = label(GetDisplayNameFromVehicleModel(model)) or GetDisplayNameFromVehicleModel(model),
                 color = colour_name(GetVehicleColor(veh)), driver = driver,
+                ours = (NOT_TRAFFIC[GetVehicleClass(veh)] or IsEntityAMissionEntity(veh)
+                    or (at_wheel ~= 0 and IsPedAPlayer(at_wheel))) and true or nil,
             })
         end
     end
@@ -1351,7 +1355,7 @@ local function chase(s, o, mine)
         if far and GetGameTimer() - far > 10000 then
             o.fleeing, o.escaped, s.lost_on_foot = false, true, true
             Prompt('stop', 'info', 'Suspect lost', 'They got away.', 5000)
-            return TriggerServerEvent('c3r:stop:pursuit', 'lost', o.net)
+            return TriggerServerEvent('c3r:stop:pursuit', 'lost', o.net, true)
         end
         Wait(200)
     end
@@ -2175,6 +2179,9 @@ function TowCar(car, s)
     end
     if loaded then
         Prompt('tow', 'ok', 'Vehicle loaded', 'The tow truck is taking it to the impound lot.', 5000)
+        if not s and NetworkGetEntityIsNetworked(car) then
+            TriggerServerEvent('c3r:tow:loaded', NetworkGetNetworkIdFromEntity(car)) -- (a wanted car: it's been found)
+        end
     else
         pcall(function() exports.lwk_control:say(nil, 'Tow truck unable to load the vehicle.') end)
         untow()

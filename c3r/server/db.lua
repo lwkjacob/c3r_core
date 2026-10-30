@@ -191,3 +191,27 @@ function Db.createVehicle(v)
     })
     return Db.findVehicle(v.plate)
 end
+
+-- A warrant on someone's record (text), or served (nil). An active one stands: a second doesn't replace it.
+-- -> true when their record changed
+function Db.setWarrant(id, text)
+    local n
+    if text then n = MySQL.update.await('UPDATE c3r_people SET warrant = ? WHERE id = ? AND warrant IS NULL', { text, id })
+    else n = MySQL.update.await('UPDATE c3r_people SET warrant = NULL WHERE id = ? AND warrant IS NOT NULL', { id }) end
+    return (tonumber(n) or 0) > 0
+end
+
+-- The same for a car's BOLO. id = its record id.
+function Db.setBolo(id, text)
+    local n
+    if text then n = MySQL.update.await('UPDATE c3r_vehicles SET bolo = ? WHERE id = ? AND bolo IS NULL', { text, id })
+    else n = MySQL.update.await('UPDATE c3r_vehicles SET bolo = NULL WHERE id = ? AND bolo IS NOT NULL', { id }) end
+    return (tonumber(n) or 0) > 0
+end
+
+-- The plate of a car of that model with a BOLO on it, one at random | nil
+function Db.boloCar(model)
+    if not model then return nil end
+    local row = MySQL.single.await('SELECT plate FROM c3r_vehicles WHERE bolo IS NOT NULL AND model = ? ORDER BY RAND() LIMIT 1', { model })
+    return row and row.plate
+end

@@ -105,6 +105,7 @@ local function truth_for(truth, secret)
     if secret == 'unlicensed' then t.id = 'forgot' elseif secret ~= 'warrant' and t.id ~= 'hands' then t.id = 'hands' end
     return t
 end
+Generator.truth_for = truth_for
 
 -- Picked for a car or a contact that's still being made up (bound once it's started): nobody else may take them
 -- meanwhile. [person id] = when.
@@ -204,7 +205,7 @@ function Generator.vehicle(plate, info, secret, owner_id)
     if secret == 'expired' then
         if math.random() < 0.5 then v.reg_valid = false else v.ins_valid = false end
     elseif secret == 'stolen' then
-        v.stolen = math.random() < 0.7 -- not every stolen car has been reported yet
+        v.stolen = info.reported or math.random() < 0.7 -- not every stolen car has been reported yet (an ALPR's hit has)
     end
     return v
 end
@@ -240,6 +241,9 @@ function Generator.stop(plate, info)
         local face = owner and info.ped_model and Db.face(owner.id)
         if owner and owner.gender == gender and not (face and face.model ~= info.ped_model) and not taken(owner.id) then
             Generator.reserve(owner.id)
+            -- a warrant issued or served since their truth was saved: the record decides
+            local record = owner.warrant and 'warrant' or truth.secret == 'warrant' and 'clean' or truth.secret
+            if record ~= truth.secret then truth = truth_for(truth, record) end
             local car = secret_for(vehicle)
             if car == 'expired' and (truth.secret == 'clean' or truth.secret == 'nervous') then
                 local copy = { secret = 'expired' } -- their papers lapsed (a plain copy: exports serialise it)

@@ -167,6 +167,72 @@ local function promote(s)
     log('stop by %d handed to %d', old, u)
 end
 
+-- ─── wanted ───────────────────────────────────────────────────────────────────
+-- Someone who gets away gets a warrant on their record, a car that gets away a BOLO. Arrested, the warrant is served;
+-- a car recovered comes off. SQL first, then the copies: anyone holding them (a recent car's people, a ped still
+-- bound) and other resources (c3r:record). set_warrant and set_bolo wait on SQL: run them in a thread.
+
+local function set_warrant(id, text)
+    if not Db.setWarrant(id, text) then return end
+    UpdateSubject(id, text)
+    local function held(g)
+        if not (g and g.person and g.person.id == id) then return end
+        g.person.warrant = text
+        if not text and g.truth and g.truth.secret == 'warrant' then g.truth = Generator.truth_for(g.truth, 'clean') end
+    end
+    for _, r in pairs(Recent) do
+        held(r.driver)
+        for _, g in pairs(r.passengers or {}) do held(g) end
+    end
+    TriggerEvent('c3r:record', (Db.getPerson(id)))
+end
+
+local function set_bolo(v, text)
+    if not Db.setBolo(v.id, text) then return end
+    v.bolo, v.bolo_reason = text ~= nil, text
+    TriggerEvent('c3r:record', nil, Db.getVehicle(v.id))
+end
+
+-- The stop's over, however it ended: anyone who ran and never gave up got away, and so did a driver still being
+-- chased, with the car unless they'd left it (s.left_car). The MDT holds a warrant until the report is signed.
+local function got_away(s)
+    for _, o in pairs(s.occ) do
+        local ped = entity(o.net)
+        local running = (o.ran and not o.gave_up) or (s.pursuit and o == s.driver)
+        if running and not o.cuffed and not o.away and not (ped ~= 0 and GetEntityHealth(ped) <= 100) then -- (not a body)
+            o.away = true
+            local v = s.vehicle
+            if s.pursuit and o == s.driver and not s.left_car and v and v.id and not v.bolo then
+                CreateThread(function() set_bolo(v, 'Fled from officers') end)
+            end
+            local id = o.person and o.person.id
+            if id then
+                TriggerEvent('c3r:fled', s.src, o.person)
+                if GetResourceState('lwk_mdt') ~= 'started' then
+                    CreateThread(function() set_warrant(id, 'Evading an officer') end)
+                end
+            end
+        end
+    end
+end
+
+-- The stop's over: whoever's in cuffs has their warrant served, and a wanted car in hand comes off the list.
+local function serve(s)
+    for _, o in pairs(s.occ) do
+        local p = o.cuffed and o.person
+        if p and p.id and p.warrant then
+            note(s, ('Warrant served: %s %s (%s)'):format(p.first, p.last, p.warrant))
+            p.warrant = nil
+            CreateThread(function() set_warrant(p.id, nil) end)
+        end
+    end
+    local v = s.vehicle
+    if v and v.id and v.bolo and (s.towed or (s.driver and s.driver.cuffed)) then
+        note(s, 'BOLO cleared: vehicle recovered')
+        CreateThread(function() set_bolo(v, nil) end)
+    end
+end
+
 local function finish(src, outcome)
     local s = Stops[src]
     if not s then return end
@@ -181,6 +247,8 @@ local function finish(src, outcome)
         -- everyone back on this game, so the car and its people go together (not a helper's prisoner in their car)
         if o.handler and o.seated_by ~= o.handler then hand_over(s, o, src) end
     end
+    got_away(s)
+    serve(s)
     for u in pairs(s.units or {}) do
         Stops[u] = nil
         TriggerClientEvent('c3r:stop:ended', u, outcome)
@@ -863,14 +931,16 @@ RegisterNetEvent('c3r:stop:act', function(action, arg, target, pa)
 end)
 
 -- The officer's game on a chase (only it sees the peds): 'caught' when someone gives up (net = who; a car
--- chase is over then too), 'lost' when they got away, which ends the stop.
-RegisterNetEvent('c3r:stop:pursuit', function(state, net)
+-- chase is over then too), 'lost' when they got away, which ends the stop. on_foot: they'd left the car behind.
+RegisterNetEvent('c3r:stop:pursuit', function(state, net, on_foot)
     local src = source
     local s = Stops[src]
     if not s then return end
     local o = s.occ[tonumber(net) or -1]
     if state == 'lost' then
         note(s, ('%s got away'):format(o and label(o) or 'The suspect'))
+        if o or s.driver then (o or s.driver).ran = true end
+        if on_foot == true then s.left_car = true end
         return finish(src, 'fled')
     end
     if state ~= 'caught' then return end
@@ -880,7 +950,7 @@ RegisterNetEvent('c3r:stop:pursuit', function(state, net)
         note(s, 'Pursuit ended')
     end
     if o then
-        o.out_srv, o.ran, o.facts.ran = true, true, 'yes' -- (gave up on foot, out of the car; they know they ran)
+        o.out_srv, o.ran, o.gave_up, o.facts.ran = true, true, true, 'yes' -- (gave up on foot, out of the car; they know they ran)
         say(s, Dialogue.answer('surrender', o), o)
         note(s, ('%s gave up'):format(label(o)))
     end
@@ -918,16 +988,24 @@ RegisterNetEvent('c3r:staged:pick', function(veh_net, people, info)
     local plate = str(GetVehicleNumberPlateText(veh), 8)
     plate = plate and plate:upper():gsub('%s+', '')
     if not plate or plate == '' then return end
-    local function fresh() local r = Recent[plate] return r and os.time() - r.at < RECENT_SECONDS end
+    local function fresh(p) local r = Recent[p or plate] return r and os.time() - r.at < RECENT_SECONDS end
     if fresh() then return end -- already somebody: they keep it
     StagedAt[src] = os.time()
     info = type(info) == 'table' and info or {}
-    local ok, gen = pcall(Generator.stop, plate, { make = str(info.make, 30), model = str(info.model, 30),
-        color = str(info.color, 30), male = d.male == true, secret = Generator.weighted(Config.Staged.secrets),
-        ped_model = GetEntityModel(entity(d.net)) })
+    local seen = plate
+    local ok, gen = pcall(function()
+        -- the same model as a car that got away: maybe it's that car, back on the road (plates here are the game's roll)
+        local back = math.random() < (Config.RepeatChance or 0.33) and Db.boloCar(str(info.model, 30))
+        if back and not fresh(back) then plate = back end
+        return Generator.stop(plate, { make = str(info.make, 30), model = str(info.model, 30),
+            color = str(info.color, 30), male = d.male == true, secret = Generator.weighted(Config.Staged.secrets),
+            ped_model = GetEntityModel(entity(d.net)) })
+    end)
     if not ok then return print('[c3r] could not stage ' .. plate .. ': ' .. tostring(gen)) end
     -- meanwhile (that waited on SQL) it may have been stopped or run: then that story stands
-    if fresh() or ByVehicle[veh_net] or Staged[veh_net] or not IsOnDuty(src) or Stops[src] or not GetPlayerName(src) then return end
+    if fresh() or fresh(seen) or not DoesEntityExist(veh) or ByVehicle[veh_net] or Staged[veh_net] or not IsOnDuty(src)
+        or Stops[src] or not GetPlayerName(src) then return end
+    if plate ~= seen then SetVehicleNumberPlateText(veh, plate) end
     Recent[plate] = { driver = gen, passengers = {}, at = os.time() }
     Staged[veh_net] = src
     SetTimeout((Config.Staged.lasts + 30) * 1000, function() if Staged[veh_net] == src then Staged[veh_net] = nil end end)
@@ -1018,6 +1096,17 @@ RegisterNetEvent('c3r:tow:cancelled', function(net)
     note(s, 'Tow truck cancelled')
 end)
 
+-- A car towed on its own, on no stop (a stop's own tow is s.towed): if it was wanted, it's been recovered.
+RegisterNetEvent('c3r:tow:loaded', function(net)
+    local src = source
+    local ent = entity(net)
+    if not IsOnDuty(src) or ent == 0 or GetEntityType(ent) ~= 2 or dist(src, ent) > Config.CancelDistance then return end
+    local v = Db.findVehicle(str(GetVehicleNumberPlateText(ent), 8))
+    if not (v and v.bolo) then return end
+    set_bolo(v, nil)
+    TriggerEvent('c3r:note', src, 'BOLO cleared: vehicle recovered')
+end)
+
 RegisterNetEvent('c3r:tow:failed', function(net)
     local src = source
     local ent = entity(net)
@@ -1062,8 +1151,15 @@ exports('endStop', function(src, net, outcome)
     src = tonumber(src)
     local s = Stops[src]
     if not s or not s.occ[tonumber(net) or -1] or not END_OUTCOMES[outcome] then return false end
+    if outcome == 'fled' then s.occ[tonumber(net)].ran = true end
     finish(src, outcome)
     return true
+end)
+
+-- A warrant on someone's record, from a signed report or anything else. id = their record's.
+exports('issueWarrant', function(id, text)
+    id, text = tonumber(id), str(text, 120)
+    if id and text then CreateThread(function() set_warrant(id, text) end) end
 end)
 
 AddEventHandler('playerDropped', function()
@@ -1084,7 +1180,10 @@ local function plate_key(p) return type(p) == 'string' and p:upper():gsub('[^%w]
 
 -- -> cb(vehicle | nil). Waits on SQL and on the officer's game, so it always answers through cb. quiet: don't
 -- fire vehicleContact (an MDT search keeps the record itself; a radio plate check is a contact).
-function LookupPlate(src, plate, cb, quiet)
+-- secret: what's wrong with a car an ALPR turned up (scanPlate): only for traffic with someone at the wheel. A unit's
+-- or a player's car (info.ours), or one an ALPR already let go, comes back clean, so a plate run can't make it wanted.
+local Passed = {} -- [plate] = os.time() an ALPR read it and let it go
+function LookupPlate(src, plate, cb, quiet, secret)
     CreateThread(function()
         plate = plate_key(plate)
         if plate == '' then return cb(nil) end
@@ -1092,7 +1191,7 @@ function LookupPlate(src, plate, cb, quiet)
         next_lookup = next_lookup + 1
         local id = next_lookup
         Lookups[id] = { src = src, done = function(info)
-            if type(info) ~= 'table' then return cb(v) end -- not near the officer: only what's on file
+            if type(info) ~= 'table' or (secret and (info.ours or info.driver == nil)) then return cb(v) end -- not near the officer: only what's on file
             if info.driver == nil and v then return cb(v) end -- nobody in it, papers on file: nothing to decide
             -- someone at the wheel already settled (a stop or a run a little while ago): the same person
             local r = Recent[plate]
@@ -1101,9 +1200,11 @@ function LookupPlate(src, plate, cb, quiet)
             end
             -- who's at the wheel is decided now, so a stop of this car later finds the same person: the owner
             -- (or a relative, a friend, a thief) if the papers are on file, everyone made up if they aren't
+            local let_go = Passed[plate] and os.time() - Passed[plate] < RECENT_SECONDS
             local ok, gen = pcall(Generator.stop, plate, {
                 make = str(info.make, 30), model = str(info.model, 30), color = str(info.color, 30),
                 male = info.driver == true or (info.driver == nil and math.random() < .5),
+                secret = not secret and (info.ours or let_go) and 'clean' or secret, reported = secret ~= nil,
             })
             if not ok then print('[c3r] could not make up papers for ' .. plate .. ': ' .. tostring(gen)) return cb(v) end
             if info.driver ~= nil then Recent[plate] = { driver = gen, passengers = {}, at = os.time() } end
@@ -1119,6 +1220,27 @@ function LookupPlate(src, plate, cb, quiet)
     end)
 end
 exports('lookupPlate', LookupPlate)
+
+-- An ALPR reading plates in passing (seeker_dual, seeker_dsr2x). A car on file is what it is. Any other: most are
+-- nobody's business and nothing's saved (Passed: it stays that way for a while, so a car doesn't flip between reads);
+-- Config.AlprChance of the ones Config.Secrets makes stolen or expired are made up now, so pulling it over finds the
+-- same. -> cb(vehicle | nil)
+local ALPR_SECRETS = { stolen = true, expired = true }
+exports('scanPlate', function(src, plate, cb)
+    src, plate = tonumber(src), plate_key(plate)
+    CreateThread(function()
+        local ok, v = pcall(Db.findVehicle, plate)
+        if not ok then print('[c3r] ' .. tostring(v)) end
+        if not ok or v or plate == '' then return cb(ok and v or nil) end
+        local now = os.time()
+        if not IsOnDuty(src) or (Passed[plate] and now - Passed[plate] < RECENT_SECONDS) then return cb(nil) end
+        for p, at in pairs(Passed) do if now - at >= RECENT_SECONDS then Passed[p] = nil end end
+        Passed[plate] = now
+        local secret = Generator.weighted(Config.Secrets)
+        if not ALPR_SECRETS[secret] or math.random() >= (Config.AlprChance or 0) then return cb(nil) end
+        LookupPlate(src, plate, cb, true, secret)
+    end)
+end)
 
 -- The vehicle menu's "Run plate": the record (made up now if it isn't on file) back to the officer's screen.
 RegisterNetEvent('c3r:runPlate', function(plate)

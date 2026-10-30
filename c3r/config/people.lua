@@ -13,3 +13,4 @@ Config.BorrowedChance = 0.15    -- the car belongs to a relative
 Config.OwnerDrivesChance = 0.8  -- a car stopped before: its owner is at the wheel again
 Config.RepeatChance = 0.33      -- someone with the same ped model as a person met before: the chance it's them again
 Config.RepeatSameSecret = 0.5   -- someone met again: the chance they're hiding the same thing as last time
+Config.AlprChance = 0.05        -- 0-1: of the cars Config.Secrets makes stolen or expired, how many an ALPR's passing read turns up (0: only cars on file)

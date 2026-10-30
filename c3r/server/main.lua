@@ -91,6 +91,11 @@ function SubjectInUse(id)
     return false
 end
 
+-- Their warrant changed: whoever's in the world as them goes by the new one.
+function UpdateSubject(id, warrant)
+    for _, s in pairs(Subjects) do if s.person and s.person.id == id then s.person.warrant = warrant end end
+end
+
 -- -> person (public), vehicle | nil, items, truth | nil when c3r didn't put this ped there
 exports('getPedSubject', function(net)
     local s = Subjects[tonumber(net) or -1]
