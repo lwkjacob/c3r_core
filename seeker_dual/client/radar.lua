@@ -2162,6 +2162,30 @@ CreateThread(function()
     end
 end)
 
+RegisterNetEvent('seeker_dual:alprForget', function(plate)
+    if type(plate) == 'string' then alprScanned[(plate:gsub('%s+', ''))] = nil end
+end)
+
+--- The flagged car flashes on the map for a moment, so the officer can tell which one it was.
+local function flashAlprHit(plate, suspect)
+    local seconds = tonumber(Config.alpr.blipSeconds) or 10
+    if seconds <= 0 or type(plate) ~= 'string' then return end
+    for _, veh in ipairs(getAllVehicles()) do
+        if DoesEntityExist(veh) and (GetVehicleNumberPlateText(veh) or ''):gsub('%s+', '') == plate then
+            local blip = AddBlipForEntity(veh)
+            SetBlipColour(blip, suspect and 1 or 5) -- red, as the alert is, or yellow
+            SetBlipFlashes(blip, true)
+            BeginTextCommandSetBlipName('STRING')
+            AddTextComponentSubstringPlayerName('ALPR hit: ' .. plate)
+            EndTextCommandSetBlipName(blip)
+            SetTimeout(seconds * 1000, function()
+                if DoesBlipExist(blip) then RemoveBlip(blip) end
+            end)
+            return
+        end
+    end
+end
+
 RegisterNetEvent('seeker_dual:alprResult', function(result)
     if not result then return end
 
@@ -2203,6 +2227,7 @@ RegisterNetEvent('seeker_dual:alprResult', function(result)
     if result.model then parts[#parts+1] = result.model            end
 
     local isSuspect = result.stolen or result.impounded or result.alertLevel == 'alert'
+    flashAlprHit(result.plate, isSuspect)
     local header = (isSuspect and '~r~' or '~y~') .. 'ALPR - ' .. (result.plate or '?') .. ':~s~'
 
     local function statusColor(val, status)

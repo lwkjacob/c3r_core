@@ -185,13 +185,15 @@ Config.radarProp = {
 Config.alpr = {
     -- Which CAD to run plates through:
     --   'none'      off — plates are still read, just never run
+    --   'c3r'       CODE3RESPONSE's own records: stolen, BOLOs, bad papers
     --   'cde'       CDE CAD (setup below)
     --   'imperial'  ImperialCAD (setup below)
-    provider = 'none',
+    provider = 'c3r',
 
     radius       = 25.0,  -- how far around the car plates are read, in metres
     rescanDelay  = 300,   -- seconds before the same plate is read again
     scanInterval = 200,   -- ms between scans
+    blipSeconds  = 10,    -- how long a flagged car flashes on the map (0: no blip)
 
     -- How long a result is reused before asking the CAD again, in minutes. Both
     -- Probably shouldn't change

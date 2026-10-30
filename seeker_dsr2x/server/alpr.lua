@@ -132,6 +132,7 @@ local cacheSaveQueued = false
 local kvpAvailable = type(SetResourceKvp) == 'function' and type(GetResourceKvpString) == 'function'
 
 local function cacheTtlSeconds()
+    if ALPR.provider == 'c3r' then return 0 end  -- local SQL, and a new BOLO has to show now
     local minutes = tonumber(ALPR.cacheMinutes)
     if not minutes then minutes = 60 end
     return minutes * 60
@@ -251,6 +252,48 @@ CreateThread(loadCache)
 -- ─────────────────────────────────────────────────────────────────────────────────────────
 
 local providers = {}
+
+--- CODE3RESPONSE's own records: a car on file, or now and then one of the traffic with something wrong with it
+--- (c3r decides, and saves it so a stop finds the same car). The rest stays quiet.
+local warnedNoC3r = false
+
+function providers.c3r(plate, done, src)
+    if GetResourceState('c3r') ~= 'started' then
+        if not warnedNoC3r then
+            warnedNoC3r = true
+            print('[seeker_dsr2x] ALPR provider is "c3r" but c3r is not started — plate lookups are being skipped. Without CODE3RESPONSE, set Config.alpr.provider in shared/config.lua.')
+        end
+        return done(nil)
+    end
+    local ok = pcall(function()
+        exports.c3r:scanPlate(src, plate, function(v)
+            if type(v) ~= 'table' then return done(nil) end
+            done({
+                make               = v.make,
+                model              = v.model,
+                color              = v.color,
+                year               = v.year,
+                owner              = v.owner,
+                stolen             = v.stolen == true,
+                impounded          = false,
+                registration       = v.reg_valid == true,
+                registrationStatus = v.reg_valid and 'Valid' or 'Expired',
+                insurance          = v.ins_valid == true,
+                insuranceStatus    = v.ins_valid and 'Valid' or 'Invalid',
+                alertLevel         = v.bolo and 'alert' or nil,
+                flags              = v.bolo and { 'BOLO' .. (v.bolo_reason and (': ' .. v.bolo_reason) or '') } or nil,
+            })
+        end)
+    end)
+    if not ok then done(nil, true) end
+end
+
+--- A car just went on the BOLO list: every unit's scanner reads it again, however recently it last did.
+AddEventHandler('c3r:record', function(_, vehicle)
+    if type(vehicle) == 'table' and vehicle.bolo and vehicle.plate then
+        TriggerClientEvent('seeker_dsr2x:alprForget', -1, vehicle.plate)
+    end
+end)
 
 --- CDE CAD.
 ---
@@ -617,5 +660,5 @@ RegisterNetEvent('seeker_dsr2x:runAlpr', function(plate, direction, force)
     -- pinned in inFlight for the rest of the session and never be looked up again.
     SetTimeout(30000, function() done(nil, true) end)
 
-    provider(plate, done)
+    provider(plate, done, src)
 end)
