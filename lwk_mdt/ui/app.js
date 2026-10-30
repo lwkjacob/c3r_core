@@ -312,7 +312,7 @@ function queryScreen(token, shown = lastQuery) {
             <fieldset><legend>Query</legend><form class="query" id="qf">
                 <label for="q">Name / Plate:</label><input class="txt" id="q" autocomplete="off" spellcheck="false">
                 <button class="btn default" type="submit">Search</button>
-            </form><div class="hint">Last name, first name or plate. Only people and vehicles officers have met are on file.</div></fieldset>
+            </form><div class="hint">Last name, first name or plate. Double-click a registered owner on a vehicle return to run them.</div></fieldset>
             <div id="results"></div></div>
         <div class="qside"><div class="sect">Recent Queries <span class="grow"></span><button class="sbtn" id="qclear">Clear</button></div>
             <div class="pane" id="recent"></div></div></div>`;
@@ -424,6 +424,17 @@ async function vehicleScreen(token, plate) {
             + field('INS', v.ins_valid === false ? 'UNINSURED' : v.ins_valid === true ? 'VALID' : ''),
         field('LAST CONTACT', when(v.last_seen)),
     ], arr(res.findings).map((f) => [/stolen|bolo/i.test(f) ? 'rd' : 'ye', /^stolen$/i.test(f) ? 'STOLEN VEHICLE' : f])) + contactsGrid(res.contacts);
+    // the registered owner: double-click runs them (their person return)
+    const pre = $('#rec pre.return'), own = v.owner && h(`REG OWNER/${up(v.owner)}`);
+    if (pre && own && pre.innerHTML.includes(own)) {
+        pre.innerHTML = pre.innerHTML.replace(own, `<span class="runlink" id="runowner" title="Double-click to run this name">${own}</span>`);
+        $('#runowner').ondblclick = async () => {
+            const r = await req('owner', { plate: v.plate });
+            if (!r || !r.key) return toast('No record of the owner on file.');
+            remember(`${up(v.owner)}`);
+            go((t) => personScreen(t, r.key));
+        };
+    }
     wire(view);
 }
 

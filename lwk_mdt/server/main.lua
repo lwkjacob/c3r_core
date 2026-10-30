@@ -134,7 +134,11 @@ local function admin(src)
     return false
 end
 local function can_use(src) return not Config.AcePermission or IsPlayerAceAllowed(src, Config.AcePermission) end
-local function can_edit(src, inc) return inc.author == license(src) or supervisor(src) end
+local function can_edit(src, inc) -- (units who joined a callout can add to its report too)
+    if inc.author == license(src) or supervisor(src) then return true end
+    for _, l in ipairs(inc.assist or {}) do if l == license(src) then return true end end
+    return false
+end
 
 -- Signed on this session: the player's state bag outlasts a restart of this resource, but not a rejoin.
 local function signed_on(src) return Player(src).state.lwkMdtCallsign end
@@ -217,6 +221,12 @@ local function close(src, text)
     local inc = current(src)
     if not inc then return end
     Open[src] = nil
+    for _, id in pairs(Open) do -- another unit still on this call: only this one clears; the last one closes it
+        if id == inc.id then
+            event(inc, officer(src) .. ' cleared' .. (text and (': ' .. text:lower()) or ''))
+            return
+        end
+    end
     if text then event(inc, text) end
     -- nothing to write up (no subject, no vehicle, nothing done): drop it
     if #inc.people == 0 and #inc.plates == 0 and #inc.events < 3 then
@@ -368,16 +378,43 @@ AddEventHandler('c3r:pursuitEnded', function(src)
     if inc then event(inc, 'Pursuit ended') end
 end)
 
+-- The open incident of the callout c3r calls `id` that a unit is on right now, if any.
+local function call_incident(id)
+    if id == nil then return nil end
+    for _, iid in pairs(Open) do
+        local inc = Incidents[iid]
+        if inc and inc.kind == 'callout' and inc.status == 'open' and inc.callout == id then return inc end
+    end
+end
+
+-- A callout is one incident for every unit on it: the first one opens it (and writes the report); anyone after
+-- joins it, and their stops, contacts and notes go into it too.
 AddEventHandler('c3r:calloutAccepted', function(src, c)
     c = type(c) == 'table' and c or {}
+    local id = math.type(c.id) == 'integer' and c.id or nil
+    local joined = call_incident(id)
+    if joined and Open[src] ~= joined.id then
+        if current(src) then close(src) end
+        Open[src] = joined.id
+        joined.assist = Records.add_unique(joined.assist, license(src))
+        event(joined, officer(src) .. ' responding')
+        TriggerClientEvent('lwk_mdt:where', src, joined.id)
+        return
+    end
     local inc = start(src, 'callout', str(c.name, 60), 'Callout accepted')
+    inc.callout = id
     local street = str(c.street, 80)
-    if street and not inc.location then inc.location = street save_inc(inc) end
+    if street and not inc.location then inc.location = street end
+    save_inc(inc)
 end)
 
 AddEventHandler('c3r:calloutArrived', function(src)
     local inc = current(src)
-    if inc then event(inc, 'Arrived on scene') end
+    if not inc then return end
+    inc.on_scene = inc.on_scene or {} -- (per unit: one arriving doesn't put the others on scene)
+    local first = next(inc.on_scene) == nil
+    inc.on_scene[license(src)] = true
+    event(inc, first and 'Arrived on scene' or (officer(src) .. ' arrived on scene'))
 end)
 
 AddEventHandler('c3r:calloutEnded', function(src, completed)
@@ -452,6 +489,7 @@ local function unit_status(src, u)
     if inc.kind == 'stop' then return 'STOP' end
     if inc.kind == 'pursuit' then return 'PURS' end
     if inc.kind == 'contact' then return 'CNTC' end
+    if inc.on_scene then return (inc.on_scene[license(src)] or u.code == '10-97') and 'ONSC' or 'ENRT' end
     for _, e in ipairs(inc.events) do
         if e.text == 'Arrived on scene' then return 'ONSC' end
     end
@@ -590,6 +628,38 @@ local function lookup_plate(src, plate)
     return v
 end
 
+-- People c3r has on file (anyone it ever made up: a car's owner nobody has met yet), by name. Kept here like
+-- anyone met, so their return opens and the next search finds them. -> list
+local function lookup_people(q)
+    if GetResourceState('c3r') ~= 'started' or not coroutine.isyieldable() then return {} end
+    local p = promise.new()
+    local ok = pcall(function() exports.c3r:findPeople(q, function(list) p:resolve(list or false) end) end)
+    local out = {}
+    for _, r in ipairs(ok and Citizen.Await(p) or {}) do
+        local rec = Records.person(r)
+        if rec then
+            rec = Records.merge(People[rec.key], rec)
+            People[rec.key] = rec
+            save('p', rec.key, rec)
+            out[#out + 1] = rec
+        end
+    end
+    return out
+end
+
+-- c3r's record of one person by its id (a vehicle's registered owner), kept here as above. -> record | nil
+local function lookup_person_id(id)
+    if not id or GetResourceState('c3r') ~= 'started' or not coroutine.isyieldable() then return nil end
+    local p = promise.new()
+    local ok = pcall(function() exports.c3r:getPerson(id, function(r) p:resolve(r or false) end) end)
+    local rec = Records.person(ok and Citizen.Await(p) or nil)
+    if not rec then return nil end
+    rec = Records.merge(People[rec.key], rec)
+    People[rec.key] = rec
+    save('p', rec.key, rec)
+    return rec
+end
+
 function H.search(src, a)
     local terms, people, vehicles = Records.terms(a.q), {}, {}
     for _, p in pairs(People) do
@@ -600,6 +670,8 @@ function H.search(src, a)
     end
     local plate = Records.plate_key(a.q)
     if #vehicles == 0 and #people == 0 and plate and #plate >= 5 then vehicles[1] = lookup_plate(src, plate) end
+    -- nobody met by that name: everyone on file (a name with letters in it, not a plate that came back)
+    if #people == 0 and #vehicles == 0 and tostring(a.q or ''):find('%a%a') then people = lookup_people(a.q) end
     local by_seen = function(x, y) return (x.last_seen or 0) > (y.last_seen or 0) end
     table.sort(people, by_seen)
     table.sort(vehicles, by_seen)
@@ -616,6 +688,19 @@ end
 function H.vehicle(_, a)
     local v = Vehicles[Records.plate_key(a.key) or '']
     return v and { record = v, findings = Records.vehicle_findings(v), contacts = contacts(v.contacts) } or nil
+end
+
+-- The registered owner of a vehicle on file (double-click on REG OWNER): their person return. -> { key } | nil
+function H.owner(_, a)
+    local v = Vehicles[Records.plate_key(a.plate) or '']
+    if not v then return nil end
+    local p = lookup_person_id(v.owner_id)
+    if not p and v.owner then -- (an older record without the owner's id: whoever on file has that name)
+        local terms = Records.terms(v.owner)
+        for _, x in pairs(People) do if Records.match_person(x, terms) then p = x break end end
+        p = p or lookup_people(v.owner)[1]
+    end
+    return p and { key = p.key } or nil
 end
 
 function H.reports(src, a)

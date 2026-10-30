@@ -63,7 +63,7 @@ function Records.vehicle(v)
     if not plate then return nil end
     return {
         plate = plate, pd_id = tonumber(v.id), make = str(v.make, 30), model = str(v.model, 30), color = str(v.color, 30),
-        year = str(v.year, 4), owner = str(v.owner, 60),
+        year = str(v.year, 4), owner = str(v.owner, 60), owner_id = tonumber(v.owner_id),
         reg_valid = bool(v.reg_valid), ins_valid = bool(v.ins_valid),
         stolen = bool(v.stolen), bolo = bool(v.bolo), bolo_reason = str(v.bolo_reason, 120),
     }
