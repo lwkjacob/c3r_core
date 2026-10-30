@@ -70,6 +70,12 @@ end
 -- Back to being ordinary traffic the game can clean up (unless the officer's stop has it now).
 local function release(a)
     if a.handed then return end
+    if a.released then -- another officer pulled it over: their stop has it now. Only let go of it, so their game can
+        -- take it; never "no longer needed" here, or this game tidies the car (and them) away mid-stop
+        if DoesEntityExist(a.ped) then SetNetworkIdCanMigrate(PedToNet(a.ped), true) end
+        if DoesEntityExist(a.veh) then SetNetworkIdCanMigrate(a.net, true) end
+        return
+    end
     if DoesEntityExist(a.ped) then
         SetBlockingOfNonTemporaryEvents(a.ped, false)
         SetPedKeepTask(a.ped, false)

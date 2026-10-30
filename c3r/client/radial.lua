@@ -68,14 +68,13 @@ local CHASE = {
     { 'light', 'Backup: code 1', 'siren' }, { 'medium', 'Backup: code 2', 'siren' }, { 'heavy', 'Backup: code 3', 'siren' },
     { 'air', 'Air support', 'heli' }, { 'cancel_pursuit', 'Cancel backup', 'radio' },
 }
--- A unit already on its way is called off from the same place ("Cancel ..."); a tow truck can't be.
+-- A unit already on its way is called off from the same place ("Cancel ..."), the tow truck too (until it has the car).
 local function backup_items(list, skip)
     local out = {}
     for _, b in ipairs(list) do
         if b[1] ~= skip then
             local on = BackupActive(b[1])
-            out[#out + 1] = b[1] == 'tow' and { action = 'backup', arg = 'tow', label = b[2], icon = b[3], off = on and 'On its way' or nil }
-                or on and { action = 'backup', arg = 'cancel:' .. b[1], label = 'Cancel ' .. b[2]:lower(), icon = b[3] }
+            out[#out + 1] = on and { action = 'backup', arg = 'cancel:' .. b[1], label = 'Cancel ' .. b[2]:lower(), icon = b[3] }
                 or { action = 'backup', arg = b[1], label = b[2], icon = b[3] }
         end
     end

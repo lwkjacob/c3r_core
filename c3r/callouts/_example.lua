@@ -37,8 +37,8 @@
       c:clue(key, { at | on, label, text, prop?, hidden? })
           Evidence: up close, "E Inspect: <label>" shows text and puts it on every unit's MDT. on = a vehicle key puts
           it on that car (for something about a person, give them a question instead).
-          prop = an object model laid on the ground there ('prop_npc_phone_02'); it, or the car it's on, glows white
-          until you've looked at it. Check model names against the game's object list.
+          prop = an object model laid on the ground there ('prop_npc_phone_02'); it, or the car it's on, has an
+          amber arrow over it until you've looked at it. Check model names against the game's object list.
       c:objective(id, text, { after?, who?, hint?, hidden?, blip? })
           A line on the card. after = { ids } that must be done first; who = 'one' (one unit takes it, the default)
           or 'all' (on everyone's card); hidden = off the card until c:reveal(id); blip = the person / vehicle / clue

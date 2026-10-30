@@ -175,7 +175,7 @@ local function request_stop(veh, opts)
             return log('could not network %s', GetVehicleNumberPlateText(veh))
         end
         local list = {}
-        for i, p in ipairs(people) do list[i] = { seat = p.seat, net = PedToNet(p.ped), male = is_male(p.ped) } end
+        for i, p in ipairs(people) do list[i] = { seat = p.seat, net = PedToNet(p.ped), male = is_male(p.ped), look = ReadLook(p.ped) } end
         local model = GetEntityModel(veh)
         log('asking to stop %s (%d aboard)', GetVehicleNumberPlateText(veh), #list)
         if opts and opts.contact then opts.contact = PedToNet(opts.contact) end
@@ -243,6 +243,21 @@ function RequestVehicle(veh, action)
     request_stop(veh, anyone and { parked = true } or { empty = true })
 end
 
+-- Their face and clothes, so they look the same if they're met again (server/stops.lua meet): 12 components
+-- (drawable, texture) and the hat, glasses, ears, watch and bracelet props (index, texture; -1 = none).
+function ReadLook(ped)
+    local c, p = {}, {}
+    for comp = 0, 11 do
+        c[#c + 1] = GetPedDrawableVariation(ped, comp)
+        c[#c + 1] = GetPedTextureVariation(ped, comp)
+    end
+    for _, prop in ipairs({ 0, 1, 2, 6, 7 }) do
+        p[#p + 1] = GetPedPropIndex(ped, prop)
+        p[#p + 1] = GetPedPropTextureIndex(ped, prop)
+    end
+    return { c = c, p = p }
+end
+
 -- Walking up to anyone (menu.lua's E with no stop on): someone sitting in a car that's standing still is a stop
 -- of that car where it is; someone on foot is a stop of just them.
 function RequestContact(ped)
@@ -256,7 +271,8 @@ function RequestContact(ped)
     CreateThread(function()
         if not NetworkGetEntityIsNetworked(ped) then NetworkRegisterEntityAsNetworked(ped) end
         if wait_until(1500, function() return NetworkGetEntityIsNetworked(ped) end) then
-            TriggerServerEvent('c3r:stop:start', nil, { { net = PedToNet(ped), male = is_male(ped) } }, nil, { foot = true })
+            TriggerServerEvent('c3r:stop:start', nil, { { net = PedToNet(ped), male = is_male(ped), look = ReadLook(ped),
+                cuffed = IsPedCuffed(ped) or nil } }, nil, { foot = true })
         end
         SetTimeout(4000, function() asking = false end)
     end)
@@ -656,6 +672,8 @@ local function watch(s)
             chasing = chasing or o.fleeing or (o.escorted and not o.transported and DoesEntityExist(o.ped))
         end
         local d = #(GetEntityCoords(me) - GetEntityCoords(((car and not s.towed) or not s.ped) and s.veh or s.ped))
+        -- (on foot, with another officer moving them now: they're with that officer, wherever this one is)
+        if s.foot and s.occ[s.ped_net] and s.occ[s.ped_net].away then d = 0.0 end
         if Casual(s) and d > 25.0 then -- walked off from a chat: that's it, they go about their day
             log('walked away from the contact')
             TriggerServerEvent('c3r:stop:act', 'cancel')
@@ -667,19 +685,23 @@ local function watch(s)
             return
         end
         -- Tasks only stick on the entity's owner: if ownership slipped to another game, take it back, and
-        -- then put back what that game didn't keep (no migrating, and undriveable once stopped).
-        if (s.ped and not NetworkHasControlOfEntity(s.ped)) or (car and not NetworkHasControlOfEntity(s.veh)) then
+        -- then put back what that game didn't keep (no migrating, and undriveable once stopped). Not for someone
+        -- another officer on the stop has now, and never on a stop this officer is only helping with.
+        local driver_here = s.ped and not (s.occ[s.ped_net] and s.occ[s.ped_net].away)
+        if s.assist then
+            -- (helping: the car and anyone not taken over are the other officer's)
+        elseif (driver_here and not NetworkHasControlOfEntity(s.ped)) or (car and not NetworkHasControlOfEntity(s.veh)) then
             if not s.lost then log('lost control of the car or driver: taking it back') end
             s.lost = true
-            if s.ped then NetworkRequestControlOfEntity(s.ped) end
+            if driver_here then NetworkRequestControlOfEntity(s.ped) end
             if car then NetworkRequestControlOfEntity(s.veh) end
         elseif s.lost then
             s.lost = false
             if car then SetNetworkIdCanMigrate(s.veh_net, false) end
-            for net in pairs(s.occ) do SetNetworkIdCanMigrate(net, false) end
+            for net, o in pairs(s.occ) do if not o.away then SetNetworkIdCanMigrate(net, false) end end
             if s.stopped and car then SetVehicleUndriveable(s.veh, true) end
         end
-        if s.ped and s.stopped and not s.mode and IsPedInVehicle(s.ped, s.veh, false) then
+        if not s.assist and s.ped and s.stopped and not s.mode and IsPedInVehicle(s.ped, s.veh, false) then
             if GetEntitySpeed(s.veh) > 1.5 then hold(s) end
             if not windows and d < 6.0 and not IsPedInAnyVehicle(me, false) then
                 for _, o in pairs(s.occ) do
@@ -732,16 +754,29 @@ local function park(s)
     end
 end
 
+-- Helping on another unit's stop (hint.assist): the same people, but the car, the pull-over and anyone not taken
+-- over stay with the officer who made it. Nothing here drives or claims anything; the menu opens on whoever they
+-- walked up to.
+function Assisting(s)
+    s.felony, s.towed = s.hint.felony or nil, s.hint.towed or nil -- (joined mid felony stop, or once the tow's been called)
+    Prompt('stop', 'info', 'Assisting', ('You are helping %s on this stop. Walk away to leave it.'):format(s.hint.by or 'another unit'), 6000)
+    if s.hint.contact then CreateThread(function() Wait(100) OpenMenuFor(s.hint.contact) end) end
+    CreateThread(function() watch(s) end)
+    CreateThread(function() body(s) end)
+end
+
 -- Someone on foot: they stop where they are and face the officer, and the menu opens on them.
 local function start_foot(people, hint, categories)
     local p = type(people) == 'table' and people[1]
     local ped = p and NetToPed(p.net) or 0
     if not DoesEntityExist(ped) then return TriggerServerEvent('c3r:stop:act', 'cancel') end
-    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = true, callout = p.callout, cuffed = p.cuffed }
+    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = true, callout = p.callout, cuffed = p.cuffed,
+                away = hint.assist or nil }
     local s = { foot = true, veh = 0, ped = ped, ped_net = p.net, hint = hint, categories = categories or {},
-                occ = { [p.net] = o }, stopped = true }
+                occ = { [p.net] = o }, stopped = true, assist = hint.assist }
     Stop = s
     ClearPrompt('target')
+    if s.assist then return Assisting(s) end
     CreateThread(function()
         if not claim(s) or Stop ~= s then return end
         TriggerEvent('c3r:stop:task', 'stay', p.net)
@@ -751,17 +786,19 @@ local function start_foot(people, hint, categories)
     CreateThread(function() body(s) end)
 end
 
--- people: { { net, seat, role, look } } from the server (the driver among them)
+-- people: { { net, seat, role, look, cuffed?, out?, callout? } } from the server (the driver among them)
 RegisterNetEvent('c3r:stop:started', function(veh_net, people, hint, categories)
     asking = false
-    if type(hint) == 'table' and hint.foot then return start_foot(people, hint, categories) end
+    hint = type(hint) == 'table' and hint or {}
+    if hint.foot then return start_foot(people, hint, categories) end
     local veh = NetToVeh(veh_net)
     if not DoesEntityExist(veh) then return TriggerServerEvent('c3r:stop:act', 'cancel') end
-    local s = { veh = veh, veh_net = veh_net, hint = hint or {}, categories = categories or {}, occ = {} }
+    local s = { veh = veh, veh_net = veh_net, hint = hint, categories = categories or {}, occ = {}, assist = hint.assist }
     for _, p in ipairs(type(people) == 'table' and people or {}) do
         local ped = NetToPed(p.net)
         if DoesEntityExist(ped) then
-            s.occ[p.net] = { net = p.net, ped = ped, seat = p.seat, role = p.role, look = p.look, out = false }
+            s.occ[p.net] = { net = p.net, ped = ped, seat = p.seat, role = p.role, look = p.look, out = p.out == true,
+                             cuffed = p.cuffed, callout = p.callout, away = s.assist or nil }
             if p.seat == -1 then s.ped, s.ped_net = ped, p.net end
         end
     end
@@ -770,6 +807,10 @@ RegisterNetEvent('c3r:stop:started', function(veh_net, people, hint, categories)
     Stop = s
     ClearPrompt('target')
     s.parked = s.hint.parked
+    if s.assist then
+        s.stopped = true
+        return Assisting(s)
+    end
     if not s.parked then
         Prompt('stop', 'info', 'Traffic stop',
             ('The driver is pulling over. Tap %s to change what they do.'):format(KeyName('+c3r_mode', 'U')), 9000)
@@ -926,7 +967,7 @@ function TASKS.search_car(s)
         local dd = bone ~= -1 and #(GetWorldPositionOfEntityBone(s.veh, bone) - pos)
         if dd and (not best or dd < best) then door, best = d[2], dd end
     end
-    if door and control(s.veh) then SetVehicleDoorOpen(s.veh, door, false, false) end
+    if door and not s.assist and control(s.veh) then SetVehicleDoorOpen(s.veh, door, false, false) end -- (a helper's: not their car)
     TaskStartScenarioInPlace(me, 'PROP_HUMAN_BUM_BIN', 0, true)
     Wait(8000)
     ClearPedTasks(me)
@@ -1535,6 +1576,7 @@ local function set_mode(s, id)
         end
         s.manual, s.stopped = true, false -- the automatic pull-over stops steering them from here on
         s.mode = id ~= 'halt' and id or nil
+        s.kept = id == 'halt' -- (the officer told them to stay: driving off doesn't bring them along, see below)
         SetVehicleUndriveable(s.veh, false)
         ClearPedTasks(s.ped)
         if id == 'front' then
@@ -1559,6 +1601,7 @@ end
 
 RegisterCommand('+c3r_mode', function()
     if not Stop or Stop.pursuit or Stop.foot then return end
+    if Stop.assist then return Prompt('mode', 'info', 'Not your stop', 'The officer who made the stop decides what the driver does.', 4000) end
     if picking then return close_picker() end
     picking = 1 -- Follow in front first
     SendNUIMessage({ type = 'modes', open = true, items = MODES, index = picking, current = Stop.mode or (Stop.stopped and 'halt') })
@@ -1596,7 +1639,9 @@ local function free_ped(net, o)
         TaskClearLookAt(o.ped)
         if o.cuffed and not o.seated then cuffed_idle(o.ped) end -- (left standing in cuffs: hands stay behind the back)
         SetPedKeepTask(o.ped, o.cuffed == true)
-        return SetNetworkIdCanMigrate(net, true)
+        -- in cuffs (in the back of the car, or left standing): still this officer's prisoner, on this game. Handed to
+        -- another game, they'd lose the cuffs (that game never put them on) and this officer could reach them no more.
+        return SetNetworkIdCanMigrate(net, not (o.cuffed or Custody[net]))
     end
     if o.felony then DropFelonyPose(o) end
     if o.cuffed then
@@ -1615,7 +1660,7 @@ end
 
 -- Whatever happens, they go back to being ordinary traffic the game can clean up.
 local function let_go(s)
-    if DoesEntityExist(s.veh) and not s.towed then -- (a towed car is the tow truck's)
+    if not s.assist and DoesEntityExist(s.veh) and not s.towed then -- (a towed car is the tow truck's; a helper's never theirs)
         SetVehicleUndriveable(s.veh, false)
         SetEntityMaxSpeed(s.veh, 500.0)
         SetVehicleIndicatorLights(s.veh, 0, false)
@@ -1624,8 +1669,9 @@ local function let_go(s)
         SetEntityAsNoLongerNeeded(s.veh)
     end
     for net, o in pairs(s.occ) do
-        if Custody[net] or o.transported then
-            -- in the back of the officer's car (still theirs, until booked), or in the transport van (its, until it fades)
+        if Custody[net] or o.transported or o.away then
+            -- in the back of the officer's car (still theirs, until booked), or in the transport van (its, until it
+            -- fades), or another officer's game has them
         elseif DoesEntityExist(o.ped) then
             free_ped(net, o)
         end
@@ -1680,7 +1726,7 @@ local function drive_off(s)
 end
 
 -- ─── the ID card ─────────────────────────────────────────────────────────────
--- Shown top right for 15 s when handed over; Tab hides and shows it again until the stop ends.
+-- Shown top right for 15 s when handed over; Backspace hides and shows it again until the stop ends.
 
 local id_shot = nil -- their headshot, registered while the card is held
 
@@ -1706,23 +1752,22 @@ local function drop_id()
     if id_shot then UnregisterPedheadshot(id_shot) id_shot = nil end
 end
 
--- Tab (control 37) toggles the card while one is held; the weapon wheel only opens once Tab is held
--- Config.WeaponWheelHold ms. ← → (174 / 175) swap it for the car's registration; the menu's page handles both itself.
--- Not while the arrows steer their car or pick who to talk to.
-local WHEEL_MS = Config.WeaponWheelHold or 500
+-- Config.IdCardKey (Backspace) hides / shows the card while one is held (with the menu open, its page takes the
+-- key itself); while it does, Backspace is the card's, not the callout objective's. ← → (174 / 175) swap it for
+-- the car's registration. Not while the arrows steer their car, or a picker has Backspace.
+function IdCardHeld() return id_held end
+
+RegisterCommand('+c3r_idcard', function()
+    if id_held and not IsNuiFocused() and IsControlEnabled(0, 177) and not PickingPerson() then
+        SendNUIMessage({ type = 'idcard', toggle = true })
+    end
+end, false)
+RegisterCommand('-c3r_idcard', function() end, false)
+RegisterKeyMapping('+c3r_idcard', 'Stop: hide / show their ID or registration (c3r)', 'keyboard', Config.IdCardKey or 'BACK')
+
 CreateThread(function()
-    local tab_down = nil
     while true do
         if id_held then
-            local now = GetGameTimer()
-            -- (the Disabled checks see the key whether it's disabled this frame or not)
-            if IsDisabledControlJustPressed(0, 37) then tab_down = now end
-            local wheel = tab_down and now - tab_down >= WHEEL_MS
-            if not wheel then DisableControlAction(0, 37, true) end
-            if IsDisabledControlJustReleased(0, 37) then
-                if tab_down and not wheel then SendNUIMessage({ type = 'idcard', toggle = true }) end
-                tab_down = nil
-            end
             if not (Stop and Stop.mode == 'steer') and not PickingPerson()
                 and (IsControlJustPressed(0, 174) or IsControlJustPressed(0, 175)) then
                 SendNUIMessage({ type = 'idcard', swap = true })
@@ -1746,12 +1791,60 @@ RegisterNetEvent('c3r:stop:ended', function(outcome)
     -- 'fled': lwk_npcai already has them running, or they got away from a chase; don't hand them a calm
     -- drive-off on top of that (one who got away on foot: the others still go)
     if s then CreateThread(function()
-        if outcome ~= 'fled' or s.lost_on_foot then drive_off(s) end
+        if not s.assist and (outcome ~= 'fled' or s.lost_on_foot) then drive_off(s) end -- (helping: the car was never ours)
         let_go(s)
     end) end
-    if outcome == 'cancelled' and s and not (s.foot or s.parked) then
+    if outcome == 'cancelled' and s and s.assist then
+        Prompt('stop', 'info', 'Left the stop', 'The other officer carries on with it.', 3500)
+    elseif outcome == 'cancelled' and s and not (s.foot or s.parked) then
         Prompt('stop', 'info', 'Traffic stop cancelled', 'They are free to go.', 3500)
     end
+end)
+
+-- Another officer on the stop is moving this person now: let go of them (their game takes over).
+RegisterNetEvent('c3r:stop:handover', function(net)
+    local s = Stop
+    local o = s and s.occ[net]
+    if not o then return end
+    o.away, o.task = true, nil
+    if o.escorted and DoesEntityExist(o.ped) then DetachEntity(o.ped, true, false) end
+    o.escorted = false
+    if DoesEntityExist(o.ped) then SetNetworkIdCanMigrate(net, true) end
+end)
+
+-- This officer is moving them now (they acted on them, or got them back): theirs on this game, as they are.
+-- st = { cuffed, out } as the server knows it.
+RegisterNetEvent('c3r:stop:take', function(net, st)
+    local s = Stop
+    local o = s and s.occ[net]
+    if not o then return end
+    o.away = nil
+    if type(st) == 'table' then o.cuffed, o.out = st.cuffed or nil, st.out == true or o.out end
+    CreateThread(function()
+        if not control(o.ped) or Stop ~= s or o.away then return end -- (ended, or handed on again, meanwhile)
+        SetEntityAsMissionEntity(o.ped, true, true)
+        SetNetworkIdCanMigrate(net, false)
+        SetBlockingOfNonTemporaryEvents(o.ped, true)
+        SetPedKeepTask(o.ped, true)
+        if o.cuffed then SetEnableHandcuffs(o.ped, true) end -- (the cuffs are this game's to keep on now)
+    end)
+end)
+
+-- How someone another officer's game is moving is now (cuffed, out of the car), so this game's menu and the
+-- "walked away from a chat" rule see them as they are. Never being held by the arm here.
+RegisterNetEvent('c3r:stop:state', function(net, st)
+    local o = Stop and Stop.occ[net]
+    if not o or type(st) ~= 'table' then return end
+    o.cuffed, o.out, o.escorted = st.cuffed or nil, st.out == true, false
+end)
+
+-- The officer who made this stop is off it (walked away, gone): it's this officer's now, the car and all.
+RegisterNetEvent('c3r:stop:promoted', function()
+    local s = Stop
+    if not s or not s.assist then return end
+    s.assist, s.hint.assist = nil, nil
+    Prompt('stop', 'info', 'Your stop now', 'The officer who made the stop has left it. It is yours.', 6000)
+    CreateThread(function() claim(s) end)
 end)
 
 -- Free to go while someone else is under arrest: only them, and the stop carries on.
@@ -1767,6 +1860,25 @@ RegisterNetEvent('c3r:stop:released', function(net)
     end)
 end)
 
+-- Pulled over and stopped, everyone in their seats: the officer driving off brings them along in front (Follow in
+-- front), unless the officer picked Halt for them. Not a car walked up to, a felony stop or a chase.
+local function lead_on(s)
+    if s.assist or s.foot or s.parked or s.empty or s.pursuit or s.felony or not s.stopped or s.mode or s.kept or s.leading then return end
+    local own = GetVehiclePedIsIn(PlayerPedId(), false)
+    if own == 0 or own == s.veh or GetPedInVehicleSeat(own, -1) ~= PlayerPedId() then return end
+    -- (the officer stopped behind them first, then pulls away: not still rolling in as they come to a stop)
+    if GetEntitySpeed(own) < 1.0 then s.waited = true return end
+    if not s.waited or GetEntitySpeed(own) < 3.0 then return end
+    if not (DoesEntityExist(s.veh) and DoesEntityExist(s.ped) and IsPedInVehicle(s.ped, s.veh, false))
+        or #(GetEntityCoords(own) - GetEntityCoords(s.veh)) > 40.0 then return end
+    for _, o in pairs(s.occ) do
+        if o.out or o.cuffed or o.fleeing or not DoesEntityExist(o.ped) or not IsPedInVehicle(o.ped, s.veh, false) then return end
+    end
+    s.leading, s.waited = true, nil
+    set_mode(s, 'front')
+    SetTimeout(3000, function() s.leading = nil end)
+end
+
 -- Getting out ends the driving part: the mode card fades, and a car still being led or steered halts
 -- where it is, so the officer can walk up and talk to them.
 CreateThread(function()
@@ -1774,6 +1886,7 @@ CreateThread(function()
     while true do
         local now_in = IsPedInAnyVehicle(PlayerPedId(), false)
         local s = Stop
+        if s and now_in then lead_on(s) end
         if s and was_in and not now_in then
             Prompt('stop', 'info', 'Traffic stop', ('Walk up and press %s to talk to them. Hold %s at their car for the vehicle.')
                 :format(KeyName('+c3r_interact', 'E'), KeyName('+c3r_radial', 'G')), 7000)
@@ -1861,8 +1974,8 @@ local function speak_next()
     local l = table.remove(lines, 1)
     local ms = 1800 + #l.text * 55
     animate(l)
-    BeginLongText(BeginTextCommandPrint, (l.who == 'officer' and '~b~You:~s~ ' or ('~y~' .. l.who .. ':~s~ ')) .. l.text) -- (lines run past 99 characters)
-    EndTextCommandPrint(ms, true)
+    -- (top centre, on the page: no length limit, and clear of the minimap and anything at the bottom)
+    SendNUIMessage({ type = 'subtitle', who = l.who == 'officer' and 'You' or l.who, officer = l.who == 'officer', text = l.text, ms = ms })
     SetTimeout(l.who == 'officer' and 1300 or ms, speak_next)
 end
 
@@ -1883,7 +1996,7 @@ RegisterNetEvent('c3r:stop:idcard', function(p)
         local o = Stop and p.net and Stop.occ[p.net]
         p.photo = headshot(o and o.ped)
         id_held = true
-        SendNUIMessage({ type = 'idcard', card = p })
+        SendNUIMessage({ type = 'idcard', card = p, key = KeyName('+c3r_idcard', 'BACKSPACE') })
     end)
 end)
 
@@ -1898,6 +2011,25 @@ end)
 
 
 function TowBusy() return next(towing) ~= nil end
+
+local tow_job = nil -- the tow on its way: { off = true } once it's called off, { loaded = true } once it has the car
+local tow_off_early = false -- called off before the truck was even on the road (its models loading)
+
+-- A tow truck on its way that can still be called off.
+function TowPending() return tow_job ~= nil and not tow_job.off and not tow_job.loaded end
+
+-- Call the tow truck off (the G wheel, or "cancel the tow"): fine until the car is on the flatbed, too late after.
+-- asked = it was asked for moments ago (the truck may not be out yet). -> true | false, reason
+function TowCancel(asked)
+    if not tow_job then
+        if not asked then return false, 'not_en_route' end
+        tow_off_early = true
+        return true
+    end
+    if tow_job.loaded then return false, 'already_loaded' end
+    tow_job.off = true
+    return true
+end
 
 local function load_model(name)
     local m = GetHashKey(name)
@@ -1953,6 +2085,8 @@ function TowCar(car, s)
     SetModelAsNoLongerNeeded(tm)
     SetModelAsNoLongerNeeded(dm)
     towing[truck], towing[driver] = true, true
+    local job = { off = tow_off_early or nil }
+    tow_job, tow_off_early = job, false
     for _, e in ipairs({ truck, driver }) do SetNetworkIdCanMigrate(NetworkGetNetworkIdFromEntity(e), false) end -- (stays ours to delete)
     TagBackup(truck)
     TagBackup(driver)
@@ -1969,8 +2103,24 @@ function TowCar(car, s)
     local stop_at = c + fwd * 10.0
     local around, still, stuck = false, nil, false
     TaskVehicleDriveToCoord(driver, truck, stop_at.x, stop_at.y, stop_at.z, 12.0, 0, tm, TOW_NORMAL, 4.0, true)
+    -- called off: the truck drives on by, and the car is the stop's again (not a failed tow: no strike against it)
+    local function called_off()
+        RemoveBlip(blip)
+        if DoesEntityExist(truck) and DoesEntityExist(driver) then TaskVehicleDriveWander(driver, truck, 15.0, TOW_NORMAL) end
+        if s and Stop == s then s.towed = nil end
+        if DoesEntityExist(car) and NetworkGetEntityIsNetworked(car) then
+            TriggerServerEvent('c3r:tow:cancelled', NetworkGetNetworkIdFromEntity(car))
+        end
+        if tow_job == job then tow_job = nil end
+        wait_until(30000, function()
+            return not DoesEntityExist(truck) or #(GetEntityCoords(truck) - GetEntityCoords(PlayerPedId())) > 120.0
+        end)
+        fade_away({ truck, driver })
+        towing[truck], towing[driver] = nil, nil
+        if ReportBackup then ReportBackup() end
+    end
     local arrived = wait_until(Config.Tow.timeout_ms, function()
-        if not DoesEntityExist(truck) then return true end
+        if job.off or not DoesEntityExist(truck) then return true end
         local d = #(GetEntityCoords(truck) - stop_at)
         if d < 8.0 then return true end
         still = GetEntitySpeed(truck) < 0.5 and (still or GetGameTimer()) or nil
@@ -1983,9 +2133,11 @@ function TowCar(car, s)
         end
         return false
     end)
+    if job.off then return called_off() end
     if not DoesEntityExist(truck) or not DoesEntityExist(car) then
         fade_away({ truck, driver })
         towing[truck], towing[driver] = nil, nil
+        if tow_job == job then tow_job = nil end
         return untow()
     end
     if not arrived or stuck then -- stuck in traffic somewhere: it turns up anyway
@@ -1997,7 +2149,9 @@ function TowCar(car, s)
     Wait(1000)
     StartVehicleHorn(truck, 1800, GetHashKey('HELDDOWN'), false) -- one long honk: here for it
     Wait(1800)
+    if job.off then return called_off() end
 
+    job.loaded = true -- (from here it's too late to call off)
     local loaded = control(car) -- (another player's game may own it: then the truck leaves empty, and says so)
     if loaded then
         for _, o in pairs(s and s.occ or {}) do
@@ -2038,6 +2192,7 @@ function TowCar(car, s)
     end)
     fade_away(loaded and { car, truck, driver } or { truck, driver })
     towing[truck], towing[driver] = nil, nil
+    if tow_job == job then tow_job = nil end
     if ReportBackup then ReportBackup() end
 end
 

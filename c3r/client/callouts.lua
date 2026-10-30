@@ -40,12 +40,46 @@ local function mark(m)
     marks[#marks + 1] = m
 end
 
+-- Who / what my objectives are about, in the world: a bobbing amber arrow over their head (or the car), so it's
+-- plain who to talk to. { { net, kind } }
+local pointed = {}
+
 local function set_marks(card)
     clear_marks()
+    pointed = {}
     for _, item in ipairs(card and card.mine or {}) do
-        for _, b in ipairs(item.blips or {}) do mark(b) end
+        for _, b in ipairs(item.blips or {}) do
+            mark(b)
+            if b.net and (b.kind == 'person' or b.kind == 'vehicle') then pointed[#pointed + 1] = { net = b.net, kind = b.kind } end
+        end
     end
 end
+
+-- The arrows: within 60 m, not for someone I'm talking to right now (the menu's on them), drawn every frame only
+-- while one is close.
+local ARROW_RANGE = 60.0
+CreateThread(function()
+    local HEAD = 31086 -- SKEL_Head
+    while true do
+        local drew = false
+        if call and pointed[1] then
+            local me = GetEntityCoords(PlayerPedId())
+            for _, p in ipairs(pointed) do
+                local ent = NetworkDoesNetworkIdExist(p.net) and NetToEnt(p.net) or 0
+                if ent ~= 0 and DoesEntityExist(ent) and not IsEntityDead(ent) and not (Stop and Stop.occ and Stop.occ[p.net]) then
+                    local at = p.kind == 'person' and GetPedBoneCoords(ent, HEAD, 0.0, 0.0, 0.0) + vector3(0.0, 0.0, 0.55)
+                        or GetEntityCoords(ent) + vector3(0.0, 0.0, 1.6)
+                    if #(at - me) < ARROW_RANGE then
+                        DrawMarker(0, at.x, at.y, at.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.28, 0.28, 0.28, 240, 176, 64, 210,
+                            true, true, 2, false, nil, nil, false)
+                        drew = true
+                    end
+                end
+            end
+        end
+        Wait(drew and 0 or 400)
+    end
+end)
 
 CreateThread(function() -- a mark on a spot becomes one on the person / car once they're in my game
     while true do
@@ -99,6 +133,7 @@ RegisterNetEvent('c3r:callout:card', function(card)
     if card.arrived and call.blip and DoesBlipExist(call.blip) then SetBlipRoute(call.blip, false) end
     local text = card.mine[1] and card.mine[1].text
     if hidden and text and text ~= last_text then Prompt('callout', 'info', 'New objective', text, 5000) end
+    if last_text and text and text ~= last_text then SendNUIMessage({ type = 'sfx', name = 'ding' }) end -- (a new objective)
     last_text = text
     set_marks(card)
     SendNUIMessage({ type = 'callout', card = card, hidden = hidden, keys = { hide = KeyName('+c3r_objective', 'BACKSPACE'),
@@ -165,6 +200,7 @@ end, false)
 RegisterCommand('+c3r_objective', function()
     -- (Backspace also closes the who-to-talk-to and driver pickers: those turn it off while they're open)
     if not call or CalloutPlacing() or IsNuiFocused() or not IsControlEnabled(0, 177) then return end
+    if IdCardHeld and IdCardHeld() and (Config.IdCardKey or 'BACK') == (Config.ObjectiveKey or 'BACK') then return end -- (the ID card has it)
     hidden = not hidden
     SendNUIMessage({ type = 'callout', hidden = hidden })
 end, false)
@@ -311,7 +347,7 @@ end)
 -- ─── evidence ─────────────────────────────────────────────────────────────────
 
 local clues, clue_call = {}, nil -- what can be inspected on my call: { { key, label, at | on (a net), range, glow } }
-local looked = {} -- [clue key] = true: inspected by me (it stops glowing)
+local looked = {} -- [clue key] = true: inspected by me (its arrow goes)
 
 RegisterNetEvent('c3r:callout:clues', function(id, list) clue_call, clues = id, type(list) == 'table' and list or {} end)
 AddEventHandler('c3r:callout:ended', function() clues, clue_call, looked = {}, nil, {} end)
@@ -352,49 +388,38 @@ RegisterNetEvent('c3r:callout:found', function(label, text, key)
     if key then looked[key] = true end
 end)
 
--- Evidence I haven't looked at yet is outlined in white (the prop, or the car it's on) once I'm within GLOW_RANGE of
--- it, so it's easy to spot. The thin solid outline: the soft one is a full-screen blur, every frame. Outlines are drawn
--- by each game for itself.
-local GLOW_RANGE = 30.0
+-- Evidence I haven't looked at yet has a bobbing amber arrow over it (the prop, its spot, or the car it's on) once
+-- I'm within CLUE_RANGE of it, like the people my objective is about. (Not an outline: those redraw the object every
+-- frame, and cost far more.) Drawn every frame only while one is in range.
+local CLUE_RANGE = 30.0
 CreateThread(function()
-    local lit = {} -- [entity] = true
     while true do
-        local want = {}
-        local me = GetEntityCoords(PlayerPedId())
-        for _, cl in ipairs(call and clues or {}) do
-            if cl.glow and not looked[cl.key] and NetworkDoesNetworkIdExist(cl.glow) then
-                local ent = NetToEnt(cl.glow)
-                if DoesEntityExist(ent) and #(GetEntityCoords(ent) - me) < GLOW_RANGE then want[ent] = true end
+        local drew = false
+        if call and clues[1] then
+            local me = GetEntityCoords(PlayerPedId())
+            for _, cl in ipairs(clues) do
+                local car = cl.on and (cl.range or 0) > 2 -- (on a person: their own arrow, if they're the objective)
+                if not looked[cl.key] and (car or not cl.on) then
+                    local at = clue_pos(cl)
+                    if at and #(at - me) < CLUE_RANGE then
+                        at = at + vector3(0.0, 0.0, car and 1.6 or 0.7)
+                        DrawMarker(0, at.x, at.y, at.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.24, 0.24, 0.24, 240, 176, 64, 210,
+                            true, true, 2, false, nil, nil, false)
+                        drew = true
+                    end
+                end
             end
         end
-        for ent in pairs(lit) do
-            if not want[ent] then
-                if DoesEntityExist(ent) then SetEntityDrawOutline(ent, false) end
-                lit[ent] = nil
-            end
-        end
-        for ent in pairs(want) do
-            if not lit[ent] then
-                SetEntityDrawOutlineColor(255, 255, 255, 255)
-                SetEntityDrawOutlineShader(1)
-                SetEntityDrawOutline(ent, true)
-                lit[ent] = true
-            end
-        end
-        Wait(500)
+        Wait(drew and 0 or 400)
     end
 end)
 
--- Up close: a small marker on it, and the game's help text with the key.
+-- Up close: the game's help text with the key.
 CreateThread(function()
     while true do
-        local cl, at = nil, nil
-        if call and clues[1] then cl, at = nearest_clue() end
+        local cl = nil
+        if call and clues[1] then cl = nearest_clue() end
         if cl then
-            if not cl.on or (cl.range or 0) > 2 then -- (on the spot, or above the car; not on a person's head)
-                DrawMarker(20, at.x, at.y, at.z + (cl.on and 1.3 or 0.6), 0.0, 0.0, 0.0, 180.0, 0.0, 0.0, 0.25, 0.25, 0.2, 240, 176, 64, 200,
-                    true, true, 2, false, nil, nil, false)
-            end
             BeginTextCommandDisplayHelp('STRING')
             AddTextComponentSubstringPlayerName('~INPUT_CONTEXT~ Inspect: ' .. cl.label)
             EndTextCommandDisplayHelp(0, false, false, -1)

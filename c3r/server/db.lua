@@ -40,6 +40,16 @@ local SCHEMA = {
         last_seen INT NOT NULL,
         KEY owner (owner_id)
     )]],
+    -- how someone looked the first time an officer met them (their ped model, face and clothes), and who has met
+    -- them: someone stopped again looks like themselves (server/stops.lua meet)
+    [[CREATE TABLE IF NOT EXISTS c3r_faces (
+        person_id INT PRIMARY KEY,
+        model BIGINT NOT NULL,
+        look VARCHAR(255) NULL,
+        met VARCHAR(255) NULL,
+        seen INT NOT NULL,
+        KEY model (model)
+    )]],
 }
 
 -- Before the rename to CODE3RESPONSE the tables were lwk_pd_people / lwk_pd_vehicles: a server that had them keeps
@@ -118,6 +128,56 @@ function Db.createPerson(p)
     local row = MySQL.single.await('SELECT * FROM c3r_people WHERE first = ? AND last = ? AND dob = ?',
         { p.first, p.last, p.dob })
     return person(row), row and decode(row.truth) or nil
+end
+
+-- People on file by name, as an officer types it ('rachel white', 'white rachel', 'whi'): every word starts their
+-- first or last name. -> up to 10 public records, the most recently seen first
+function Db.findPeople(q)
+    local words = {}
+    for w in tostring(q or ''):gmatch("[%a%-']+") do if #words < 3 then words[#words + 1] = w end end
+    if not words[1] then return {} end
+    local where, args = {}, {}
+    for _, w in ipairs(words) do -- (letters, - and ' only: nothing LIKE would read as a wildcard)
+        where[#where + 1] = '(first LIKE ? OR last LIKE ?)'
+        args[#args + 1], args[#args + 2] = w .. '%', w .. '%'
+    end
+    local rows = MySQL.query.await('SELECT * FROM c3r_people WHERE ' .. table.concat(where, ' AND ')
+        .. ' ORDER BY last_seen DESC LIMIT 10', args)
+    local out = {}
+    for _, r in ipairs(type(rows) == 'table' and rows or {}) do out[#out + 1] = person(r) end
+    return out
+end
+
+-- Someone's face: { model, look ('d,t,...|i,t,...'), met = { officer ids } } | nil
+function Db.face(person_id)
+    local row = MySQL.single.await('SELECT * FROM c3r_faces WHERE person_id = ?', { person_id })
+    if not row then return nil end
+    local met = {}
+    for id in (row.met or ''):gmatch('[^,]+') do met[#met + 1] = id end
+    return { model = tonumber(row.model), look = row.look, met = met }
+end
+
+-- Met again (or for the first time): the first model and look are kept; the officer joins who has met them
+-- (the last 5: a licence id is 48 characters). f = Db.face(person_id) if it's just been read.
+function Db.seenFace(person_id, model, look, officer, f)
+    f = f or Db.face(person_id)
+    local met = f and f.met or {}
+    for i = #met, 1, -1 do if met[i] == officer then table.remove(met, i) end end
+    if officer then met[#met + 1] = officer end
+    while #met > 5 do table.remove(met, 1) end
+    MySQL.insert.await([[INSERT INTO c3r_faces (person_id, model, look, met, seen) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE look = COALESCE(look, VALUES(look)), met = VALUES(met), seen = VALUES(seen)]],
+        { person_id, model, look, table.concat(met, ','):sub(1, 255), os.time() })
+end
+
+-- People met before with this ped model and gender, a few at random: -> { person_id, ... }
+-- ponytail: ORDER BY RAND() over one model's rows; fine for thousands, a random offset if it ever isn't.
+function Db.faces(model, gender)
+    local rows = MySQL.query.await([[SELECT f.person_id FROM c3r_faces f JOIN c3r_people p ON p.id = f.person_id
+        WHERE f.model = ? AND p.gender = ? ORDER BY RAND() LIMIT 8]], { model, gender })
+    local out = {}
+    for _, r in ipairs(type(rows) == 'table' and rows or {}) do out[#out + 1] = r.person_id end
+    return out
 end
 
 -- v = { plate, make?, model?, color?, year?, owner_id?, reg_valid?, ins_valid?, stolen?, bolo? }

@@ -65,6 +65,7 @@ exports('getPerson', later(function(id) return (Db.getPerson(id)) end)) -- publi
 exports('getVehicle', later(Db.getVehicle))
 exports('findVehicle', later(Db.findVehicle))
 exports('createPerson', later(function(p) return (Db.createPerson(p)) end))
+exports('findPeople', later(Db.findPeople)) -- by name: the MDT's search for someone nobody has met (a car's owner)
 exports('createVehicle', later(Db.createVehicle))
 
 -- ─── subjects ─────────────────────────────────────────────────────────────────
@@ -80,6 +81,15 @@ function BindSubject(net, person, vehicle, items, truth)
 end
 
 function UnbindSubject(net) Subjects[net] = nil end
+
+-- Who a ped already is (put there by c3r, and not let go of yet), or nil: { person, vehicle, items, truth }.
+function Subject(net) return Subjects[net] end
+
+-- Is that person (their record id) someone's stop, or in a callout, right now? (They can't be in two places.)
+function SubjectInUse(id)
+    for _, s in pairs(Subjects) do if s.person and s.person.id == id then return true end end
+    return false
+end
 
 -- -> person (public), vehicle | nil, items, truth | nil when c3r didn't put this ped there
 exports('getPedSubject', function(net)

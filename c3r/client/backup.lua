@@ -288,6 +288,7 @@ local function leave(u)
             end
             return true
         end)
+        if u.kind == 'air' and NetworkGetEntityIsNetworked(u.veh) then Entity(u.veh).state:set('c3r_spot', nil, true) end -- (light off)
         local driver = u.crew[1]
         if DoesEntityExist(driver) and not IsEntityDead(driver) and IsPedInVehicle(driver, u.veh, false) and control(driver) then
             if u.kind == 'air' then
@@ -634,7 +635,7 @@ local function tow_target()
     for _, v in ipairs(GetGamePool('CVehicle')) do
         local d = #(GetEntityCoords(v) - pos())
         if d < best_d and v ~= own and v ~= last and GetVehicleClass(v) ~= 18 and not IsBackup(v) and GetEntitySpeed(v) < 1.0
-            and (not IsEntityAMissionEntity(v)) then
+            and (not IsEntityAMissionEntity(v) or (NetworkGetEntityIsNetworked(v) and Entity(v).state.c3r_callout == true)) then
             local last_driver = GetLastPedInVehicleSeat(v, -1)
             local anyone = last_driver ~= 0 and IsPedAPlayer(last_driver) -- (a player's own car, parked) or anyone in it
             for seat = -1, GetVehicleMaxNumberOfPassengers(v) - 1 do anyone = anyone or GetPedInVehicleSeat(v, seat) ~= 0 end
@@ -714,9 +715,10 @@ end
 exports('requestService', request)
 
 local function cancel(kind)
-    if kind == 'tow' then
-        local coming = TowBusy() or GetGameTimer() - tow_asked < 15000
-        return false, coming and 'already_dispatched' or 'not_en_route' -- the truck can't be called back (the car's being taken)
+    if kind == 'tow' then -- (until the car's on the flatbed: client/stop.lua TowCancel)
+        local ok, why = TowCancel(GetGameTimer() - tow_asked < 15000)
+        if ok then tow_asked = -60000 end
+        return ok, why
     end
     local u = active(kind)
     if not u then return false, 'not_en_route' end
@@ -744,7 +746,10 @@ local function pursue(u, target, on_foot)
     if not alive(u) or not control(driver) then return end
     if u.kind == 'air' then
         TaskHeliChase(driver, target, 0.0, 0.0, 50.0)
-        SetVehicleSearchlight(u.veh, true, true)
+        SetVehicleSearchlight(u.veh, false, false) -- (the game's own sweeps about: ours stays on them, see spot below)
+        if NetworkGetEntityIsNetworked(u.veh) and NetworkGetEntityIsNetworked(target) then
+            Entity(u.veh).state:set('c3r_spot', NetworkGetNetworkIdFromEntity(target), true)
+        end
         return
     end
     if not on_foot then
@@ -781,6 +786,42 @@ local function pursue(u, target, on_foot)
         end
     end)
 end
+
+-- The air unit's searchlight, locked on whoever it's chasing (the car, or them on foot once they bail): drawn by
+-- every game near the helicopter, since the game that runs it puts c3r_spot = the target's net id on it.
+local Spots = {} -- [state bag name] = { net = target net id, seen = when the helicopter was last in this game }
+AddStateBagChangeHandler('c3r_spot', nil, function(bag, _, value)
+    Spots[bag] = math.type(value) == 'integer' and { net = value, seen = GetGameTimer() } or nil
+end)
+CreateThread(function()
+    while true do
+        if next(Spots) then
+            local n = 0
+            for bag, s in pairs(Spots) do
+                local heli = GetEntityFromStateBagName(bag)
+                local target = NetworkDoesNetworkIdExist(s.net) and NetToEnt(s.net) or 0
+                if heli == 0 or not DoesEntityExist(heli) then
+                    -- (not in this game yet, or gone: forgotten once it's been away a while)
+                    if GetGameTimer() - s.seen > 30000 then Spots[bag] = nil end
+                elseif DoesEntityExist(target) then
+                    s.seen, n = GetGameTimer(), n + 1
+                    local from = GetOffsetFromEntityInWorldCoords(heli, 0.0, 2.0, -1.2) -- (the nose, underneath)
+                    local d = GetEntityCoords(target) - from
+                    local len = #d
+                    if len > 1.0 and len < 300.0 then
+                        d = d / len
+                        DrawSpotLightWithShadow(from.x, from.y, from.z, d.x, d.y, d.z, 255, 250, 235, len + 25.0, 14.0, 1.0, 9.0, 18.0, n)
+                    end
+                else
+                    s.seen = GetGameTimer()
+                end
+            end
+            Wait(0)
+        else
+            Wait(500)
+        end
+    end
+end)
 
 -- One loop for every pursuit unit: follow the chase as it changes (car to foot), and all leave once it's over.
 local watching = false
@@ -968,7 +1009,7 @@ end
 
 -- On its way or at work: the wheels offer "Cancel ..." instead. (A tow can't be called back.)
 function BackupActive(kind)
-    if kind == 'tow' then return TowBusy() or GetGameTimer() - tow_asked < 15000 end
+    if kind == 'tow' then return TowPending() or GetGameTimer() - tow_asked < 15000 end
     return active(kind) ~= nil
 end
 

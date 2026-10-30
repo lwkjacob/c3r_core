@@ -176,7 +176,7 @@ c:clue('car', { on = 'car', label = 'His car', hidden = true, text = 'A crack ac
 
 **Clues:**
 - A clue sits on a point (`at`) or on a car (`on`).
-- With a `prop`, an object lies there and glows white until looked at.
+- With a `prop`, an object lies there. Until it's looked at, an amber arrow hangs over it (or over the car it's on).
 - `hidden = true` keeps it out of reach until `c:reveal(id)`.
 - The first look puts the text on every unit's MDT.
 

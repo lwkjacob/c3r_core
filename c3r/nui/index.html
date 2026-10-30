@@ -10,16 +10,26 @@
             --accent: #f0b040; --alert: #c8483f; --ok: #4fae7c;
             --ease: cubic-bezier(.2, .8, .2, 1);
             --r: 6px;
-            /* glass, the radial's look: frosted and see-through, a bright top edge, white type over the game */
-            --glass: linear-gradient(160deg, rgba(255, 255, 255, .17), rgba(255, 255, 255, .05) 55%, rgba(255, 255, 255, .08)), rgba(14, 18, 26, .34);
+            /* glass, the radial's look: tinted and see-through, a bright top edge, white type over the game. No live blur
+               behind it: on some players' graphics drivers the game's browser draws a blur as a black box round the panel
+               (and it redraws the game behind it every frame), so the tint is a little deeper instead. */
+            --glass: linear-gradient(160deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .04) 55%, rgba(255, 255, 255, .07)), rgba(14, 18, 26, .62);
             --glass-edge: rgba(255, 255, 255, .3);
             --glass-shade: 0 10px 28px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .38), inset 0 0 0 1px rgba(255, 255, 255, .05);
             --glass-r: 16px;
             --ink: 0 1px 2px rgba(0, 0, 0, .65), 0 0 10px rgba(0, 0, 0, .25);
             --red: #ff7d70; --green: #6fe0a5;
         }
+        /* what's said on a stop: top centre, clear of the cards in the corners (no blur: it costs frames) */
+        #sub { position: fixed; top: 34px; left: 50%; transform: translate(-50%, -6px); max-width: min(62vw, 900px); padding: 9px 16px;
+               border-radius: var(--r); background: rgba(11, 13, 17, .78); color: #fff; text-shadow: var(--ink); text-align: center;
+               font: 600 18px/1.4 system-ui, 'Segoe UI', sans-serif; opacity: 0; transition: opacity .2s, transform .2s var(--ease);
+               pointer-events: none; z-index: 5; }
+        #sub.up { opacity: 1; transform: translate(-50%, 0); }
+        #sub .who { color: var(--accent); margin-right: 6px; }
+        #sub.officer .who { color: #7fb2ff; }
         .glass { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--glass-r); box-shadow: var(--glass-shade);
-                 -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); color: #fff; text-shadow: var(--ink); }
+                 color: #fff; text-shadow: var(--ink); }
         * { box-sizing: border-box; }
         html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
                      font: 14px/1.4 system-ui, 'Segoe UI', sans-serif; color: var(--text); }
@@ -251,8 +261,8 @@
         #duty { position: fixed; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden; pointer-events: none;
                 transition: opacity .2s ease-in, visibility 0s linear .2s; }
         #duty.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .3s var(--ease); }
-        #duty .shade { position: absolute; inset: 0; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-                       background: radial-gradient(ellipse at 50% 45%, rgba(8, 12, 20, .45), rgba(4, 6, 10, .82) 75%); }
+        #duty .shade { position: absolute; inset: 0; /* (no blur: see --glass) */
+                       background: radial-gradient(ellipse at 50% 45%, rgba(8, 12, 20, .6), rgba(4, 6, 10, .88) 75%); }
         #duty .stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 34px; }
         #duty h1 { margin: 0; color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase;
                    text-shadow: var(--ink); }
@@ -400,6 +410,7 @@
 </head>
 <body>
 <div id="prompts" aria-live="polite"></div>
+<div id="sub" aria-live="polite"><span class="who"></span><span class="line"></span></div>
 
 <div id="hint" class="glass" role="status"></div>
 
@@ -764,7 +775,7 @@
             <p class="t" style="left: 690px; top: 943px; font-size: 9px;">REG. 17.30RS (REV.02/2016)</p>
         </div>
         </div>
-        <div class="keyhint"><kbd>Tab</kbd> hide / show<span class="swap">· <kbd>←</kbd><kbd>→</kbd> ID / registration</span></div>
+        <div class="keyhint"><kbd id="idkey">Backspace</kbd> hide / show<span class="swap">· <kbd>←</kbd><kbd>→</kbd> ID / registration</span></div>
 </div>
 
 <script>
@@ -783,6 +794,18 @@
 
     // ── prompt cards ────────────────────────────────────────────────────────────
     const prompts = {}; // id -> { el, timer }
+    // a line said on a stop (client/stop.lua): who said it, then the line, for d.ms
+    let subTimer = null;
+    function subtitle(d) {
+        const el = $('sub');
+        el.querySelector('.who').textContent = (d.who || '') + ':';
+        el.querySelector('.line').textContent = String(d.text || '').replace(/~[a-z]~/gi, '');
+        el.classList.toggle('officer', !!d.officer);
+        el.classList.add('up');
+        clearTimeout(subTimer);
+        subTimer = setTimeout(() => el.classList.remove('up'), Math.max(1000, Number(d.ms) || 4000));
+    }
+
     function prompt(d) {
         const cur = prompts[d.id];
         if (d.clear) {
@@ -833,7 +856,7 @@
             </div>`).join('');
     }
 
-    // ── the ID handed over: top right for 15 s; Tab hides and shows it again until the stop ends ──
+    // ── the ID handed over: top right for 15 s; Backspace (its key) hides and shows it again until the stop ends ──
     function drawScene(cv) {
         const dpr = window.devicePixelRatio || 1;
         cv.width = 530 * dpr; cv.height = 320 * dpr;
@@ -1353,6 +1376,7 @@
         if (d.clear) { haveCard = haveTitle = false; return showCard(false); }
         if (d.card) {
             fillCard(d.card); haveCard = true;
+            if (d.key) { idKey = String(d.key).toUpperCase(); $('idkey').textContent = d.key; }
             haveTitle = !!d.card.vehicle;
             if (haveTitle) Title.fill(d.card.vehicle);
             $('idwrap').classList.toggle('has-title', haveTitle);
@@ -1364,10 +1388,11 @@
             showCard(true);
         }
     }
-    // Tab with the menu open (it has the keyboard then; the game sees Tab otherwise)
+    // Its key with the menu open (it has the keyboard then; the game sees the key otherwise)
+    let idKey = 'BACKSPACE';
     window.addEventListener('keydown', (e) => {
         if (!haveCard) return;
-        if (e.key === 'Tab') {
+        if (e.key.toUpperCase() === idKey) {
             e.preventDefault(); e.stopImmediatePropagation();
             showCard(!$('idwrap').classList.contains('up'));
         } else if (haveTitle && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -1512,6 +1537,37 @@
         return at ? ((rad.s.levels || {})[at] || { title: '', items: [] }) : { title: rad.s.title || 'Vehicle', items: rad.s.items || [] };
     }
 
+    // ── soft sounds for the wheel, made here (no files): a faint tick as an option lights up, a gentle tap to choose,
+    // a lower one going back. Short sine blips, quiet, and the tick is rate-limited so sweeping the mouse isn't a buzz.
+    const sfx = (() => {
+        const VOL = 0.05; // (all of them scale with this)
+        let ctx = null, lastTick = 0;
+        function blip(freq, ms, vol, slide, type) {
+            try {
+                ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+                if (ctx.state === 'suspended') ctx.resume();
+                const t = ctx.currentTime, end = t + ms / 1000, o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = type || 'sine';
+                o.frequency.setValueAtTime(freq, t);
+                if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, end);
+                g.gain.setValueAtTime(0.0001, t);
+                g.gain.exponentialRampToValueAtTime(vol, t + 0.008); // (a soft start: no click)
+                g.gain.exponentialRampToValueAtTime(0.0001, end);
+                o.connect(g).connect(ctx.destination);
+                o.start(t);
+                o.stop(end + 0.02);
+            } catch (e) { /* no audio: silent */ }
+        }
+        return {
+            hover() { const n = performance.now(); if (n - lastTick < 60) return; lastTick = n; blip(1500, 40, VOL * 0.45); },
+            pick() { blip(780, 95, VOL, 1.3); },
+            back() { blip(560, 95, VOL * 0.8, 0.8); },
+            open() { blip(440, 120, VOL * 0.5, 1.5, 'triangle'); },
+            // a new callout objective: two soft bell notes, the second a fourth up
+            ding() { blip(880, 260, VOL * 0.9); setTimeout(() => blip(1175, 340, VOL * 0.8), 110); },
+        };
+    })();
+
     function setHot(i) {
         rad.hot = i;
         document.querySelectorAll('.rad-item').forEach((b) => b.classList.toggle('hot', Number(b.dataset.i) === i));
@@ -1579,10 +1635,12 @@
         rad.s.questions = Array.isArray(d.questions) ? d.questions : [];
         rad.s.categories = Array.isArray(d.categories) ? d.categories : [];
         radShow(true);
+        sfx.open();
     }
 
     const radClose = () => post(rad && rad.kind === 'person' ? 'close' : rad && rad.kind === 'casualty' ? 'medical' : 'radial', {});
     function radBack() {
+        sfx.back();
         if (!rad.stack.length) return radClose();
         rad.stack.pop();
         radShow(true);
@@ -1590,6 +1648,7 @@
     function radPick(i) {
         const it = rad.items[i];
         if (!it || it.off) return rad.hold ? radClose() : radBack(); // nothing pointed at: the centre
+        sfx.pick();
         if (it.to) { rad.stack.push(it.to); rad.hold = false; return radShow(true); } // (the key's been let go: click from here)
         if (rad.kind !== 'person') { // the vehicle's wheel, or first aid: the game takes it from here
             const { action, arg } = it, cb = rad.kind === 'casualty' ? 'medical' : 'radial';
@@ -1612,7 +1671,10 @@
             d = Math.min(d, 2 * Math.PI - d);
             if (d < bestD) { bestD = d; best = i; }
         });
-        if (best !== rad.hot) setHot(best);
+        if (best !== rad.hot) {
+            if (best >= 0) sfx.hover();
+            setHot(best);
+        }
     });
     window.addEventListener('mousedown', (e) => {
         if (!rad) return;
@@ -1916,6 +1978,8 @@
     window.addEventListener('message', (e) => {
         const d = e.data || {};
         if (d.type === 'prompt') prompt(d);
+        else if (d.type === 'subtitle') subtitle(d);
+        else if (d.type === 'sfx' && d.name === 'ding') sfx.ding();
         else if (d.type === 'voice' && /^[a-z]+$/.test(d.clip)) { // the officer's line out loud (voice/officer_<clip>.ogg)
             const a = new Audio(`voice/officer_${d.clip}.ogg`);
             a.volume = Math.min(Math.max(Number(d.volume) || 0, 0), 1);

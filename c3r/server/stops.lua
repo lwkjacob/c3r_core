@@ -5,9 +5,13 @@
     events.
 
     stop     = { src, key (veh_net, or 'ped:<net>' on foot), veh_net, plate, vehicle, occ = { [ped net] = occupant }, driver = occupant,
-                 car_items = { { name, owner = occupant | nil } }, pursuit, towed, outcome }
+                 car_items = { { name, owner = occupant | nil } }, pursuit, towed, outcome, units = { [src] = true } }
     occupant = { net, seat, role ('driver' | 'passenger' | 'pedestrian'), person, truth, items, vehicle, answers, facts,
-                 identified, alias_person, pockets, cuffed, refused, ran }
+                 identified, alias_person, pockets, cuffed, refused, ran, handler }
+
+    Other officers can join a stop (walk up to anyone on it): units. Each has a view of the stop in Stops (its own src,
+    everything else the stop's, written through to it), so whatever they do is done on the one stop. A person is moved
+    by one game at a time, occupant.handler's (nil: the stop's own officer): acting on someone hands them over first.
 ]]
 
 local Stops = {}     -- [officer src] = stop
@@ -17,6 +21,19 @@ local Staged = {}    -- [vehicle net id] = officer src whose game is driving it 
 
 local TALK_RANGE = 8.0 -- m, officer to the person, for anything said face to face
 local RECENT_SECONDS = 1800 -- a car stopped again within this keeps the same people
+
+-- Is that person (record id) a recent car's driver or passenger? Then they're in that car, not somewhere else
+-- (server/generator.lua: nobody is picked twice).
+function HeldByRecent(id)
+    local now = os.time()
+    for _, r in pairs(Recent) do
+        if now - r.at < RECENT_SECONDS then
+            if r.driver and r.driver.person and r.driver.person.id == id then return true end
+            for _, g in pairs(r.passengers or {}) do if g.person and g.person.id == id then return true end end
+        end
+    end
+    return false
+end
 
 local function log(fmt, ...)
     if Config.Debug then print(('[c3r] ' .. fmt):format(...)) end
@@ -47,11 +64,22 @@ local function label(o)
     return p and (p.first .. ' ' .. p.last) or ({ driver = 'Driver', passenger = 'Passenger' })[o.role] or o.part or 'Person'
 end
 
--- who = 'officer', or the occupant speaking
+-- Every officer on a stop: the one who made it, then any helping. s = the stop, or an officer's view of it.
+local function officers(s)
+    local main = s.main or s
+    local list = { main.src }
+    for u in pairs(main.units or {}) do list[#list + 1] = u end
+    return list
+end
+
+-- who = 'officer' (the one doing it: "You" on their screen, their name on the others'), or the occupant speaking
 local function say(s, text, who)
     local officer = who == 'officer'
-    TriggerClientEvent('c3r:stop:say', s.src, text, officer and 'officer' or label(who), not officer and who.net or nil)
-    TriggerEvent('c3r:dialogue', s.src, officer and 'Officer' or 'Subject', text)
+    for _, src in ipairs(officers(s)) do
+        TriggerClientEvent('c3r:stop:say', src, text,
+            officer and (src == s.src and 'officer' or (GetPlayerName(s.src) or 'Officer')) or label(who), not officer and who.net or nil)
+    end
+    TriggerEvent('c3r:dialogue', (s.main or s).src, officer and 'Officer' or 'Subject', text) -- (the stop's report)
 end
 
 -- The officer's line out loud (nui/voice/officer_<key>.ogg, tools/make_officer_voice.py): heard by them and any
@@ -70,23 +98,94 @@ local function voice(s, key)
 end
 
 -- A line on the incident's timeline (lwk_mdt): test results and the like.
-local function note(s, text) TriggerEvent('c3r:note', s.src, text) end
+local function note(s, text) TriggerEvent('c3r:note', (s.main or s).src, text) end -- (the stop's report, whoever did it)
 
 -- Told who they are (ID handed over, or a name given): name checks and the MDT can use it now.
 local function identify(s, o, person)
     o.identified_by = o.identified_by or {}
-    if o.identified_by[s.src] == person then return end
-    o.identified_by[s.src], o.identified = person, person
-    TriggerEvent('c3r:contact', s.src, person)
+    local main = s.main or s
+    for _, src in ipairs({ main.src, s.src }) do -- (on the stop's report, and the helper's own MDT if it was them)
+        if o.identified_by[src] ~= person then
+            o.identified_by[src], o.identified = person, person
+            TriggerEvent('c3r:contact', src, person)
+        end
+    end
+end
+
+-- What a person's game needs to know when it takes them over: are they cuffed, are they out of the car.
+local function state_of(o) return { cuffed = o.cuffed == true, out = o.out_srv == true } end
+
+-- A task for someone goes to the game that holds them (the stop's officer's, unless a helper took them over).
+local function move(s, o, name, arg)
+    TriggerClientEvent('c3r:stop:task', o.handler or (s.main or s).src, name, o.net, arg)
+end
+
+-- Someone moved to another officer's game (nil: the stop's own officer's): the one who has them lets go, then the
+-- other takes them.
+local function hand_over(main, o, to)
+    local from = o.handler or main.src
+    if from == to then return end
+    TriggerClientEvent('c3r:stop:handover', from, o.net)
+    o.handler, o.escorted = to ~= main.src and to or nil, nil -- (whoever had them by the arm let go)
+    TriggerClientEvent('c3r:stop:take', to, o.net, state_of(o))
+end
+
+-- An officer helping on someone else's stop walks off: whoever they had goes back to the stop's officer.
+local function leave(src)
+    local v = Stops[src]
+    local main = v and v.main
+    if not main then return end
+    for _, o in pairs(main.occ) do -- (not someone in the back of their own car: still theirs, to book)
+        if o.handler == src and o.seated_by ~= src then hand_over(main, o, main.src) end
+    end
+    Stops[src] = nil
+    main.units[src] = nil
+    TriggerClientEvent('c3r:stop:ended', src, 'cancelled')
+    log('%d left the stop by %d', src, main.src)
+end
+
+-- The stop's officer is off it (walked away, dropped, off duty) with others still on it: one of them has it now.
+local function promote(s)
+    local old, u = s.src, next(s.units)
+    s.units[u] = nil
+    Stops[old], Stops[u], ByVehicle[s.key] = nil, s, u
+    s.src = u
+    for _, o in pairs(s.occ) do
+        if o.handler == u then o.handler = nil
+        elseif not o.handler then -- the old officer's: the new one's game takes them
+            TriggerClientEvent('c3r:stop:handover', old, o.net)
+            TriggerClientEvent('c3r:stop:take', u, o.net, state_of(o))
+        end
+    end
+    if s.callout then for _, o in pairs(s.occ) do local p = Callouts.person(o.net) if p then p.in_contact = u end end end
+    TriggerClientEvent('c3r:stop:ended', old, 'cancelled')
+    if not s.callout then
+        TriggerEvent('c3r:stopEnded', old, 'cancelled')
+        TriggerEvent('c3r:stopStarted', u, nil, s.vehicle) -- (the stop on the new officer's MDT)
+    end
+    TriggerClientEvent('c3r:stop:promoted', u)
+    log('stop by %d handed to %d', old, u)
 end
 
 local function finish(src, outcome)
     local s = Stops[src]
     if not s then return end
+    if s.main then -- an officer helping on someone else's stop: walking off is leaving; anything else ends it for everyone
+        if outcome == 'cancelled' then return leave(src) end
+        return finish(s.main.src, outcome)
+    end
+    if outcome == 'cancelled' and s.units and next(s.units) then return promote(s) end -- (they carry on without them)
     Stops[src], ByVehicle[s.key] = nil, nil
     for _, o in pairs(s.occ) do
         if o.cuffed then outcome = 'arrested' end -- whatever else happened, someone is going to jail
+        -- everyone back on this game, so the car and its people go together (not a helper's prisoner in their car)
+        if o.handler and o.seated_by ~= o.handler then hand_over(s, o, src) end
     end
+    for u in pairs(s.units or {}) do
+        Stops[u] = nil
+        TriggerClientEvent('c3r:stop:ended', u, outcome)
+    end
+    s.units = {}
     if s.pursuit then TriggerEvent('c3r:pursuitEnded', src) end
     if s.callout then -- (no stop on the MDT: it's the call's incident; the call keeps its people)
         TriggerClientEvent('c3r:stop:ended', src, outcome)
@@ -107,6 +206,65 @@ end
 
 local function refuse(src, why) TriggerClientEvent('c3r:stop:refused', src, why) end
 
+
+-- ─── faces: someone met again looks like themselves ──────────────────────────
+-- The officer's game reads each person's face and clothes when the stop starts (client/stop.lua ReadLook): 12
+-- components (drawable, texture) and 5 props (index, texture; -1 = none), sent as { c = { 24 } , p = { 10 } }.
+-- Saved as text, 'd,t,d,t,...|i,t,...'.
+
+local PROPS = { 0, 1, 2, 6, 7 } -- hat, glasses, ears, watch, bracelet
+
+local function face_text(l)
+    if type(l) ~= 'table' or type(l.c) ~= 'table' or type(l.p) ~= 'table' or #l.c ~= 24 or #l.p ~= 10 then return nil end
+    for _, list in ipairs({ l.c, l.p }) do
+        for _, v in ipairs(list) do if math.type(v) ~= 'integer' or v < -1 or v > 999 then return nil end end
+    end
+    return table.concat(l.c, ',') .. '|' .. table.concat(l.p, ',')
+end
+
+-- Dress the ped as they were: the server's ped natives run on whichever game owns it.
+local function dress(ped, text)
+    local c, p = {}, {}
+    local cs, ps = tostring(text):match('^([^|]*)|(.*)$')
+    for n in (cs or ''):gmatch('-?%d+') do c[#c + 1] = tonumber(n) end
+    for n in (ps or ''):gmatch('-?%d+') do p[#p + 1] = tonumber(n) end
+    if #c ~= 24 or #p ~= 10 then return end
+    for comp = 0, 11 do SetPedComponentVariation(ped, comp, c[comp * 2 + 1], c[comp * 2 + 2], 0) end
+    for i, prop in ipairs(PROPS) do
+        if p[i * 2 - 1] < 0 then ClearPedProp(ped, prop) else SetPedPropIndex(ped, prop, p[i * 2 - 1], p[i * 2], true) end
+    end
+end
+
+local function officer_id(src)
+    local id = GetPlayerIdentifierByType and GetPlayerIdentifierByType(src, 'license')
+    return (id or ('player:' .. tostring(GetPlayerName(src)))):gsub(',', '')
+end
+
+--[[ Someone the officer's met (any contact): if they've been met before with this ped model, they're dressed as they
+     were then; anyone else's look is kept for next time. o.met = 'you' (this officer has met them) | 'us' (another
+     unit has): what they say when greeted. Waits on SQL: run it in a thread. ]]
+local function meet(src, net, o, sent)
+    local ped = entity(net)
+    if ped == 0 or not (o.person and o.person.id) then return end
+    local model = GetEntityModel(ped)
+    local f = Db.face(o.person.id)
+    local me = officer_id(src)
+    if f and f.model == model and f.look and DoesEntityExist(ped) then dress(ped, f.look) end
+    if f then
+        o.met = 'us'
+        for _, id in ipairs(f.met) do if id == me then o.met = 'you' end end
+    end
+    -- (the look is kept only as the model it was seen on: met as another model, it's not their clothes)
+    Db.seenFace(o.person.id, model, (not f or f.model == model) and face_text(sent) or nil, me, f)
+end
+
+local function meet_all(src, list) -- { { net, o, look } }: one failing (SQL) doesn't stop the rest
+    for _, m in ipairs(list) do
+        local ok, err = pcall(meet, src, m[1], m[2], m[3])
+        if not ok then print('[c3r] could not keep a face: ' .. tostring(err)) end
+    end
+end
+
 local function gender(male) return male and 'Male' or 'Female' end
 
 local function chance(list, secret) return math.random() < ((list or {})[secret] or 0) end
@@ -122,12 +280,39 @@ end
 -- Each person's questions as they stand: the tree opens follow-ups as they talk.
 local function send_questions(s)
     for net, o in pairs(s.occ) do
-        TriggerClientEvent('c3r:stop:questions', s.src, net, Dialogue.available(o, { stop = s }))
+        local list = Dialogue.available(o, { stop = s })
+        for _, src in ipairs(officers(s)) do TriggerClientEvent('c3r:stop:questions', src, net, list) end
     end
 end
 
 -- That officer's menu, brought up to date (a callout opened a question from somewhere else).
 function StopQuestions(src) local s = Stops[src] if s then send_questions(s) end end
+
+-- Another unit's stop (s), joined by walking up to someone on it: the same people, the same conversation; what this
+-- officer does to someone hands that person to their game. contact = the ped net they walked up to.
+local function join(src, s, contact)
+    local main = s.main or s
+    if Stops[src] or src == main.src then return end
+    main.units = main.units or {}
+    main.units[src] = true
+    Stops[src] = setmetatable({ src = src, main = main }, { __index = main, __newindex = main })
+    local list = {}
+    for net, o in pairs(main.occ) do
+        list[#list + 1] = { net = net, seat = o.seat, role = o.role, look = look(o.truth), callout = main.callout and true or nil,
+                            cuffed = o.cuffed == true, out = o.out_srv == true }
+    end
+    TriggerClientEvent('c3r:stop:started', src, main.veh_net, list,
+        { assist = true, foot = main.foot, parked = main.parked, contact = contact, by = GetPlayerName(main.src),
+          felony = main.felony or nil, empty = main.empty or nil, towed = main.towed or nil },
+        main.callout and { Dialogue.CALL, table.unpack(Dialogue.CATEGORIES) } or Dialogue.CATEGORIES)
+    send_questions(Stops[src])
+    log('%d joined the stop by %d', src, main.src)
+end
+
+-- The stop someone is on (they're one of its people), if any.
+local function stop_of(net)
+    for _, s in pairs(Stops) do if not s.main and s.occ[net] and not s.occ[net].released then return s end end
+end
 
 -- Someone on foot the officer walked up to: their own person and story (a pedestrian's, like a passenger's),
 -- and the same menu, less what's about a car. p = { net, male }.
@@ -135,7 +320,10 @@ local function start_foot(src, p)
     local ped = type(p) == 'table' and entity(p.net) or 0
     if ped == 0 or IsPedAPlayer(ped) or GetVehiclePedIsIn(ped, false) ~= 0 or dist(src, ped) > TALK_RANGE then return end
     local key = 'ped:' .. p.net
-    if ByVehicle[key] then return refuse(src, 'Another unit is already talking to them.') end
+    -- already someone's: another unit talking to them on foot, or one of the people on their stop: join it
+    local theirs = (ByVehicle[key] and Stops[ByVehicle[key]]) or stop_of(p.net)
+    if theirs then return join(src, theirs, p.net) end
+    if ByVehicle[key] then return refuse(src, 'Another unit is already talking to them.') end -- (being made up still)
     local co = Callouts.person(p.net)
     if co then -- someone in a callout: who they are and what they know is the call's (and carries on between officers)
         local o = co.o
@@ -149,22 +337,27 @@ local function start_foot(src, p)
         return log('callout contact by %d: %s', src, co.key)
     end
     ByVehicle[key] = src
-    local ok, g = pcall(Generator.passenger, p.male == true) -- waits on SQL
+    -- someone c3r already made (a stop or a call that's just ended, a prisoner standing in cuffs): still them
+    local known = Subject(p.net)
+    local ok, g = true, known and { person = known.person, truth = known.truth, items = known.items }
+    if not g then ok, g = pcall(Generator.passenger, p.male == true, GetEntityModel(ped)) end -- waits on SQL
     if not ok or Stops[src] or not IsOnDuty(src) or not GetPlayerName(src) then
         ByVehicle[key] = nil
         if not ok then refuse(src, 'Unable to talk to them (database error).') end
         return
     end
-    local o = { net = p.net, role = 'pedestrian', person = g.person, truth = g.truth, items = g.items, answers = {}, facts = {} }
+    local o = { net = p.net, role = 'pedestrian', person = g.person, truth = g.truth, items = g.items, answers = {}, facts = {},
+                cuffed = known and p.cuffed == true or nil } -- (their own prisoner, walked back up to)
     o.pockets = Generator.some(Data.pockets, math.random(1, 3))
     for _, item in ipairs(g.items) do table.insert(o.pockets, 1, item) end -- no car to stash it in: it's all on them
     local s = { src = src, key = key, occ = { [p.net] = o }, driver = o, car_items = {}, foot = true }
     BindSubject(p.net, g.person, nil, g.items, g.truth)
     Stops[src] = s
     TriggerEvent('c3r:stopStarted', src, nil, nil)
-    TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(g.truth) } },
+    TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(g.truth), cuffed = o.cuffed } },
         { foot = true, contact = p.net }, Dialogue.CATEGORIES)
     send_questions(s)
+    if not known then CreateThread(function() meet_all(src, { { p.net, o, p.look } }) end) end
     log('contact by %d on foot: %s %s (%s)', src, g.person.first, g.person.last, g.truth.secret)
 end
 
@@ -182,7 +375,13 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     if opts.foot then return start_foot(src, type(people) == 'table' and people[1]) end
     local veh = entity(veh_net)
     if veh == 0 then return no(('car not known to the server (net %s)'):format(tostring(veh_net))) end
-    if ByVehicle[veh_net] then return refuse(src, 'Another unit already has that vehicle stopped.') end
+    if ByVehicle[veh_net] then -- another unit's stop: join it (walked up to the car, or to someone in it)
+        local theirs = Stops[ByVehicle[veh_net]]
+        if theirs and theirs.veh_net == veh_net and dist(src, veh) < 20.0 then -- (there with them: not from a car up the road)
+            return join(src, theirs, math.type(opts.contact) == 'integer' and opts.contact or nil)
+        end
+        return refuse(src, 'Another unit already has that vehicle stopped.')
+    end
     if dist(src, veh) > Config.Target.lose_distance + 10.0 then return no('too far away') end
 
     -- who's really in which seat: a client can't name a ped that isn't in this car
@@ -193,7 +392,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
         local ped = seat and entity(p.net) or 0
         if seat and seat >= -1 and seat <= 6 and not seats[seat] and ped ~= 0 and not IsPedAPlayer(ped)
             and GetPedInVehicleSeat(veh, seat) == ped then
-            seats[seat], count = { net = p.net, male = p.male == true }, count + 1
+            seats[seat], count = { net = p.net, male = p.male == true, look = p.look }, count + 1
         end
     end
     local empty = opts.empty == true and count == 0
@@ -219,11 +418,12 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
         if male == nil then male = math.random() < .5 end
         out = out or { driver = Generator.stop(plate, {
             make = str(info.make, 30), model = str(info.model, 30), color = str(info.color, 30), male = male,
+            ped_model = seats[-1] and GetEntityModel(entity(seats[-1].net)) or nil,
         }), passengers = {} }
         for seat, p in pairs(seats) do
             local g = out.passengers[seat]
             if seat ~= -1 and not (g and g.person.gender == gender(p.male)) then
-                out.passengers[seat] = Generator.passenger(p.male)
+                out.passengers[seat] = Generator.passenger(p.male, GetEntityModel(entity(p.net)))
             end
         end
         return out
@@ -286,6 +486,9 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
         contact = parked and math.type(opts.contact) == 'integer' and s.occ[opts.contact] and opts.contact or nil },
         Dialogue.CATEGORIES)
     send_questions(s)
+    local faces = {}
+    for net, o in pairs(s.occ) do faces[#faces + 1] = { net, o, seats[o.seat] and seats[o.seat].look } end
+    CreateThread(function() meet_all(src, faces) end)
     log('stop by %d: %s, %s %s (%s), %d passenger(s)', src, plate, gen.driver.person.first, gen.driver.person.last,
         gen.driver.truth.secret, #list - 1)
 end)
@@ -300,7 +503,9 @@ function ACT.greet(s, o)
     say(s, s.foot and "Hi there. Can I talk to you for a minute?"
         or s.parked and "Hi there. Mind if I ask you a few questions?"
         or 'Hi there. I pulled you over today, I just need a minute of your time.', 'officer')
-    say(s, Dialogue.answer('greet', o), o)
+    -- met before: by this officer they remember it; by another unit, sometimes they mention it
+    local again = (o.met == 'you' or (o.met == 'us' and math.random() < 0.5)) and Dialogue.answer('met_' .. o.met, o)
+    say(s, again or Dialogue.answer('greet', o), o)
 end
 
 function ACT.ask(s, o, q)
@@ -371,7 +576,7 @@ local function order(officer_line, answer, task)
     return function(s, o)
         say(s, officer_line, 'officer')
         say(s, Dialogue.answer(answer, o), o)
-        TriggerClientEvent('c3r:stop:task', s.src, task, o.net)
+        move(s, o, task)
     end
 end
 
@@ -383,7 +588,7 @@ local function runs(s, o, odds)
     o.ran, o.out_srv = true, true
     o.facts.ran = 'yes' -- (they remember it: the questions and answers change)
     say(s, Dialogue.answer('run', o), o)
-    TriggerClientEvent('c3r:stop:task', s.src, 'flee', o.net)
+    move(s, o, 'flee')
     note(s, ('%s fled on foot'):format(label(o)))
     return true
 end
@@ -398,7 +603,7 @@ function ACT.exit(s, o)
     if runs(s, o) then return end
     say(s, Dialogue.answer('exit', o), o)
     o.out_srv = true
-    TriggerClientEvent('c3r:stop:task', s.src, 'exit', o.net)
+    move(s, o, 'exit')
 end
 local back_in = order('Go ahead and get back in the vehicle.', 'back', 'back')
 function ACT.back(s, o) o.out_srv = false back_in(s, o) end
@@ -423,7 +628,8 @@ local function ending(kind, officer_line)
                 if other ~= o and other.cuffed and not other.released then -- someone else is under arrest: only this one goes
                     o.released = true
                     note(s, ('%s released'):format(label(o)))
-                    return TriggerClientEvent('c3r:stop:released', s.src, o.net)
+                    for _, src in ipairs(officers(s)) do TriggerClientEvent('c3r:stop:released', src, o.net) end
+                    return
                 end
             end
             return finish(s.src, s.outcome or outcome)
@@ -458,7 +664,7 @@ function ACT.frisk(s, o)
     say(s, "I'm going to search you. Do you have anything you would like to declare before I proceed?", 'officer')
     voice(s, 'frisk')
     say(s, Dialogue.answer('frisk', o), o)
-    TriggerClientEvent('c3r:stop:task', s.src, 'frisk', o.net)
+    move(s, o, 'frisk')
     local list = {}
     for _, item in ipairs(o.pockets or {}) do
         local theirs = false
@@ -495,7 +701,7 @@ function ACT.sobriety(s, o)
     say(s, "I'm going to have you do a few tests. Follow my pen with your eyes, then walk this line, heel to toe.", 'officer')
     say(s, Dialogue.answer('sobriety', o), o)
     local hgn, wat, ols, impaired = Sobriety(o.truth)
-    TriggerClientEvent('c3r:stop:task', s.src, 'sobriety', o.net, { impaired = impaired })
+    move(s, o, 'sobriety', { impaired = impaired })
     local text = ('Eyes %d/6 · Walk-and-turn %d/8 · One-leg stand %d/4'):format(hgn, wat, ols)
     TriggerClientEvent('c3r:stop:result', s.src, { title = 'Field sobriety', bad = impaired, delay = 12000,
         text = text .. (impaired and ' · Signs of impairment' or ' · Passed') })
@@ -508,7 +714,7 @@ function ACT.cuff(s, o)
     if runs(s, o) then return end
     say(s, Dialogue.answer('cuff', o), o)
     o.cuffed = true
-    TriggerClientEvent('c3r:stop:task', s.src, 'cuff', o.net)
+    move(s, o, 'cuff')
     say(s, 'You have the right to remain silent. Anything you say can and will be used against you in the court of law. '
         .. 'If you cannot afford an attorney, one will be appointed for you.', 'officer')
     voice(s, 'miranda')
@@ -520,7 +726,7 @@ function ACT.uncuff(s, o)
     say(s, "I'm taking the cuffs off. Don't make me regret it.", 'officer')
     say(s, Dialogue.answer('uncuff', o), o)
     o.cuffed = nil
-    TriggerClientEvent('c3r:stop:task', s.src, 'uncuff', o.net)
+    move(s, o, 'uncuff')
     note(s, ('%s released from handcuffs'):format(label(o)))
 end
 
@@ -536,8 +742,9 @@ function ACT.escort(s, o) -- held at the officer's side, or let go of
 end
 local seat = custody('Watch your head.', 'seat', 'seat')
 local sit = custody('Sit down on the ground for me.', 'sit', 'sit')
-function ACT.seat(s, o) o.escorted = nil seat(s, o) end
-ACT.unseat = custody('Step out for me.', 'unseat', 'unseat')
+function ACT.seat(s, o) o.escorted, o.seated_by = nil, o.cuffed and s.src or nil seat(s, o) end
+local unseat = custody('Step out for me.', 'unseat', 'unseat')
+function ACT.unseat(s, o) o.seated_by = nil unseat(s, o) end
 function ACT.sit(s, o) o.escorted = nil sit(s, o) end
 ACT.getup = custody('Alright, on your feet.', 'getup', 'getup')
 
@@ -547,6 +754,7 @@ ACT.getup = custody('Alright, on your feet.', 'getup', 'getup')
 
 function ACT.felony(s)
     if s.felony or s.foot or s.empty or s.pursuit then return end -- (said twice: nothing re-rolls)
+    if s.main then return TriggerClientEvent('c3r:stop:refused', s.src, 'The officer who made the stop calls a felony stop.') end
     s.felony = true
     say(s, 'Police! Driver, turn off the engine and drop the keys out the window! Nobody move!', 'officer')
     note(s, 'Felony stop initiated')
@@ -560,7 +768,7 @@ function ACT.felony(s)
         return TriggerClientEvent('c3r:stop:fleeCar', s.src, math.random() < Config.Flee.bail)
     end
     if d and not d.out_srv then say(s, Dialogue.answer('felony', d), d) end
-    TriggerClientEvent('c3r:felony', s.src)
+    for _, u in ipairs(officers(s)) do TriggerClientEvent('c3r:felony', u) end
 end
 
 local FELONY_LINES = {
@@ -582,7 +790,7 @@ local function felony_order(kind)
         if runs(s, o, Config.Felony.run) then return end
         say(s, Dialogue.answer(kind, o), o)
         if kind == 'fel_out' then o.out_srv = true end
-        TriggerClientEvent('c3r:stop:task', s.src, kind, o.net)
+        move(s, o, kind)
     end
 end
 ACT.fel_out, ACT.fel_back, ACT.fel_kneel = felony_order('fel_out'), felony_order('fel_back'), felony_order('fel_kneel')
@@ -597,13 +805,17 @@ function ACT.tow(s)
         or v.ins_valid == false and 'no insurance' or v.reg_valid == false and 'expired registration'
         or (d and d.person and d.person.dl ~= 'Valid') and 'unlicensed driver' or 'officer discretion'
     say(s, ('Dispatch, requesting a tow for plate %s.'):format(s.plate), 'officer')
-    TriggerClientEvent('c3r:stop:tow', s.src)
+    TriggerClientEvent('c3r:stop:tow', (s.main or s).src) -- (the car is the stop's officer's game's)
     note(s, ('Vehicle towed to impound: %s'):format(why))
 end
 ACT.warn = ending('warn', "I'm letting you off with a warning today.")
 ACT.release = ending('release', "You're free to go. Drive safe.") -- (on foot, or not pulled over: see ending)
 
 local CAR_ACTS = { search_car = true, tow = true, felony = true } -- done at the car, not to a person
+-- Said, or written down: nobody is moved, so whoever's game has the person keeps them. Anything else moves them,
+-- and hands them to the acting officer's game first.
+local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true,
+               search_car = true, tow = true, felony = true }
 -- Shouted (the PA, or a felony stop's orders): heard from Config.PaRange. Everything else is said face to face.
 local SHOUTED = { exit = true, back = true, handsup = true, stay = true, felony = true, fel_out = true, fel_back = true, fel_kneel = true }
 local FELONY_ONLY = { felony = true, fel_out = true, fel_back = true, fel_kneel = true }
@@ -615,7 +827,11 @@ RegisterNetEvent('c3r:stop:act', function(action, arg, target, pa)
     local radio_tow = action == 'tow' and pa
     if radio_tow and (not s or s.towed) then return TriggerClientEvent('c3r:stop:towRefused', src) end -- (said yes over the radio: say no back)
     if not s or type(action) ~= 'string' then return end
-    if action == 'cancel' then return finish(src, s.outcome or 'cancelled') end -- driven away: ticketed or warned still counts
+    if action == 'cancel' then -- driven away: ticketed or warned still counts. A helper walking off just leaves.
+        if s.main then return leave(src) end
+        if s.units and next(s.units) then return promote(s) end -- (the stop's officer walks off: a helper carries on)
+        return finish(src, s.outcome or 'cancelled')
+    end
     local fn = ACT[action]
     if not fn then return end
     local o = s.occ[tonumber(target) or -1]
@@ -629,10 +845,20 @@ RegisterNetEvent('c3r:stop:act', function(action, arg, target, pa)
         if radio_tow then TriggerClientEvent('c3r:stop:towRefused', src) end
         return
     end
+    -- someone out of the car is moved by the acting officer's game (handed over first); in the car, they go with the car
+    -- (the stop's officer's game), and back into it, they're its again
+    local main = s.main or s
+    if o and action == 'back' then hand_over(main, o, main.src)
+    elseif o and not TALK[action] and (o.out_srv or s.foot) then hand_over(main, o, src) end
     local before = s.callout and o and {}
     for k, v in pairs(before and o.facts or {}) do before[k] = v end
     fn(s, o, type(arg) == 'string' and arg or nil)
     if before then Callouts.acted(s, o, action, arg, before) end -- (a callout person: the story hears about it)
+    if o and main.units and next(main.units) then -- every officer's game knows how they are (cuffed, out), not only the one moving them
+        for _, u in ipairs(officers(main)) do
+            if u ~= (o.handler or main.src) then TriggerClientEvent('c3r:stop:state', u, o.net, state_of(o)) end
+        end
+    end
     if Stops[src] == s then send_questions(s) end -- what they said may open (or close) questions, theirs or the others'
 end)
 
@@ -697,7 +923,8 @@ RegisterNetEvent('c3r:staged:pick', function(veh_net, people, info)
     StagedAt[src] = os.time()
     info = type(info) == 'table' and info or {}
     local ok, gen = pcall(Generator.stop, plate, { make = str(info.make, 30), model = str(info.model, 30),
-        color = str(info.color, 30), male = d.male == true, secret = Generator.weighted(Config.Staged.secrets) })
+        color = str(info.color, 30), male = d.male == true, secret = Generator.weighted(Config.Staged.secrets),
+        ped_model = GetEntityModel(entity(d.net)) })
     if not ok then return print('[c3r] could not stage ' .. plate .. ': ' .. tostring(gen)) end
     -- meanwhile (that waited on SQL) it may have been stopped or run: then that story stands
     if fresh() or ByVehicle[veh_net] or Staged[veh_net] or not IsOnDuty(src) or Stops[src] or not GetPlayerName(src) then return end
@@ -782,6 +1009,15 @@ AddEventHandler('c3r:pursuitEnded', spikes_up)
 -- A tow that failed (no truck, it never got there, or couldn't load the car): it can be asked for again, up to
 -- Config.Tow.tries times, then the car is just removed. Only a car near the officer with no player in it.
 local TowFails, TowFailAt = {}, {}
+-- The officer called the tow off before it had the car: the stop's car can be towed again (no strike against it).
+RegisterNetEvent('c3r:tow:cancelled', function(net)
+    local src = source
+    local s = Stops[src]
+    if not IsOnDuty(src) or not s or s.veh_net ~= net then return end
+    s.towed = nil
+    note(s, 'Tow truck cancelled')
+end)
+
 RegisterNetEvent('c3r:tow:failed', function(net)
     local src = source
     local ent = entity(net)

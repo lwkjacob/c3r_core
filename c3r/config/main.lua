@@ -19,9 +19,7 @@ Config.RadialKey = 'G'      -- on foot at their car, held: the vehicle's radial 
 Config.RespondKey = 'Y'     -- a callout offered: respond to it
 Config.ObjectiveKey = 'BACK' -- on a callout: hide / show the objective card
 Config.LeaveCallKey = 'X'   -- a callout offered: decline it; on a callout: leave the call (asks first)
-
--- Tab with someone's ID or registration showing: a tap hides / shows it, held this long (ms) it opens the weapon wheel.
-Config.WeaponWheelHold = 500
+Config.IdCardKey = 'BACK'   -- someone's ID or registration showing: hide / show it
 
 -- The officer's lines out loud (asking for ID, the Miranda rights, a search, the breathalyzer): heard this far (m)
 -- by any player, quieter further off; volume 0-1 (0 = off). The clips are nui/voice/officer_*.ogg.

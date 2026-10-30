@@ -136,6 +136,19 @@ local LINES = {
         rude = { 'What?', 'Yeah, what is it?' },
         chatty = { 'Hey officer! How are you doing today?', 'Hi! Long day for you too, huh?' },
     },
+    -- the greeting when they've been stopped before (server/stops.lua meet): by this officer, or another unit
+    met_you = {
+        default = { 'Oh. You again.', "Officer. We've met before, haven't we?", 'Not you again.' },
+        nervous = { 'Oh no. Not you again.', 'Uh. Hi again, officer.' },
+        warrant = { "Oh, come on. Not you.", "You again? Look, I don't want any trouble." },
+        rude = { 'You again? Seriously?', 'Great. You. Again.' },
+        chatty = { 'Hey, I know you! How have you been?', 'Officer! Small world, huh?' },
+    },
+    met_us = {
+        default = { 'Again? One of you lot stopped me just the other day.', "I've already been stopped once this week." },
+        rude = { 'Another one of you. Every week, I swear.', 'Do you lot ever give it a rest?' },
+        chatty = { "Hi! I think I've met one of your colleagues. Nice guy." },
+    },
 
     -- the stop
     whyran = {

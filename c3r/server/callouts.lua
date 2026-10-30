@@ -274,7 +274,8 @@ function C:task(key, name, args)
     p.task = name ~= 'scene' and { name = name, args = args } or nil
     if not p.net then return end
     if p.in_contact then
-        if STOP_TASKS[name] then TriggerClientEvent('c3r:stop:task', p.in_contact, STOP_TASKS[name], p.net) end
+        -- (to the game moving them: the officer who took them over on a shared stop, else the one talking to them)
+        if STOP_TASKS[name] then TriggerClientEvent('c3r:stop:task', p.o.handler or p.in_contact, STOP_TASKS[name], p.net) end
     elseif p.owner then
         TriggerClientEvent('c3r:callout:task', p.owner, p.net, name, args, p.spec.scene)
     end
@@ -585,6 +586,7 @@ local function make_near(inc)
             end
             SetEntityOrphanMode(ent, 2)
             SetVehicleNumberPlateText(ent, v.plate)
+            Entity(ent).state:set('c3r_callout', true, true) -- (a callout's car: a radio tow can take it, script-made or not)
             v.ent, v.net = ent, net
             made = true
         end
@@ -669,7 +671,8 @@ local function clean(inc)
         if p.net then
             ByNet[p.net] = nil
             if p.ent and DoesEntityExist(p.ent) then
-                SetEntityOrphanMode(p.ent, 0)
+                -- (a prisoner is kept until they're booked or transported; anyone else is the game's to tidy away)
+                SetEntityOrphanMode(p.ent, (p.o and p.o.cuffed) and 2 or 0)
                 -- (not someone an officer's still talking to, or has in cuffs: they're that officer's to finish with; nor
                 -- anyone down, or in a car: an ambulance's patient)
                 if not (p.o and p.o.cuffed) and not p.in_contact and not p.down and p.owner and GetVehiclePedIsIn(p.ent, false) == 0 then

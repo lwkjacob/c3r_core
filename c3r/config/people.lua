@@ -11,3 +11,5 @@ Config.PassengerSecrets = { clean = 55, nervous = 15, warrant = 10, drugs = 10, 
 Config.FlagChance = 0.06        -- a record flag (PROBATION, GANG AFFILIATION...) on anyone
 Config.BorrowedChance = 0.15    -- the car belongs to a relative
 Config.OwnerDrivesChance = 0.8  -- a car stopped before: its owner is at the wheel again
+Config.RepeatChance = 0.33      -- someone with the same ped model as a person met before: the chance it's them again
+Config.RepeatSameSecret = 0.5   -- someone met again: the chance they're hiding the same thing as last time
