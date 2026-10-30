@@ -50,6 +50,23 @@ local SCHEMA = {
         seen INT NOT NULL,
         KEY model (model)
     )]],
+    -- each officer's all-time totals (server/stats.lua). utf8mb4: a player picks their own name, emoji and all.
+    [[CREATE TABLE IF NOT EXISTS c3r_officers (
+        license VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        stops INT NOT NULL DEFAULT 0,
+        contacts INT NOT NULL DEFAULT 0,
+        citations INT NOT NULL DEFAULT 0,
+        warnings INT NOT NULL DEFAULT 0,
+        arrests INT NOT NULL DEFAULT 0,
+        pursuits_won INT NOT NULL DEFAULT 0,
+        pursuits_lost INT NOT NULL DEFAULT 0,
+        callouts INT NOT NULL DEFAULT 0,
+        assists INT NOT NULL DEFAULT 0,
+        seconds INT NOT NULL DEFAULT 0,
+        first_seen INT NOT NULL,
+        last_seen INT NOT NULL
+    ) CHARACTER SET utf8mb4]],
 }
 
 -- Before the rename to CODE3RESPONSE the tables were lwk_pd_people / lwk_pd_vehicles: a server that had them keeps
@@ -190,6 +207,30 @@ function Db.createVehicle(v)
         v.ins_valid ~= false, v.stolen == true, v.bolo, now, now,
     })
     return Db.findVehicle(v.plate)
+end
+
+Db.STATS = { 'stops', 'contacts', 'citations', 'warnings', 'arrests', 'pursuits_won', 'pursuits_lost', 'callouts', 'assists', 'seconds' }
+
+-- An officer's new counts added to their totals. p = { name, [stat] = n }. wait: waits on SQL (in a thread).
+function Db.addStats(license, p, now, wait)
+    local cols, marks, adds, args = {}, {}, {}, { license, p.name }
+    for _, stat in ipairs(Db.STATS) do
+        cols[#cols + 1], marks[#marks + 1] = stat, '?'
+        adds[#adds + 1] = ('%s = %s + VALUES(%s)'):format(stat, stat, stat)
+        args[#args + 1] = p[stat] or 0
+    end
+    args[#args + 1], args[#args + 2] = now, now
+    local sql = ([[INSERT INTO c3r_officers (license, name, %s, first_seen, last_seen) VALUES (?, ?, %s, ?, ?)
+        ON DUPLICATE KEY UPDATE name = VALUES(name), %s, last_seen = VALUES(last_seen)]]):format(
+        table.concat(cols, ', '), table.concat(marks, ', '), table.concat(adds, ', '))
+    if wait then MySQL.insert.await(sql, args) else MySQL.insert(sql, args) end
+end
+
+function Db.officer(license) return MySQL.single.await('SELECT * FROM c3r_officers WHERE license = ?', { license }) end
+
+function Db.officers()
+    local rows = MySQL.query.await('SELECT * FROM c3r_officers ORDER BY seconds DESC LIMIT 200')
+    return type(rows) == 'table' and rows or {}
 end
 
 -- A warrant on someone's record (text), or served (nil). An active one stands: a second doesn't replace it.

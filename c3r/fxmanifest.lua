@@ -30,6 +30,7 @@ server_scripts {
     'server/main.lua',
     'server/stops.lua',
     'server/callouts.lua',
+    'server/stats.lua',
     'callouts/*.lua', -- the calls (server only: the truth never reaches a game)
     'server/config_edit.lua',
 }

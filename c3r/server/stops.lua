@@ -147,6 +147,9 @@ end
 -- The stop's officer is off it (walked away, dropped, off duty) with others still on it: one of them has it now.
 local function promote(s)
     local old, u = s.src, next(s.units)
+    local job = s.callout or s
+    job.helped = job.helped or {}
+    job.helped[old] = true -- (it was their stop: coming back to it isn't an assist)
     s.units[u] = nil
     Stops[old], Stops[u], ByVehicle[s.key] = nil, s, u
     s.src = u
@@ -201,6 +204,7 @@ local function got_away(s)
         local running = (o.ran and not o.gave_up) or (s.pursuit and o == s.driver)
         if running and not o.cuffed and not o.away and not (ped ~= 0 and GetEntityHealth(ped) <= 100) then -- (not a body)
             o.away = true
+            if not s.lost_one then s.lost_one = true Stats.add(s.src, 'pursuits_lost') end
             local v = s.vehicle
             if s.pursuit and o == s.driver and not s.left_car and v and v.id and not v.bolo then
                 CreateThread(function() set_bolo(v, 'Fled from officers') end)
@@ -220,6 +224,11 @@ end
 local function serve(s)
     for _, o in pairs(s.occ) do
         local p = o.cuffed and o.person
+        -- (on their truth, which stays theirs: the same ped uncuffed and arrested again is still one arrest)
+        if o.cuffed and not o.truth.arrested then
+            o.truth.arrested = true
+            Stats.credit(o.cuffed_by or Stats.officer(s.src), 'arrests')
+        end
         if p and p.id and p.warrant then
             note(s, ('Warrant served: %s %s (%s)'):format(p.first, p.last, p.warrant))
             p.warrant = nil
@@ -363,6 +372,9 @@ local function join(src, s, contact)
     if Stops[src] or src == main.src then return end
     main.units = main.units or {}
     main.units[src] = true
+    local job = main.callout or main -- (on a callout: once a call, whoever they walk up to on it)
+    job.helped = job.helped or {}
+    if not job.helped[src] then job.helped[src] = true Stats.add(src, 'assists') end
     Stops[src] = setmetatable({ src = src, main = main }, { __index = main, __newindex = main })
     local list = {}
     for net, o in pairs(main.occ) do
@@ -416,11 +428,13 @@ local function start_foot(src, p)
     end
     local o = { net = p.net, role = 'pedestrian', person = g.person, truth = g.truth, items = g.items, answers = {}, facts = {},
                 cuffed = known and p.cuffed == true or nil } -- (their own prisoner, walked back up to)
+    if p.cuffed == true then g.truth.arrested = true end -- (in cuffs already, whoever they turn out to be: counted once)
     o.pockets = Generator.some(Data.pockets, math.random(1, 3))
     for _, item in ipairs(g.items) do table.insert(o.pockets, 1, item) end -- no car to stash it in: it's all on them
     local s = { src = src, key = key, occ = { [p.net] = o }, driver = o, car_items = {}, foot = true }
     BindSubject(p.net, g.person, nil, g.items, g.truth)
     Stops[src] = s
+    if not known and p.cuffed ~= true then Stats.add(src, 'contacts') end
     TriggerEvent('c3r:stopStarted', src, nil, nil)
     TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(g.truth), cuffed = o.cuffed } },
         { foot = true, contact = p.net }, Dialogue.CATEGORIES)
@@ -545,6 +559,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     if empty then
         TriggerEvent('c3r:vehicleContact', src, vehicle) -- nobody to stop: a car looked at
     else
+        Stats.add(src, 'stops')
         TriggerEvent(s.pursuit and 'c3r:pursuitStarted' or 'c3r:stopStarted', src, nil, vehicle)
     end
     -- only what changes how they drive: the truth itself stays on the server
@@ -703,6 +718,11 @@ local function ending(kind, officer_line)
             return finish(s.src, s.outcome or outcome)
         end
         if RANK[outcome] > RANK[s.outcome or 'released'] then s.outcome = outcome end
+        o.written = o.written or {}
+        if not o.written[kind] then
+            o.written[kind] = true
+            Stats.add(s.src, kind == 'cite' and 'citations' or 'warnings') -- (the officer who wrote it, helper or not)
+        end
         note(s, ('%s, %s'):format(kind == 'cite' and 'Citation issued' or 'Verbal warning', label(o)))
     end
 end
@@ -781,7 +801,7 @@ function ACT.cuff(s, o)
     say(s, 'Turn around and put your hands behind your back.', 'officer')
     if runs(s, o) then return end
     say(s, Dialogue.answer('cuff', o), o)
-    o.cuffed = true
+    o.cuffed, o.cuffed_by = true, Stats.officer(s.src)
     move(s, o, 'cuff')
     say(s, 'You have the right to remain silent. Anything you say can and will be used against you in the court of law. '
         .. 'If you cannot afford an attorney, one will be appointed for you.', 'officer')
@@ -944,6 +964,10 @@ RegisterNetEvent('c3r:stop:pursuit', function(state, net, on_foot)
         return finish(src, 'fled')
     end
     if state ~= 'caught' then return end
+    if (s.pursuit or (o and o.ran)) and not s.won_one then
+        s.won_one = true
+        Stats.add((s.main or s).src, 'pursuits_won')
+    end
     if s.pursuit then
         s.pursuit = nil
         TriggerEvent('c3r:pursuitEnded', src)
