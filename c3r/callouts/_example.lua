@@ -19,6 +19,8 @@
             items     what a search finds on them that matters (it shows as evidence)
             pockets   everyday things a search finds that aren't evidence ('Gas station receipt')
             age       { min, max }: how old their ID says they are ({ 18, 19 } for a teenager)
+            home      true: they live at the call's address; a point's name: on the street that point is on
+            injured   true: on the ground hurt. E beside them is first aid; paramedics take them ('aid' fires)
             scene     what they're doing: a scenario ('WORLD_HUMAN_SMOKING') or an anim { dict, name, flag }
             questions { { id = 'c_...', label = 'What did you see?', needs?, hide?, press?, stress? } }
                       needs = { c_fact = 'value' | true | { list } }: only once they've said it (see lines)
@@ -28,10 +30,10 @@
                       Lines can also replace their answer to any normal question (e.g. lines.where), and a line can
                       be a function that returns the list, decided as it's asked:
                       c_safe = function() return c:apart('a', 'b') and TRUTH or COVER end
-      c:vehicle(key, { at, model, make, name, color, paint?, owner?, stolen?, locked? })
+      c:vehicle(key, { at, model, make, name, color, paint?, owner?, stolen?, locked?, damage? })
           A parked car, on file: run its plate and it comes back registered to `owner` (a person key) or someone else.
           model = the spawn name ('asea'); make / name / color = what the plate check says ('Declasse', 'Asea', 'Silver');
-          paint = GTA colour id; locked defaults to true.
+          paint = GTA colour id; locked defaults to true; damage = 'front': the front end smashed in.
       c:clue(key, { at | on, label, text, prop?, hidden? })
           Evidence: up close, "E Inspect: <label>" shows text and puts it on every unit's MDT. on = a vehicle key puts
           it on that car (for something about a person, give them a question instead).
@@ -53,6 +55,8 @@
           'tick' (seconds)                     once a second
           'gone' (person)                      they're gone (taken away by a unit, or deleted)
           'custody' (person, how, src)         a prisoner taken in: 'booked' at a station, or 'transport'
+          'aid' (person, what, src)            someone injured seen to: 'vitals', 'pressure', 'cpr' (first aid), or by
+                                               paramedics: 'hospital' (taken away) or 'treated' (at the scene)
       c:custody(person)        they're under arrest: "Take <name> in: book them at a station, or call prisoner
                                transport" goes on the card (with a blip on them) until they are; then 'custody' fires
       c:hide(id)               an objective off the card again (e.g. custody, after an uncuff)
@@ -60,8 +64,9 @@
       c:questions(person)      after giving them a fact from elsewhere: the officer talking to them sees what it opens
       c:who(person)            their record on the call: .facts, .cuffed, .identified ...
       c:name(person)           their real name; c:plate(vehicle) its plate; c:street() the call's street
+      c:owner(vehicle)         who the car's registered to: { first, last, address }
       c:apart(a, b)            out of each other's earshot (10 m, or either cuffed / in a car)
-      c:task(person, 'go' | 'flee' | 'surrender' | 'wander' | 'scene', point?)
+      c:task(person, 'go' | 'flee' | 'surrender' | 'wander' | 'scene', point?)   ('go': they walk to the point)
       c:say(person, text)      a line heard on scene
       c:dispatch(text)         a radio update to the units on it
       c:note(text)             a line on their MDT incident

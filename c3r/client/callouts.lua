@@ -232,8 +232,8 @@ local function nearest_player_ped(from)
 end
 
 local function run(ped, name, args, sc)
-    if name == 'go' and args then
-        TaskGoStraightToCoord(ped, args.x, args.y, args.z, 1.0, 30000, GetEntityHeading(ped), 0.5)
+    if name == 'go' and args then -- (walking there round buildings and cars, not through them)
+        TaskFollowNavMeshToCoord(ped, args.x, args.y, args.z, 1.0, -1, 1.5, 0, type(args) == 'vector4' and args.w or 0.0)
     elseif name == 'flee' then
         RunFrom(ped, nearest_player_ped(GetEntityCoords(ped))) -- (client/stop.lua)
     elseif name == 'surrender' then
@@ -261,7 +261,8 @@ local function lay(obj, a)
     FreezeEntityPosition(obj, true)
 end
 
--- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground.
+-- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground; damage = 'front': the
+-- front end caved in (the first game to own it only: dents add up).
 local function park(veh, a)
     SetEntityAsMissionEntity(veh, true, true)
     if a.place then SetVehicleOnGroundProperly(veh) end
@@ -269,20 +270,33 @@ local function park(veh, a)
     if a.plate then SetVehicleNumberPlateText(veh, a.plate) end
     SetVehicleEngineOn(veh, false, true, true)
     SetVehicleDoorsLocked(veh, a.locked and 2 or 1)
+    if a.damage == 'front' then
+        local _, max = GetModelDimensions(GetEntityModel(veh)) -- (the front bumper is at max.y)
+        SetVehicleDamage(veh, 0.0, max.y, 0.1, 400.0, 1.2, true)
+        SetVehicleDamage(veh, max.x * 0.6, max.y, 0.2, 300.0, 0.8, true) -- (one corner worse: the headlight)
+        SetVehicleBodyHealth(veh, 550.0)
+        SetVehicleEngineHealth(veh, 700.0) -- (dented, not on fire)
+    end
 end
 
--- a = { net, scene, task, place (the first time: facing the point's heading), heading } (a person), or
--- { net, vehicle = true, paint, plate, locked, place } (a car)
+-- a = { net, scene, task, place (the first time: facing the point's heading), heading, down } (a person), or
+-- { net, vehicle = true, paint, plate, locked, place, damage } (a car)
 RegisterNetEvent('c3r:callout:apply', function(a)
     CreateThread(function()
         local ped = their_ped(a.net)
         if not ped then return end
         if a.vehicle then return park(ped, a) end
         if a.prop then return lay(ped, a) end
+        if IsPedInAnyVehicle(ped, false) then return end -- (in an ambulance by now)
         SetEntityAsMissionEntity(ped, true, true)
         SetBlockingOfNonTemporaryEvents(ped, true) -- (they do the story, not whatever the street is doing)
         SetPedKeepTask(ped, true)
         if a.place and a.heading then SetEntityHeading(ped, a.heading) end -- (stood exactly where the callout says)
+        -- hurt, on the ground (client/medical.lua holds them there), unless paramedics have just seen to them
+        if a.down and IsCasualty(ped) then
+            if GetEntityHealth(ped) >= GetEntityMaxHealth(ped) then SetEntityHealth(ped, 140) end -- (hurt)
+            return HoldDown(ped)
+        end
         if a.task then run(ped, a.task.name, a.task.args, a.scene) else scene(ped, a.scene) end
     end)
 end)
@@ -444,7 +458,10 @@ end
 local function finish_placing()
     local first = placing.got[placing.points[1][1]] -- (the scene: where the first point is, the caller's)
     Prompt('place', 'info', 'Placing', 'Saving...', 4000)
-    TriggerServerEvent('c3r:place:save', placing.id, placing.index, { street = where(vector3(first.x, first.y, first.z)), points = placing.got })
+    local streets = {} -- (each point's: a home round the corner is on another street)
+    for name, p in pairs(placing.got) do streets[name] = where(vector3(p.x, p.y, p.z)) end
+    TriggerServerEvent('c3r:place:save', placing.id, placing.index,
+        { street = where(vector3(first.x, first.y, first.z)), streets = streets, points = placing.got })
 end
 
 RegisterNetEvent('c3r:place:start', function(d)

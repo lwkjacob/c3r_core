@@ -136,7 +136,8 @@ end
        at = 'point' (the location's points) | vector3 / vector4, model?, male?, label ('Caller': on screen until named),
        secret?, demeanor?, flags?, warrant?, items? (what's on them that matters: a search finds it as evidence),
        pockets? (everyday things a search finds that aren't evidence: a receipt, keys), age? ({ min, max }: their ID),
-       scene? ('WORLD_HUMAN_...' scenario, or { dict, anim }), questions? (asked under "The call"), lines?, facts? } ]]
+       scene? ('WORLD_HUMAN_...' scenario, or { dict, anim }), questions? (asked under "The call"), lines?, facts?,
+       injured? (on the ground hurt: E beside them is first aid, paramedics take them; 'aid' fires) } ]]
 function C:person(key, spec)
     local inc = self.inc
     if inc.people[key] then error('person "' .. key .. '" twice', 0) end
@@ -152,7 +153,7 @@ end
 
 -- A parked car in the story, on file: run its plate and it's registered to `owner` (a person key), or to someone
 -- else. spec = { at, model ('asea'), make ('Declasse'), name ('Asea'), color ('Silver'), paint? (GTA colour id),
--- owner?, stolen?, locked? (default true), label? (on the map) }
+-- owner?, stolen?, locked? (default true), label? (on the map), damage? ('front': the front end smashed in) }
 function C:vehicle(key, spec)
     if type(spec.model) ~= 'string' then error('vehicle "' .. key .. '" needs a model', 0) end
     if self.inc.vehicles[key] then error('vehicle "' .. key .. '" twice', 0) end
@@ -179,6 +180,9 @@ end
 
 -- A story car's plate (once built).
 function C:plate(key) local v = self.inc.vehicles[key] return v and v.plate end
+
+-- Who a story car is registered to (once built): their record { first, last, address... }.
+function C:owner(key) local v = self.inc.vehicles[key] return v and v.registered end
 
 -- The street the call is on.
 function C:street() return self.inc.loc.street end
@@ -435,7 +439,8 @@ local function point(inc, at)
 end
 
 -- Their record: a real person (name checks find them), with the story's secret and record. home = they live at the
--- call's address; family = one surname for everyone in the household with family = true.
+-- call's address (true), or on the street a point is on (its name: the location's streets, from /c3rplace); family =
+-- one surname for everyone in the household with family = true.
 local function make_record(inc, spec)
     local male = spec.male
     if male == nil then male = math.random() < .5 end
@@ -444,8 +449,10 @@ local function make_record(inc, spec)
     for _ = 1, 3 do -- a name already on file keeps its own story: try another
         local p = Generator.person(male, secret)
         if spec.home then
-            inc.address = inc.address or (math.random(10, 999) .. ' ' .. inc.loc.street)
-            p.address = inc.address
+            local street = type(spec.home) == 'string' and (inc.loc.streets or {})[spec.home] or inc.loc.street
+            inc.homes = inc.homes or {}
+            inc.homes[street] = inc.homes[street] or (math.random(10, 999) .. ' ' .. street) -- (one house per street)
+            p.address = inc.homes[street]
         end
         if spec.family then
             inc.surname = inc.surname or p.last
@@ -523,7 +530,7 @@ local function records(inc)
             spec.stolen and 'stolen' or 'clean', owner and owner.id)
         rec.stolen = spec.stolen == true
         Db.createVehicle(rec)
-        v.plate = plate
+        v.plate, v.registered = plate, owner
     end
 end
 
@@ -559,6 +566,10 @@ local function make_near(inc)
             p.ent, p.net, p.o.net = ent, net, net
             ByNet[net] = p
             BindSubject(net, p.o.person, nil, p.o.items, p.o.truth)
+            if spec.injured and not p.treated then -- (every game: someone down, for first aid and paramedics)
+                p.down = true
+                Entity(ent).state:set('c3r_down', true, true)
+            end
             made = true
         end
     end
@@ -621,7 +632,7 @@ local function keep_up(inc)
             if owner and owner > 0 and owner ~= p.owner then
                 p.owner = owner
                 TriggerClientEvent('c3r:callout:apply', owner, { net = p.net, scene = p.spec.scene, task = p.task,
-                    place = not p.placed, heading = heading_of(point(inc, p.spec.at)) })
+                    place = not p.placed, heading = heading_of(point(inc, p.spec.at)), down = p.down })
                 p.placed = true
             end
         elseif p.ent and not p.gone and not DoesEntityExist(p.ent) then
@@ -645,7 +656,7 @@ local function keep_up(inc)
             if owner and owner > 0 and owner ~= v.owner then
                 v.owner = owner
                 TriggerClientEvent('c3r:callout:apply', owner, { net = v.net, vehicle = true, paint = v.spec.paint, plate = v.plate,
-                    locked = v.spec.locked ~= false, place = not v.placed })
+                    locked = v.spec.locked ~= false, place = not v.placed, damage = not v.placed and v.spec.damage or nil })
                 v.placed = true
             end
         end
@@ -659,13 +670,18 @@ local function clean(inc)
             ByNet[p.net] = nil
             if p.ent and DoesEntityExist(p.ent) then
                 SetEntityOrphanMode(p.ent, 0)
-                -- (not someone an officer's still talking to, or has in cuffs: they're that officer's to finish with)
-                if not (p.o and p.o.cuffed) and not p.in_contact and p.owner then TriggerClientEvent('c3r:callout:task', p.owner, p.net, 'wander') end
+                -- (not someone an officer's still talking to, or has in cuffs: they're that officer's to finish with; nor
+                -- anyone down, or in a car: an ambulance's patient)
+                if not (p.o and p.o.cuffed) and not p.in_contact and not p.down and p.owner and GetVehiclePedIsIn(p.ent, false) == 0 then
+                    TriggerClientEvent('c3r:callout:task', p.owner, p.net, 'wander')
+                end
             end
             local net = p.net
             SetTimeout(120000, function() UnbindSubject(net) end)
         end
     end
+    -- ponytail: someone still down stays a casualty (c3r_down) after the call, so paramedics can still take them; if
+    -- they're patched up where they lie after it, nothing clears it. Clear it here if that ever matters.
     for _, v in ipairs(inc.vehicle_list) do
         if v.ent and DoesEntityExist(v.ent) then SetEntityOrphanMode(v.ent, 0) end -- (stays parked: the game tidies it up)
     end
@@ -930,6 +946,22 @@ RegisterNetEvent('c3r:callout:custody', function(nets, how)
     end
 end)
 
+-- Someone down (spec.injured) seen to, by a unit on their call near them: first aid from the medical wheel ('vitals',
+-- 'pressure', 'cpr'), or paramedics ('hospital': in the back of the ambulance; 'treated': patched up where they lay).
+local AID = { vitals = true, pressure = true, cpr = true, hospital = true, treated = true }
+RegisterNetEvent('c3r:callout:aid', function(net, what)
+    local src = source
+    local p = math.type(net) == 'integer' and Callouts.person(net)
+    if not (p and AID[what] and OnCall[src] == p.inc and p.ent and DoesEntityExist(p.ent)) then return end
+    -- first aid: beside them. Paramedics: wherever the officer who called them has gone since (trusted, as backup is)
+    if (what ~= 'hospital' and what ~= 'treated') and #(pos(src) - GetEntityCoords(p.ent)) > 5.0 then return end
+    if (what == 'hospital' or what == 'treated') and p.down then
+        p.down, p.treated = nil, what
+        Entity(p.ent).state:set('c3r_down', false, true)
+    end
+    fire(p.inc, 'aid', p.key, what, src)
+end)
+
 -- "E Inspect": a unit on the call, beside the evidence (checked here). The first look puts it on everyone's MDT.
 RegisterNetEvent('c3r:callout:inspect', function(id, key)
     local src = source
@@ -1017,18 +1049,26 @@ Callouts.table_items = table_items
 
 local function num(v) return type(v) == 'number' and v == v and math.abs(v) < 100000 end
 
--- data = { street, points = { [name] = { x, y, z, h } } } from the admin's game -> the location's Lua text, and the table
+-- data = { street, streets = { [name] = street }, points = { [name] = { x, y, z, h } } } from the admin's game -> the
+-- location's Lua text, and the table. streets: the points on another street than the call's (a home round the corner).
 local function location_of(def, data, indent)
-    local pts, lines = {}, {}
+    local pts, lines, streets, other = {}, {}, nil, {}
     for _, pt in ipairs(def.points) do
         local p = data.points[pt[1]]
         pts[pt[1]] = vector4(p.x, p.y, p.z, p.h)
         lines[#lines + 1] = ('%s    %s = vector4(%.2f, %.2f, %.2f, %.1f),'):format(indent, pt[1], p.x, p.y, p.z, p.h)
+        local s = data.streets[pt[1]]
+        if s and s ~= '' and s ~= data.street then
+            streets = streets or {}
+            streets[pt[1]] = s
+            other[#other + 1] = ("%s = '%s'"):format(pt[1], s)
+        end
     end
     local first = data.points[def.points[1][1]]
     local at = vector3(first.x, first.y, first.z) -- (the first point, the caller's: on scene within Config.Callouts.arrive m of it)
-    local head = ("{ street = '%s', at = vector3(%.2f, %.2f, %.2f), points = {"):format(data.street, at.x, at.y, at.z)
-    return head .. '\n' .. table.concat(lines, '\n') .. '\n' .. indent .. '} }', { street = data.street, at = at, points = pts }
+    local head = ("{ street = '%s', at = vector3(%.2f, %.2f, %.2f),%s points = {"):format(data.street, at.x, at.y, at.z,
+        other[1] and (' streets = { ' .. table.concat(other, ', ') .. ' },') or '')
+    return head .. '\n' .. table.concat(lines, '\n') .. '\n' .. indent .. '} }', { street = data.street, at = at, points = pts, streets = streets }
 end
 
 RegisterCommand('c3rplace', function(src, args)
@@ -1054,7 +1094,14 @@ RegisterNetEvent('c3r:place:save', function(id, index, data)
             return TriggerClientEvent('c3r:place:msg', src, 'Not saved: point ' .. pt[1] .. ' is missing.')
         end
     end
-    data.street = (type(data.street) == 'string' and data.street or 'Unknown'):gsub("[%c'\\]", ''):sub(1, 40)
+    local function clean_street(s) return (type(s) == 'string' and s or ''):gsub("[%c'\\]", ''):sub(1, 40) end
+    data.street = clean_street(data.street)
+    if data.street == '' then data.street = 'Unknown' end
+    local streets = {}
+    for _, pt in ipairs(def.points) do
+        streets[pt[1]] = type(data.streets) == 'table' and clean_street(data.streets[pt[1]]) or nil
+    end
+    data.streets = streets
     local text = LoadResourceFile(GetCurrentResourceName(), def.file)
     local at_id = text and (text:find("id = '" .. id .. "'", 1, true) or text:find('id = "' .. id .. '"', 1, true))
     local brace = text and select(2, text:find('locations%s*=%s*{', at_id or 1)) -- (where its '{' is)

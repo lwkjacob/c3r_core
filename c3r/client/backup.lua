@@ -327,7 +327,8 @@ end
 local function stop_ped(p)
     for _, o in pairs(Stop and Stop.occ or {}) do if o.ped == p then return o end end
 end
-local function ours(p) return stop_ped(p) ~= nil or Patients[p] ~= nil or not IsEntityAMissionEntity(p) end
+local casualty = function(p) return IsCasualty(p) end -- (a callout's: the server marks them; client/medical.lua)
+local function ours(p) return stop_ped(p) ~= nil or Patients[p] ~= nil or casualty(p) or not IsEntityAMissionEntity(p) end
 local function human(p) local h = IsPedHuman(p) return h == true or h == 1 end
 local function peds_near(at, r, keep)
     local out = {}
@@ -411,7 +412,7 @@ end
 -- Paramedics, for everyone within 40 m of the scene, whether the officer saw to them or not: the downed (on the
 -- ground hurt, or brought back with CPR) treated and taken to hospital in the back; the walking hurt (the officer
 -- too) patched up where they stand; the dead checked and pronounced (the coroner takes them). The living first.
-local function downed(p) return Patients[p] ~= nil or IsPedInWrithe(p) or IsPedInjured(p) end
+local function downed(p) return Patients[p] ~= nil or IsPedInWrithe(p) or IsPedInjured(p) or casualty(p) end
 local function free_seat(veh)
     for seat = 1, GetVehicleMaxNumberOfPassengers(veh) - 1 do -- (the back: 1 on; the crew sit in front)
         if IsVehicleSeatFree(veh, seat) then return seat end
@@ -421,7 +422,7 @@ function JOB.ambulance(u, at)
     local list = peds_near(at, 40.0, function(p)
         if not human(p) or IsPedInAnyVehicle(p, false) then return false end
         if p == me() then return not IsEntityDead(p) and GetEntityHealth(p) < GetEntityMaxHealth(p) end
-        return not IsPedAPlayer(p) and ours(p) and (IsEntityDead(p) or GetEntityHealth(p) < GetEntityMaxHealth(p))
+        return not IsPedAPlayer(p) and ours(p) and (IsEntityDead(p) or GetEntityHealth(p) < GetEntityMaxHealth(p) or casualty(p))
     end)
     table.sort(list, function(a, b) return not IsEntityDead(a) and IsEntityDead(b) end)
     if #list == 0 then return say('Ambulance: nobody here needs treatment.') end
@@ -454,6 +455,9 @@ function JOB.ambulance(u, at)
             pronounced = pronounced + 1
         elseif DoesEntityExist(p) and (p == me() or control(p)) then
             local seat = p ~= me() and downed(p) and free_seat(u.veh)
+            if p ~= me() and casualty(p) then -- (a callout's: the call hears it, before they're moved)
+                TriggerServerEvent('c3r:callout:aid', PedToNet(p), seat and 'hospital' or 'treated')
+            end
             if seat then -- on a stretcher, into the back
                 local o = stop_ped(p)
                 if o then take_from_stop(o.net, Stop) end

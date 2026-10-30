@@ -28,11 +28,15 @@ local SPINE = 24818 -- SKEL_Spine3: their chest
 
 local function human(p) local h = IsPedHuman(p) return h == true or h == 1 end
 
--- Down: dead, or on the ground hurt. Never a player, backup, or someone sat in a car.
+-- Down: dead, or on the ground hurt (or a callout's casualty: the c3r_down state the server puts on them). Never a
+-- player, backup, or someone sat in a car.
 function IsDowned(p)
     return DoesEntityExist(p) and not IsPedAPlayer(p) and human(p) and not IsBackup(p) and not IsPedInAnyVehicle(p, false)
-        and (IsEntityDead(p) or IsPedInWrithe(p) or IsPedInjured(p) or Patients[p] ~= nil)
+        and (IsEntityDead(p) or IsPedInWrithe(p) or IsPedInjured(p) or Patients[p] ~= nil or IsCasualty(p))
 end
+
+-- A callout's casualty (server/callouts.lua marks them). Only networked peds have state bags.
+function IsCasualty(p) return NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_down == true end
 
 -- The nearest one beside the officer (on foot), or nil.
 function DownedNear()
@@ -108,6 +112,11 @@ local function close()
     NoPause()
 end
 
+-- Lying where they fell, held there (not a ragdoll's drift), until paramedics take them.
+local function lie(p)
+    if load_dict(ANIM.lying[1]) then TaskPlayAnim(p, ANIM.lying[1], ANIM.lying[2], 8.0, -8.0, -1, 1, 0.0, false, false, false) end
+end
+
 -- Lying where they fell, held there: a writhe or a ragdoll is something they can get up out of.
 local function hold_down(p)
     if IsEntityDead(p) or (Patients[p] and Patients[p].down) or not control(p) then return end
@@ -117,6 +126,7 @@ local function hold_down(p)
     Patients[p] = Patients[p] or {}
     Patients[p].down = true
 end
+HoldDown = hold_down -- (client/callouts.lua: a callout's casualty, on the game that owns them)
 
 function OpenMedical(p)
     if open or busy then return end
@@ -151,11 +161,6 @@ local function act(p, anim, ms)
     local deadline = GetGameTimer() + ms
     while GetGameTimer() < deadline and DoesEntityExist(p) do Wait(200) end
     ClearPedTasks(me)
-end
-
--- Lying where they fell, held there (not a ragdoll's drift), until paramedics take them.
-local function lie(p)
-    if load_dict(ANIM.lying[1]) then TaskPlayAnim(p, ANIM.lying[1], ANIM.lying[2], 8.0, -8.0, -1, 1, 0.0, false, false, false) end
 end
 
 -- Back from the dead. Placed on the ground under their chest first (a dead ragdoll's own position can be off the
@@ -202,7 +207,7 @@ end
 
 function DO.cpr(p)
     local gone = dead_for(p)
-    if not gone then return end
+    if not gone then return false end
     act(p, ANIM.cpr, M.cpr_seconds * 1000)
     if not DoesEntityExist(p) or not IsEntityDead(p) then return end
     if gone < M.cpr_window * 1000 and math.random() < M.cpr_chance and control(p) and revive(p) then
@@ -213,7 +218,7 @@ function DO.cpr(p)
 end
 
 function DO.pressure(p)
-    if IsEntityDead(p) then return end
+    if IsEntityDead(p) then return false end
     act(p, ANIM.pressure, 8000)
     if not DoesEntityExist(p) or IsEntityDead(p) then return end
     Patients[p] = Patients[p] or {}
@@ -227,6 +232,7 @@ function DO.coroner() CallBackup('coroner') end
 function DO.cancel_ambulance() CallBackup('cancel:ambulance') end
 function DO.cancel_coroner() CallBackup('cancel:coroner') end
 
+local CALL_AID = { vitals = true, pressure = true, cpr = true }
 RegisterNUICallback('medical', function(d, cb)
     cb({})
     local p = target
@@ -235,8 +241,12 @@ RegisterNUICallback('medical', function(d, cb)
     if not fn or not p or not DoesEntityExist(p) then return end
     busy = true
     CreateThread(function()
-        fn(p)
+        local ran = fn(p) ~= false
         busy = false
+        -- a callout's casualty: the call hears they were seen to (not CPR on someone alive: nothing was done)
+        if ran and CALL_AID[d.action] and DoesEntityExist(p) and IsCasualty(p) then
+            TriggerServerEvent('c3r:callout:aid', PedToNet(p), d.action)
+        end
     end)
 end)
 
@@ -249,7 +259,8 @@ CreateThread(function()
             close()
         end
         for ped, pt in pairs(Patients) do
-            if not DoesEntityExist(ped) or IsEntityDead(ped) or IsPedInAnyVehicle(ped, false) then
+            if not DoesEntityExist(ped) or IsEntityDead(ped) or IsPedInAnyVehicle(ped, false)
+                or (NetworkGetEntityIsNetworked(ped) and Entity(ped).state.c3r_down == false) then -- (a casualty paramedics saw to)
                 if DoesEntityExist(ped) then FreezeEntityPosition(ped, false) end
                 Patients[ped] = nil
             elseif NetworkHasControlOfEntity(ped) then
