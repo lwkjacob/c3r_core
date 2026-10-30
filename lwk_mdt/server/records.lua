@@ -51,7 +51,8 @@ function Records.person(p)
     return {
         key = ((first or '') .. '|' .. (last or '') .. '|' .. (dob or '')):lower(), pd_id = tonumber(p.id),
         first = first, last = last, dob = dob, gender = str(p.gender, 20), address = str(p.address, 80),
-        dl = str(p.dl, 30), dl_valid = bool(p.dl_valid), flags = flag_labels(p.flags), warrant = str(p.warrant, 120),
+        dl = str(p.dl, 30), dl_valid = bool(p.dl_valid), flags = flag_labels(p.flags),
+        warrant = str(p.warrant, 120) or false, -- (false, not nil: a served warrant has to overwrite the copy on file)
         unverified = p.unverified == true or nil, -- a name they gave that has no record behind it
     }
 end
@@ -199,6 +200,27 @@ function Records.charges(ids, list)
         end
     end
     return out, total
+end
+
+Records.EVADING = 'Evading an officer'
+
+local LET_GO = { released = true, cited = true, warning = true } -- a stop that ended with them walking free
+
+-- Who a signed report puts a warrant on: an Arrest Report for whoever got away (inc.fled, c3r person ids), or with
+-- charges, the one person on it if they walked free (more than one: a report doesn't say whose charges they are;
+-- nothing known of how it ended, a stop still open or walked away from: they may be in cuffs). A report written by
+-- hand is the officer's word. people = the MDT's records by key. -> ids, reason
+function Records.wanted(inc, people)
+    if (inc.form or Records.default_form(inc)) ~= 'arrest' then return {} end
+    local labels = {}
+    for _, c in ipairs(inc.charges or {}) do labels[#labels + 1] = c.label end
+    -- (someone arrested too: the charges are theirs, the one who got away evaded)
+    local reason = #labels > 0 and inc.outcome ~= 'arrested' and table.concat(labels, ', '):sub(1, 120) or Records.EVADING
+    if inc.fled then return inc.fled, reason end
+    local p = #inc.people == 1 and people[inc.people[1]]
+    if not p or not p.pd_id or #labels == 0 or inc.kind == 'callout' then return {} end
+    if inc.kind ~= 'manual' and not LET_GO[inc.outcome] then return {} end
+    return { p.pd_id }, reason
 end
 
 -- ─── search ──────────────────────────────────────────────────────────────────

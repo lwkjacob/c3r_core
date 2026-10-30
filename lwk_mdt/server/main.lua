@@ -229,7 +229,7 @@ local function close(src, text)
     end
     if text then event(inc, text) end
     -- nothing to write up (no subject, no vehicle, nothing done): drop it
-    if #inc.people == 0 and #inc.plates == 0 and #inc.events < 3 then
+    if #inc.people == 0 and #inc.plates == 0 and #inc.events < 3 and not inc.fled then
         Incidents[inc.id] = nil
         return forget('i', inc.id)
     end
@@ -363,6 +363,7 @@ AddEventHandler('c3r:stopEnded', function(src, outcome)
     if not inc or (inc.kind ~= 'stop' and inc.kind ~= 'pursuit' and inc.kind ~= 'callout') then return end -- a stop can start as a chase
     local o = OUTCOME[outcome] or OUTCOME.cancelled
     if o[2] and not inc.form then inc.form = o[2] end
+    inc.outcome = outcome
     if inc.kind == 'callout' then return event(inc, o[1]) end -- (the call goes on: it closes when it ends)
     close(src, o[1])
 end)
@@ -376,6 +377,34 @@ end)
 AddEventHandler('c3r:pursuitEnded', function(src)
     local inc = current(src)
     if inc then event(inc, 'Pursuit ended') end
+end)
+
+local function issue_warrant(id, text)
+    if GetResourceState('c3r') == 'started' then pcall(function() exports.c3r:issueWarrant(id, text) end) end
+end
+
+-- Someone got away: their warrant waits for this report to be signed (H.save). No report to sign: it's issued now.
+AddEventHandler('c3r:fled', function(src, person)
+    local id = type(person) == 'table' and tonumber(person.id)
+    if not id then return end
+    local inc = current(src)
+    if not inc then return issue_warrant(id, Records.EVADING) end
+    inc.fled = Records.add_unique(inc.fled, id)
+    inc.form = inc.form or 'arrest'
+    save_inc(inc)
+end)
+
+-- A warrant or a BOLO issued or cleared: what's on file here keeps up (anyone not on file comes with it when met).
+AddEventHandler('c3r:record', function(person, vehicle)
+    local p, v = Records.person(person), Records.vehicle(vehicle)
+    if p and People[p.key] then
+        People[p.key] = Records.merge(People[p.key], p)
+        save('p', p.key, People[p.key])
+    end
+    if v and Vehicles[v.plate] then
+        Vehicles[v.plate] = Records.merge(Vehicles[v.plate], v)
+        save('v', v.plate, Vehicles[v.plate])
+    end
 end)
 
 -- The open incident of the callout c3r calls `id` that a unit is on right now, if any.
@@ -763,6 +792,10 @@ function H.save(src, a)
         if inc.narrative == nil then
             local people, vehicles = records_of(inc)
             inc.narrative = Records.narrative(inc, people, vehicles, Config.DateFormat) -- freeze it
+        end
+        if inc.status ~= 'signed' then -- (once: a signed report edited and saved again changes nothing on anyone's record)
+            local ids, reason = Records.wanted(inc, People)
+            for _, id in ipairs(ids) do issue_warrant(id, reason) end
         end
         inc.status, inc.signed_by, inc.signed_at = 'signed', officer(src), os.time()
         detach(inc.id) -- a signed call is finished: off the calls grid and off its unit
