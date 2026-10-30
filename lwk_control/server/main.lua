@@ -54,6 +54,18 @@ AddEventHandler('c3r:pursuitStarted', function(src, ped, veh)
 end)
 AddEventHandler('c3r:pursuitEnded', function(src) activity(src, 'pursuit', false) end)
 
+-- A warrant or a BOLO issued or cleared: the next check answers with the new record.
+AddEventHandler('c3r:record', function(ped, veh)
+    for src, p in pairs(LastPed) do
+        if ped and p.id == ped.id then LastPed[src] = ped end
+    end
+    for _, list in ipairs({ LastVehicle, PedVehicle }) do
+        for src, v in pairs(list) do
+            if veh and v.plate == veh.plate then list[src] = veh end
+        end
+    end
+end)
+
 AddEventHandler('c3r:calloutOffered', function(src) TriggerClientEvent('lwk_control:offered', src) end)
 
 -- ─── traffic holds ────────────────────────────────────────────────────────────
