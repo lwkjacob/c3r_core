@@ -43,7 +43,7 @@ Config.Flee = {
     foot = { warrant = 0.25, stolen = 0.25, drugs = 0.1 }, -- run when ordered out, or when you go to cuff them
     bail = 0.5,               -- a car chase that ends: they run for it on foot instead of giving up
     refuse = 0.35,            -- rude, or with something to hide: refuse the first order to get out
-    lose_distance = 100.0,    -- m: further than this for 10 s and they got away
+    lose_distance = 250.0,    -- m: further than this for 10 s and they got away
     catch_distance = 2.5,     -- m: on foot, this close and they give up
 }
 
