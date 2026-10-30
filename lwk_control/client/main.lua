@@ -236,7 +236,8 @@ local function handle(text)
     -- If any command needs confirming, the whole transmission waits for "affirmative".
     local needs_confirm, labels = false, {}
     for _, c in ipairs(cmds) do
-        needs_confirm = needs_confirm or c.intent.confirm == true
+        local cf = c.intent.confirm -- (true, or a function: only sometimes, e.g. 10-8 while on a call)
+        needs_confirm = needs_confirm or cf == true or (type(cf) == 'function' and cf() == true)
         labels[#labels + 1] = c.intent.label or c.intent.say[1]
     end
     if needs_confirm and Config.Confirm then

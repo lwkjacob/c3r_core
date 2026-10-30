@@ -526,8 +526,11 @@ exports('acceptCallout', function()
     respond(offer and GetGameTimer() < offer.until_t and offer.id or nil)
     return true
 end)
-exports('completeCallout', function() -- clearing with dispatch: off the call
+-- clearing with dispatch: off the call. -> true, 'cancelled' (the last unit on it: the call is called off) | 'left'
+exports('completeCallout', function()
     if not call then return nil, 'not_attached' end
+    local units = 1
+    for _, b in ipairs(board) do if b.id == call.id then units = b.units or 1 end end
     TriggerServerEvent('c3r:callout:leave')
-    return true
+    return true, units <= 1 and 'cancelled' or 'left'
 end)

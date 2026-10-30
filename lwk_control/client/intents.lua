@@ -4,7 +4,7 @@
       say     phrases (every word must be in the model vocabulary)
       verb    'request' | 'cancel' | nil   (nil = verb ignored)
       slot    'plate' | 'code' | nil
-      confirm true to ask "affirmative / negative" before running
+      confirm true to ask "affirmative / negative" before running (or a function: ask when it returns true)
       label   text used in the confirm prompt
       run     function(ctx)  ctx = { verb, text, plate?, code? }
     Other resources add intents with exports.lwk_control:addIntent(def).
@@ -224,12 +224,18 @@ AddIntent({
             'marking scene clear', 'clear the call' },
     run = function()
         if not Pd('isOnCallout') then return Reply('not_attached', '~r~You are not attached to a callout.') end
-        local ok, reason = Pd('completeCallout')
-        if not ok then return Reply('unable', '~r~Unable: ' .. reason_text(reason)) end
         State.status = nil
-        Reply('code4')
+        ClearCall()
     end,
 })
+
+-- Off the call (code four, or 10-8 while on one): the last unit off calls it off, so dispatch says it's cancelling.
+function ClearCall()
+    local ok, how = Pd('completeCallout')
+    if not ok then return Reply('unable', '~r~Unable: ' .. reason_text(how)) end
+    if how == 'cancelled' then return Reply('cancelled', 'Copy, cancelling the call.') end
+    Reply('code4')
+end
 
 AddIntent({
     -- Only phrases that clearly ask for a call: a bare "call outs" is too easy to hit by accident
@@ -340,9 +346,13 @@ local STATUS = {
 for _, s in ipairs(STATUS) do
     AddIntent({
         id = 'status_' .. s.code, say = s.say,
+        -- 10-8 on a call clears it: asked first, as "code four" is ("available" is easy to mishear)
+        confirm = s.code == '10-8' and function() return Pd('isOnCallout') == true end or nil,
+        label = s.code == '10-8' and 'show ten eight and clear the call' or nil,
         run = function()
             State.status = s.code
             TriggerEvent('lwk_control:status', s.code)
+            if s.code == '10-8' and Pd('isOnCallout') then return ClearCall() end -- (back in service: off the call)
             Reply('status_' .. s.code:gsub('%-', '_'), 'Copy, ' .. s.code .. '.')
         end,
     })
