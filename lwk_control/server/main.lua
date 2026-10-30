@@ -2,6 +2,9 @@
 
 local LastPed, LastVehicle = {}, {} -- [src] = c3r person / vehicle (contract records)
 local PedVehicle = {} -- [src] = the vehicle that came with LastPed (stop / pursuit); nil for a ped on foot
+-- [src] = { id = owner's record id, at }: the registered owner of the last plate run, and LastPedAt[src] when
+-- LastPed was identified: "run the name" after a plate check runs whoever it came back to
+local LastOwner, LastPedAt = {}, {}
 
 local function log(fmt, ...)
     if Config.Debug then print(('[lwk_control] ' .. fmt):format(...)) end
@@ -19,7 +22,7 @@ local function cache(src, ped, veh, why)
     if type(ped) == 'table' then
         -- the stopped driver keeps their car once identified; someone else on foot doesn't get it
         local other = LastPed[src] and LastPed[src].id ~= ped.id
-        LastPed[src] = ped
+        LastPed[src], LastPedAt[src] = ped, GetGameTimer()
         if veh then PedVehicle[src] = veh elseif other then PedVehicle[src] = nil end
     end
     if type(veh) == 'table' then LastVehicle[src] = veh end
@@ -40,7 +43,7 @@ local function activity(src, kind, on) TriggerClientEvent('lwk_control:activity'
 
 AddEventHandler('c3r:stopStarted', function(src, ped, veh)
     -- a new stop: the last driver is not this one (c3r sends ped = nil until they're identified)
-    LastPed[src], PedVehicle[src] = nil, veh
+    LastPed[src], PedVehicle[src], LastOwner[src] = nil, veh, nil
     cache(src, ped, veh, 'pullover')
     activity(src, 'stop', true)
 end)
@@ -165,6 +168,7 @@ end)
 
 AddEventHandler('playerDropped', function()
     LastPed[source], LastVehicle[source], PedVehicle[source] = nil, nil, nil
+    LastOwner[source], LastPedAt[source] = nil, nil
     if Zones[source] then set_zone(source, nil) end
     if Units[source] then
         Units[source] = nil
@@ -209,11 +213,16 @@ RegisterNetEvent('lwk_control:plateCheck', function(plate)
         return TriggerClientEvent('lwk_control:plateResult', src, { found = false, reason = 'no_vehicle' })
     end
 
+    local function owner_of(veh) -- (the name a plate came back to: "run the name" runs them next)
+        if type(veh) == 'table' and veh.owner_id then LastOwner[src] = { id = veh.owner_id, at = GetGameTimer() } end
+    end
     if stopped and (not spoken or plate_key(stopped.plate) == spoken) then
+        owner_of(stopped)
         return TriggerClientEvent('lwk_control:plateResult', src, { found = true, vehicle = stopped })
     end
 
     local function result(veh)
+        owner_of(veh)
         if veh then return TriggerClientEvent('lwk_control:plateResult', src, { found = true, vehicle = veh }) end
         TriggerClientEvent('lwk_control:plateResult', src, { found = false, reason = 'not_found', plate = spoken })
     end
@@ -228,6 +237,15 @@ end)
 RegisterNetEvent('lwk_control:nameCheck', function()
     local src = source
     local ped = LastPed[src]
+    local owner = LastOwner[src]
+    -- a plate run since the last person identified: the name it came back to (the registered owner)
+    if owner and (not ped or owner.at > (LastPedAt[src] or 0)) then
+        local _, err = pd('getPerson', owner.id, function(p)
+            if type(p) == 'table' then return TriggerClientEvent('lwk_control:nameResult', src, { found = true, person = p }) end
+            TriggerClientEvent('lwk_control:nameResult', src, { found = false, reason = 'no_record' })
+        end)
+        if not err then return end
+    end
     if not ped then
         return TriggerClientEvent('lwk_control:nameResult', src, { found = false, reason = 'no_interaction' })
     end
