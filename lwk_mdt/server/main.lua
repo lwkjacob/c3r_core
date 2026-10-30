@@ -732,6 +732,17 @@ function H.owner(_, a)
     return p and { key = p.key } or nil
 end
 
+-- Every officer's totals, from c3r, with this one's row marked. -> { list } | { off = true }: no c3r, or the pop-out,
+-- whose requests can't wait on another resource.
+function H.stats(src)
+    if GetResourceState('c3r') ~= 'started' or not coroutine.isyieldable() then return { off = true } end
+    local p = promise.new()
+    local ok = pcall(function() exports.c3r:getStatsBoard(src, function(list) p:resolve(list or false) end) end)
+    local list = ok and Citizen.Await(p)
+    if not list then return { off = true } end
+    return { list = list }
+end
+
 function H.reports(src, a)
     local me = license(src)
     local filters = {

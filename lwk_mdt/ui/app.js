@@ -89,6 +89,7 @@ const ICONS = {
     reports: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>',
     drafts: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
     new: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M12 8v8M8 12h8"/>',
+    stats: '<path d="M5 20v-7M12 20V5M19 20v-11"/>',
     popout: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.8 3 6"/>',
     car: '<path d="M5 15l1.5-5h11L19 15"/><rect x="3" y="14" width="18" height="4" rx="1"/><circle cx="7.5" cy="19" r="1.5"/><circle cx="16.5" cy="19" r="1.5"/>',
@@ -105,6 +106,7 @@ const TOOLS = [
     { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'all')) },
     { id: 'drafts', label: 'Drafts', key: 'Ctrl+D', run: () => go((t) => reportsScreen(t, 'drafts')) },
     { id: 'new', label: 'New Report', key: 'Ctrl+N', run: () => newReport({}) },
+    { id: 'stats', label: 'Stats', key: 'Ctrl+T', run: () => go(statsScreen) },
     'sep',
     { id: 'popout', label: 'Pop Out', key: 'Ctrl+O', run: popOut },
     { id: 'close', label: 'Close', key: 'Esc', run: close },
@@ -471,6 +473,30 @@ async function reportsScreen(token, filter) {
                 [[...arr(r.people), ...arr(r.plates)].join(', ')], [r.officer], [when(r.started)], [r.total ? money(r.total) : '']] };
         }), 'No reports.');
     wire($('#rlist'));
+}
+
+// ─── stats ───────────────────────────────────────────────────────────────────
+
+const STAT_COLS = [['Officer', 'name', ''], ['Stops', 'stops', '7%'], ['Contacts', 'contacts', '8%'], ['Citations', 'citations', '8%'],
+    ['Warnings', 'warnings', '8%'], ['Arrests', 'arrests', '7%'], ['Pursuits won', 'pursuits_won', '9%'], ['Pursuits lost', 'pursuits_lost', '9%'],
+    ['Callouts', 'callouts', '7%'], ['Assists', 'assists', '7%'], ['On duty', 'seconds', '9%']];
+const dutyTime = (s) => `${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
+
+// Every officer on the server; a column heading sorts by it.
+async function statsScreen(token, sort = 'seconds') {
+    setTitle('Officer Stats');
+    view.innerHTML = '<div class="pane" style="flex:1" id="rlist"></div>';
+    const r = await req('stats');
+    if (stale(token)) return;
+    const up_first = sort === 'name' ? (a, b) => String(a.name).localeCompare(String(b.name)) : (a, b) => b[sort] - a[sort];
+    const rows = arr(r.list).slice().sort(up_first).map((o) => ({ cells: STAT_COLS.map(([, k]) =>
+        k === 'name' ? [o.you ? `${o.name} (you)` : o.name, o.you ? 'cy' : ''] : [k === 'seconds' ? dutyTime(o[k]) : o[k]]) }));
+    $('#rlist').innerHTML = grid(STAT_COLS.map(([l, , w]) => [l, w]), rows, r.error || (r.off ? 'Stats are only available in game, with c3r running.' : 'No stats yet.'));
+    wire($('#rlist'));
+    $('#rlist').querySelectorAll('thead th:not(.rh)').forEach((th, i) => {
+        th.style.cursor = 'pointer';
+        th.onclick = () => show((t) => statsScreen(t, STAT_COLS[i][1]));
+    });
 }
 
 // What's been picked or typed on a report but not saved yet, by report id: it stays through leaving the screen or
