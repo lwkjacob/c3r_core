@@ -126,6 +126,7 @@ local function license(src) return GetPlayerIdentifierByType(src, 'license') or 
 local function supervisor(src) return src == 0 or IsPlayerAceAllowed(src, Config.SupervisorAce) end
 
 local function admin(src)
+    if supervisor(src) then return true end
     for _, id in ipairs(GetPlayerIdentifiers(src) or {}) do
         for _, a in ipairs(Config.Admins or {}) do
             if id == a then return true end
@@ -825,7 +826,7 @@ function H.delete(src, a)
     return { ok = true } -- people / vehicles keep the id; contacts() skips missing incidents
 end
 
--- Every unsigned, closed report on the server (open calls and signed reports stay). Config.Admins only.
+-- Every unsigned, closed report on the server (open calls and signed reports stay). Supervisors and Config.Admins only.
 function H.deleteDrafts(src)
     if not admin(src) then return { error = 'Not allowed.' } end
     local n = 0

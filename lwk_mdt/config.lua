@@ -12,7 +12,8 @@ Config.AllowedServices = { 'police' }
 -- Optional ACE needed to use the MDT at all (nil = anyone on duty in an allowed service).
 Config.AcePermission = nil
 
--- ACE that can edit or delete anyone's report, and run /mdtexport. Authors can always edit their own.
+-- ACE that can edit or delete anyone's report, run /mdtexport and use Delete All Drafts. Authors can always edit
+-- their own.
 Config.SupervisorAce = 'lwk_mdt.supervisor'
 
 -- Citizen Portal (players not on duty): flags a civilian can set on their own character.
@@ -25,8 +26,8 @@ Config.Call911Radius = 180.0
 Config.Call911Cooldown = 60
 Config.Call911ExpireMinutes = 15
 
--- Player identifiers (any type: fivem:, license:, discord:...) that get the Delete All Drafts button.
-Config.Admins = { 'fivem:12245859' }
+-- Player identifiers (any type: fivem:, license:, discord:...) that also get the Delete All Drafts button.
+Config.Admins = {} -- e.g. { 'fivem:123456', 'license:abc...' }
 
 -- Browser pop-out (the Pop Out button opens the MDT in the player's own browser, e.g. on a second
 -- monitor). nil = the address the player's game is connected to, e.g. http://203.0.113.5:30120.
