@@ -251,11 +251,13 @@ local function new_incident(src, kind, title)
     return inc
 end
 
--- A field contact turns into whatever starts next, and a stop into the pursuit it became;
--- anything else closes the open incident and starts a new one.
+-- A field contact turns into whatever starts next, and a stop into the pursuit it became; a stop or a pursuit on a
+-- callout is part of the callout's report. Anything else closes the open incident and starts a new one.
 local function start(src, kind, title, text)
     local inc = current(src)
-    if inc and (inc.kind == 'contact' or (inc.kind == 'stop' and kind == 'pursuit')) then
+    if inc and inc.kind == 'callout' and kind ~= 'callout' then
+        -- (stays the callout's)
+    elseif inc and (inc.kind == 'contact' or (inc.kind == 'stop' and kind == 'pursuit')) then
         inc.kind, inc.title = kind, title or inc.title
     else
         if inc then close(src) end
@@ -348,9 +350,10 @@ local OUTCOME = {
 
 AddEventHandler('c3r:stopEnded', function(src, outcome)
     local inc = current(src)
-    if not inc or (inc.kind ~= 'stop' and inc.kind ~= 'pursuit') then return end -- a stop can start as a chase
+    if not inc or (inc.kind ~= 'stop' and inc.kind ~= 'pursuit' and inc.kind ~= 'callout') then return end -- a stop can start as a chase
     local o = OUTCOME[outcome] or OUTCOME.cancelled
     if o[2] and not inc.form then inc.form = o[2] end
+    if inc.kind == 'callout' then return event(inc, o[1]) end -- (the call goes on: it closes when it ends)
     close(src, o[1])
 end)
 
