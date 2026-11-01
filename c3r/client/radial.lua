@@ -62,7 +62,7 @@ local SERVICES = {
     { 'police', 'Prisoner transport', 'cuffs' }, { 'ambulance', 'Ambulance', 'medic' }, { 'cover', 'Cover unit', 'siren' },
     { 'tow', 'Tow truck', 'tow' }, { 'fire', 'Fire department', 'flame' }, { 'coroner', 'Coroner', 'file' },
     { 'mechanic', 'Mechanic', 'wrench' }, { 'roadservice', 'Road service', 'wrench' },
-    { 'animalrescue', 'Animal control', 'paw' }, { 'taxi', 'Taxi', 'car' },
+    { 'animalrescue', 'Animal control', 'paw' }, { 'taxi', 'Taxi', 'car' }, { 'dot', 'DOT crew', 'wrench' },
 }
 local CHASE = {
     { 'light', 'Backup: code 1', 'siren' }, { 'medium', 'Backup: code 2', 'siren' }, { 'heavy', 'Backup: code 3', 'siren' },

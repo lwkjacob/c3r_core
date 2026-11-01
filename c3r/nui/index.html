@@ -258,6 +258,21 @@
         }
 
         /* ── the service screen (F11): pick a service to go on duty; glass cards over a dimmed game ── */
+        /* going on duty: a moment of the logo over the darkened game (the blur is the game's: client/main.lua) */
+        #shift { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(6, 8, 12, .55);
+                 opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .35s var(--ease), visibility .35s; }
+        #shift.on { opacity: 1; visibility: visible; }
+        #shift .stage { display: flex; flex-direction: column; align-items: center; gap: 16px; color: #fff; text-shadow: 0 3px 16px rgba(0, 0, 0, .6); }
+        #shift.on .stage { animation: shift-in .5s var(--ease) both; }
+        @keyframes shift-in { from { transform: translateY(14px) scale(.97); } to { transform: none; } }
+        #shift img { width: 500px; height: auto; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .6)); }
+        #shift .bars { display: flex; gap: 8px; }
+        #shift .bars i { width: 122px; height: 6px; transform: skewX(-24deg); background: #2f6bff; }
+        #shift .bars i:nth-child(2) { background: #fff; }
+        #shift .bars i:nth-child(3) { background: #f0202e; }
+        #shift h2 { margin: 10px 0 0; font: italic 900 52px/1.1 Arial, Helvetica, sans-serif; letter-spacing: .01em; text-transform: uppercase; }
+        #shift h2 b { color: var(--accent); font-weight: 900; }
+        #shift .by { color: #8f98a8; font: 700 15px Arial, Helvetica, sans-serif; letter-spacing: .34em; text-transform: uppercase; }
         #duty { position: fixed; inset: 0; display: grid; place-items: center; opacity: 0; visibility: hidden; pointer-events: none;
                 transition: opacity .2s ease-in, visibility 0s linear .2s; }
         #duty.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .3s var(--ease); }
@@ -409,6 +424,14 @@
     </style>
 </head>
 <body>
+    <div id="shift">
+        <div class="stage">
+            <img src="img/code3response.png" alt="CODE3RESPONSE">
+            <div class="bars"><i></i><i></i><i></i></div>
+            <h2>Welcome to your <b>shift.</b></h2>
+            <div class="by">by LWK Development</div>
+        </div>
+    </div>
 <div id="prompts" aria-live="polite"></div>
 <div id="sub" aria-live="polite"><span class="who"></span><span class="line"></span></div>
 
@@ -1485,6 +1508,7 @@
             bk('cover', 'Cover unit', 'siren', 'A patrol car stands by at the scene.'),
             bk('coroner', 'Coroner', 'file', 'Takes the dead away.'),
             bk('taxi', 'Taxi', 'car', 'Collects anyone left without a ride.'),
+            bk('dot', 'DOT crew', 'wrench', 'Sweeps debris off the road.'),
         ] };
         if (at === 'tests') return { title: 'Tests', items: [
             { label: 'Breathalyzer', icon: 'test', action: 'breath', desc: 'Breath test for alcohol.' },
@@ -1980,6 +2004,13 @@
         if (d.type === 'prompt') prompt(d);
         else if (d.type === 'subtitle') subtitle(d);
         else if (d.type === 'sfx' && d.name === 'ding') sfx.ding();
+        else if (d.type === 'sfx' && d.name === 'duty') new Audio('voice/duty_boom.ogg').play().catch(() => {});
+        else if (d.type === 'shift') {
+            const el = document.getElementById('shift');
+            el.classList.add('on');
+            clearTimeout(el.hide);
+            el.hide = setTimeout(() => el.classList.remove('on'), d.ms || 2600);
+        }
         else if (d.type === 'voice' && /^[a-z]+$/.test(d.clip)) { // the officer's line out loud (voice/officer_<clip>.ogg)
             const a = new Audio(`voice/officer_${d.clip}.ogg`);
             a.volume = Math.min(Math.max(Number(d.volume) || 0, 0), 1);

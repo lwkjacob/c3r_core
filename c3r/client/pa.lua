@@ -80,13 +80,22 @@ function PA.walk_back(s)
     return true
 end
 
+-- Everyone out of the car, off a felony stop (there, it's one at a time).
+local function all_out(s, action)
+    local list = people(s, function(o) return not in_car(s, o) end)
+    for _, o in ipairs(list) do act(action, o) end
+    return #list > 0
+end
+
 function PA.kneel(s)
-    local o = s.felony and first_step(s, 'fel_kneel')
-    if not o and s.felony then o = first_step(s, 'fel_back') end -- told to kneel where they stand
+    if not s.felony then return all_out(s, 'kneel') end
+    local o = first_step(s, 'fel_kneel') or first_step(s, 'fel_back') -- (told to kneel where they stand)
     if not o then return false end
     act('fel_kneel', o)
     return true
 end
+
+function PA.turn_around(s) return not s.felony and all_out(s, 'turn') end -- (on a felony stop they already are)
 
 function PA.hands_up(s)
     local list = people(s, function(o) return not o.felony and o.doing ~= 'fel_out' end)
@@ -125,11 +134,32 @@ end
 
 local OUT = { driver_out = true, passenger_out = true, everyone_out = true }
 
+-- An order shouted at whoever the officer has their gun on, on foot and in earshot: them, not whoever they last spoke to.
+local AT_GUNPOINT = { hands_up = 'handsup', kneel = 'kneel', turn_around = 'turn' }
+function AimedPed()
+    local me = PlayerId()
+    local ok, ped = GetEntityPlayerIsFreeAimingAt(me)
+    if not ok or ped == 0 then ok, ped = GetPlayerTargetEntity(me) end -- (locked on, not free aiming)
+    if not ok or ped == 0 or not IsEntityAPed(ped) or IsPedAPlayer(ped) or IsEntityDead(ped) or IsPedInAnyVehicle(ped, false) then return nil end
+    return #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(ped)) < Config.PaRange and ped or nil
+end
+
 -- cmds: a command or a list of them, in the order said. On a felony stop only the first runs: one order at a time.
 exports('pa', function(cmds)
     if not LocalPlayer.state.c3rDuty then return false end
     if type(cmds) == 'string' then cmds = { cmds } end
     if type(cmds) ~= 'table' then return false end
+    for _, cmd in ipairs(cmds) do
+        local action = AT_GUNPOINT[cmd]
+        local ped = action and not (Stop and Stop.felony) and AimedPed()
+        if ped then
+            local o = Stop and Stop.occ[NetworkGetEntityIsNetworked(ped) and PedToNet(ped) or -1]
+            if o then act(action, o) return true end -- (on this stop: only them)
+            if Stop and not Stop.foot then return false end -- (a car stop on: they're not part of it)
+            RequestContact(ped, action) -- (anyone else: whoever was being spoken to on foot is left, and it's them now)
+            return true
+        end
+    end
     local any, ordered_out = false, false
     for _, cmd in ipairs(cmds) do
         -- "step out with your hands up": the hands-up order would cancel getting out

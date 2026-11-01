@@ -612,6 +612,7 @@ local LINES = {
                  drugs = { "Wait, what? Do I have to?", "...Fine." } },
     follow = { default = { 'Okay, coming.', 'Alright.' }, rude = { 'Fine. Whatever.' } },
     handsup = { default = { 'Okay! Okay!', "Alright, they're up!" }, nervous = { "Don't shoot! They're up!" } },
+    fel_turn = { default = { 'Okay! Okay!', "I'm turning, I'm turning!" }, rude = { 'This is ridiculous.' } },
     exit = { default = { 'Okay.', 'Sure.', 'Alright.' }, rude = { 'Seriously? Fine.', 'Is this necessary?' },
              nervous = { 'Okay, okay.', 'Am I in trouble?' } },
     back = { default = { 'Thanks.', 'Okay.' } },

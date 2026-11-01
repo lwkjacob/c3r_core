@@ -93,7 +93,7 @@ local function open_menu(s, o)
                      cuffed = o.cuffed == true, escorted = o.escorted == true, seated = o.seated ~= nil, sitting = o.sitting == true,
                      categories = s.categories, questions = o.questions or {},
                      active = { police = BackupActive('police'), ambulance = BackupActive('ambulance'), cover = BackupActive('cover'),
-                                coroner = BackupActive('coroner'), taxi = BackupActive('taxi') } })
+                                coroner = BackupActive('coroner'), taxi = BackupActive('taxi'), dot = BackupActive('dot') } })
     focus(o.ped)
 end
 

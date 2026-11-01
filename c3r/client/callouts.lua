@@ -105,9 +105,11 @@ RegisterNetEvent('c3r:callout:offer', function(r)
     for _, b in ipairs(board) do if b.id == r.id then r.units = b.units end end
     SendNUIMessage({ type = 'callout', offer = { name = r.name, street = r.street, distance = r.distance, report = r.description,
         priority = r.priority, units = r.units, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = ms } })
-    -- dispatch over the radio: "Incoming 911 call." (lwk_control_assets voice/incoming_call_*.ogg), the details as text
+    -- dispatch over the radio: the call's own line, or "Incoming 911 call", in the area of where it is (lwk_control_assets
+    -- voice/<key>_to_1.ogg + the location's clips; voice/<key>_1.ogg with no location), the details as text
+    local clip = r.voice and LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(r.voice)) and r.voice or 'incoming_call'
     local said = pcall(function()
-        exports.lwk_control:say({ 'incoming_call' }, ('Incoming 911 call: %s, %s. Priority %d.'):format(r.name:lower(), r.street, r.priority))
+        exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('Incoming 911 call: %s, %s. Priority %d.'):format(r.name:lower(), r.street, r.priority))
     end)
     if not said then Notify(('~b~DISPATCH~s~ Incoming 911 call: %s, %s.'):format(r.name:lower(), r.street)) end
 end)
@@ -267,17 +269,158 @@ local function nearest_player_ped(from)
     return best
 end
 
-local function run(ped, name, args, sc)
+-- Their weapon out, in their hand.
+local function draw(ped, weapon)
+    if not weapon then return end
+    local hash = GetHashKey(weapon)
+    GiveWeaponToPed(ped, hash, 250, false, true)
+    SetCurrentPedWeapon(ped, hash, true)
+end
+
+-- Fighting whoever's near. With a spot (`at`: a window, a doorway) they go there and hold it, using cover within 4 m of
+-- it (combat movement 1, defensive); with none they come after the officer, taking cover as they go (2, offensive).
+-- Attributes UNVERIFIED by name, from the game's enum: 0 use cover, 5 and 46 fight rather than flee. HATES_PLAYER: every
+-- player's their enemy, so it carries on when the first target's gone.
+local StoodDown = {} -- [ped] = true: gave up (a surrender can land while they're still walking to their spot)
+local Fought = {} -- [ped] = true: fighting, armed or not
+local function shoot(ped, at, weapon)
+    StoodDown[ped], Fought[ped] = nil, true
+    ClearPedTasks(ped) -- (out of whatever they were doing: a scenario, aiming at someone)
+    draw(ped, weapon)
+    CreateThread(function() -- (the server hears of the first real shot: drawing a gun isn't "shots fired")
+        local net, deadline = NetworkGetNetworkIdFromEntity(ped), GetGameTimer() + 180000
+        while DoesEntityExist(ped) and not StoodDown[ped] and GetGameTimer() < deadline do
+            if IsPedShooting(ped) then return TriggerServerEvent('c3r:callout:fired', net) end
+            Wait(100)
+        end
+    end)
+    SetBlockingOfNonTemporaryEvents(ped, false)
+    SetPedSeeingRange(ped, 150.0)
+    SetPedHearingRange(ped, 150.0)
+    SetPedRelationshipGroupHash(ped, GetHashKey('HATES_PLAYER'))
+    SetPedFleeAttributes(ped, 0, false)
+    SetPedCombatAttributes(ped, 0, true)
+    SetPedCombatAttributes(ped, 5, true)
+    SetPedCombatAttributes(ped, 46, true)
+    SetPedCombatAbility(ped, 1) -- (average)
+    SetPedCombatRange(ped, 2) -- (far)
+    SetPedAccuracy(ped, 25)
+    if at then
+        TaskFollowNavMeshToCoord(ped, at.x, at.y, at.z, 3.0, 6000, 0.75, 0, type(at) == 'vector4' and at.w or 0.0)
+        local deadline = GetGameTimer() + 6000
+        while DoesEntityExist(ped) and GetGameTimer() < deadline and #(GetEntityCoords(ped) - vector3(at.x, at.y, at.z)) > 1.0 do Wait(100) end
+        if not DoesEntityExist(ped) or StoodDown[ped] then StoodDown[ped] = nil return end
+        SetPedSphereDefensiveArea(ped, at.x, at.y, at.z, 4.0, false, false)
+        SetPedCombatMovement(ped, 1)
+    else
+        SetPedCombatMovement(ped, 2)
+    end
+    if DoesEntityExist(ped) then TaskCombatPed(ped, nearest_player_ped(GetEntityCoords(ped)), 0, 16) end
+end
+
+-- Done fighting: weapon away, and no longer everyone's enemy.
+local function stand_down(ped)
+    StoodDown[ped], Fought[ped] = true, nil
+    ClearPedTasks(ped)
+    SetPedRelationshipGroupHash(ped, GetHashKey(IsPedMale(ped) and 'CIVMALE' or 'CIVFEMALE'))
+    SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+end
+
+-- Into their car (args.net) and off to args.at, with the traffic. The server says when they're there: 'get_out'.
+local DRIVE_STYLE = 786603 -- (the same as a backup unit's: stops for cars)
+local FAST_STYLE = 786468 -- (the same as a fleeing car's: client/stop.lua)
+local function drive(ped, args)
+    local veh = NetworkDoesNetworkIdExist(args.net) and NetToVeh(args.net) or 0
+    if not DoesEntityExist(veh) then return end
+    if not IsPedInVehicle(ped, veh, false) then
+        ClearPedTasks(ped)
+        TaskEnterVehicle(ped, veh, 10000, -1, 1.5, 1, 0)
+        local deadline = GetGameTimer() + 11000
+        while DoesEntityExist(ped) and not IsPedInVehicle(ped, veh, false) and GetGameTimer() < deadline do Wait(200) end
+    end
+    if not DoesEntityExist(ped) or not IsPedInVehicle(ped, veh, false) or not NetworkHasControlOfEntity(ped) then return end -- (not: another game has them now, and its own copy of this)
+    if Stop and Stop.occ[NetworkGetNetworkIdFromEntity(ped)] then return end -- (an officer got to them first)
+    NetworkRequestControlOfEntity(veh)
+    local deadline = GetGameTimer() + 2000
+    while not NetworkHasControlOfEntity(veh) and GetGameTimer() < deadline do Wait(0) end
+    SetVehicleUndriveable(veh, false)
+    SetVehicleEngineOn(veh, true, true, false)
+    if args.fast then
+        SetDriverAbility(ped, 1.0)
+        SetDriverAggressiveness(ped, 1.0)
+    end
+    local speed, style = args.fast and 45.0 or 12.0, args.fast and FAST_STYLE or DRIVE_STYLE
+    if args.at then TaskVehicleDriveToCoordLongrange(ped, veh, args.at.x, args.at.y, args.at.z, speed, style, 4.0)
+    else TaskVehicleDriveWander(ped, veh, speed, style) end
+end
+
+-- The other one may not have reached this game yet.
+function their_ped_soon(net)
+    local deadline = GetGameTimer() + 3000
+    while not NetworkDoesNetworkIdExist(net) and GetGameTimer() < deadline do Wait(100) end
+    local ped = NetworkDoesNetworkIdExist(net) and NetToEnt(net) or 0
+    return DoesEntityExist(ped) and ped or nil
+end
+
+-- Fists, on one other person. Their game watches for a stun gun: nobody else can see it. (lwk_taser: the server sees it.)
+local function brawl(ped, args)
+    local target = their_ped_soon(args.net)
+    if not target then return end
+    StoodDown[ped], Fought[ped] = nil, true
+    ClearPedTasks(ped)
+    SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
+    SetPedFleeAttributes(ped, 0, false)
+    SetPedCombatAttributes(ped, 5, true)
+    SetPedCombatAttributes(ped, 46, true)
+    TaskCombatPed(ped, target, 0, 16)
+    local net = NetworkGetNetworkIdFromEntity(ped)
+    while DoesEntityExist(ped) and Fought[ped] and NetworkHasControlOfEntity(ped) do
+        if IsPedBeingStunned(ped, 0) then return TriggerServerEvent('c3r:callout:stunned', net) end
+        Wait(200)
+    end
+end
+
+local function run(ped, name, args, sc, weapon)
     if name == 'go' and args then -- (walking there round buildings and cars, not through them)
         TaskFollowNavMeshToCoord(ped, args.x, args.y, args.z, 1.0, -1, 1.5, 0, type(args) == 'vector4' and args.w or 0.0)
     elseif name == 'flee' then
         RunFrom(ped, nearest_player_ped(GetEntityCoords(ped))) -- (client/stop.lua)
     elseif name == 'surrender' then
+        if weapon or Fought[ped] then stand_down(ped) end
         TaskHandsUp(ped, -1, nearest_player_ped(GetEntityCoords(ped)), -1, false)
+    elseif name == 'aim' then
+        local target = args and NetworkDoesNetworkIdExist(args.net) and NetToEnt(args.net) or 0
+        draw(ped, weapon)
+        if DoesEntityExist(target) then TaskAimGunAtEntity(ped, target, -1, false) end
+    elseif name == 'hold' then
+        ClearPedTasks(ped)
+        draw(ped, weapon)
+        TaskStandStill(ped, -1)
+    elseif name == 'shoot' then
+        shoot(ped, args, weapon)
+    elseif name == 'brawl' and args then
+        brawl(ped, args)
+    elseif name == 'drive' and args then
+        drive(ped, args)
+    elseif name == 'die' then
+        FreezeEntityPosition(ped, false)
+        SetEntityHealth(ped, 0)
+    elseif name == 'get_out' then
+        local veh = GetVehiclePedIsIn(ped, false)
+        if veh ~= 0 then TaskLeaveVehicle(ped, veh, 0) end
     elseif name == 'wander' then
+        if weapon or Fought[ped] then stand_down(ped) end -- (the call ended mid-fight: it's over for them too)
         SetBlockingOfNonTemporaryEvents(ped, false)
         SetPedKeepTask(ped, false)
-        TaskWanderStandard(ped, 10.0, 10)
+        local veh = GetVehiclePedIsIn(ped, false)
+        if veh ~= 0 then -- (the call ended with them at the wheel of their own car)
+            SetVehicleUndriveable(veh, false)
+            SetVehicleEngineOn(veh, true, true, false)
+            TaskVehicleDriveWander(ped, veh, 12.0, DRIVE_STYLE)
+        else
+            TaskWanderStandard(ped, 10.0, 10)
+        end
     else
         scene(ped, sc)
     end
@@ -291,10 +434,30 @@ local function their_ped(net)
 end
 
 -- Evidence: lying on the ground (a /c3rpos point is at hip height), and staying there.
+-- Down onto the ground, once this game has the ground: a prop is made as soon as a unit is within 300 m, too far for the
+-- game to have loaded the collision under it, and with none it would stay frozen in the air. Waits for me to be close, for
+-- as long as this game has the prop (a game that takes it over does the same).
+local function to_ground(obj)
+    while DoesEntityExist(obj) and NetworkHasControlOfEntity(obj) and not IsEntityAttached(obj) do
+        local p = GetEntityCoords(obj)
+        if #(GetEntityCoords(PlayerPedId()) - p) < 120.0 then
+            RequestCollisionAtCoord(p.x, p.y, p.z)
+            local ok, z = GetGroundZFor_3dCoord(p.x, p.y, p.z + 1.5, false)
+            if ok and math.abs(z - p.z) < 5.0 then
+                SetEntityCoordsNoOffset(obj, p.x, p.y, z, false, false, false)
+                PlaceObjectOnGroundProperly(obj)
+                return FreezeEntityPosition(obj, true)
+            end
+        end
+        Wait(500)
+    end
+end
+
 local function lay(obj, a)
+    if IsEntityAttached(obj) then return end -- (being dragged: it changed games to whoever picked it up)
     SetEntityAsMissionEntity(obj, true, true)
-    if a.place then PlaceObjectOnGroundProperly(obj) end
     FreezeEntityPosition(obj, true)
+    if a.place then to_ground(obj) end
 end
 
 -- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground; damage = 'front': the
@@ -304,7 +467,7 @@ local function park(veh, a)
     if a.place then SetVehicleOnGroundProperly(veh) end
     if a.paint then SetVehicleColours(veh, a.paint, a.paint) end
     if a.plate then SetVehicleNumberPlateText(veh, a.plate) end
-    SetVehicleEngineOn(veh, false, true, true)
+    if GetPedInVehicleSeat(veh, -1) == 0 then SetVehicleEngineOn(veh, false, true, true) end -- (not under someone driving it: it changes games with them)
     SetVehicleDoorsLocked(veh, a.locked and 2 or 1)
     if a.damage == 'front' then
         local _, max = GetModelDimensions(GetEntityModel(veh)) -- (the front bumper is at max.y)
@@ -323,7 +486,11 @@ RegisterNetEvent('c3r:callout:apply', function(a)
         if not ped then return end
         if a.vehicle then return park(ped, a) end
         if a.prop then return lay(ped, a) end
-        if IsPedInAnyVehicle(ped, false) then return end -- (in an ambulance by now)
+        if a.dead then -- (dead when found: an animal in the road, say)
+            SetEntityAsMissionEntity(ped, true, true)
+            return SetEntityHealth(ped, 0)
+        end
+        if IsPedInAnyVehicle(ped, false) and not (a.task and a.task.name == 'drive') then return end -- (in an ambulance by now)
         SetEntityAsMissionEntity(ped, true, true)
         SetBlockingOfNonTemporaryEvents(ped, true) -- (they do the story, not whatever the street is doing)
         SetPedKeepTask(ped, true)
@@ -333,15 +500,56 @@ RegisterNetEvent('c3r:callout:apply', function(a)
             if GetEntityHealth(ped) >= GetEntityMaxHealth(ped) then SetEntityHealth(ped, 140) end -- (hurt)
             return HoldDown(ped)
         end
-        if a.task then run(ped, a.task.name, a.task.args, a.scene) else scene(ped, a.scene) end
+        if a.seat then -- (at the wheel, engine running)
+            local veh = their_ped(a.seat)
+            if veh then
+                SetPedIntoVehicle(ped, veh, -1)
+                NetworkRequestControlOfEntity(veh)
+                local deadline = GetGameTimer() + 1000
+                while not NetworkHasControlOfEntity(veh) and GetGameTimer() < deadline do Wait(0) end
+                SetVehicleEngineOn(veh, true, true, false)
+            end
+        end
+        if a.task then run(ped, a.task.name, a.task.args, a.scene, a.weapon)
+        elseif not a.seat then scene(ped, a.scene) end
     end)
 end)
 
-RegisterNetEvent('c3r:callout:task', function(net, name, args, sc)
+RegisterNetEvent('c3r:callout:task', function(net, name, args, sc, weapon)
     CreateThread(function()
         local ped = their_ped(net)
-        if ped then run(ped, name, args, sc) end
+        if ped then run(ped, name, args, sc, weapon) end
     end)
+end)
+
+-- A real shot or firework from a point, straight up (c:bang). Nobody's weapon: nobody's hurt.
+RegisterNetEvent('c3r:callout:bang', function(weapon, at, shots)
+    CreateThread(function()
+        local hash = GetHashKey(weapon)
+        RequestWeaponAsset(hash, 31, 0)
+        local deadline = GetGameTimer() + 2000
+        while not HasWeaponAssetLoaded(hash) and GetGameTimer() < deadline do Wait(0) end
+        for i = 1, shots do
+            ShootSingleBulletBetweenCoords(at.x, at.y, at.z + 2.5, at.x, at.y + 0.1, at.z + 60.0, 0, true, hash, 0, true, false, -1.0) -- (clear of a car's roof)
+            if i < shots then Wait(math.random(300, 900)) end
+        end
+    end)
+end)
+
+-- On a call, the server hears who this officer has their gun on (AimedPed: client/pa.lua), a few times a second at most.
+CreateThread(function()
+    local told = {} -- [net] = when
+    while true do
+        Wait(call and 250 or 1500)
+        local ped = call and AimedPed()
+        if ped and NetworkGetEntityIsNetworked(ped) then
+            local net, now = PedToNet(ped), GetGameTimer()
+            if not told[net] or now - told[net] > 3000 then
+                told[net] = now
+                TriggerServerEvent('c3r:callout:aimed', net)
+            end
+        end
+    end
 end)
 
 -- ─── evidence ─────────────────────────────────────────────────────────────────
@@ -350,7 +558,48 @@ local clues, clue_call = {}, nil -- what can be inspected on my call: { { key, l
 local looked = {} -- [clue key] = true: inspected by me (its arrow goes)
 
 RegisterNetEvent('c3r:callout:clues', function(id, list) clue_call, clues = id, type(list) == 'table' and list or {} end)
-AddEventHandler('c3r:callout:ended', function() clues, clue_call, looked = {}, nil, {} end)
+
+-- Dragging a clue with drag = true: E picks it up (once it's been looked at), E lets it go, and the server hears where.
+local dragging = nil -- { key, obj }
+local function let_go()
+    local d = dragging
+    dragging = nil
+    if not d then return end
+    ClearPedSecondaryTask(PlayerPedId())
+    if not DoesEntityExist(d.obj) then return end
+    DetachEntity(d.obj, true, false)
+    PlaceObjectOnGroundProperly(d.obj)
+    FreezeEntityPosition(d.obj, true)
+    local p = GetEntityCoords(d.obj)
+    TriggerServerEvent('c3r:callout:dragged', clue_call, d.key, not IsPointOnRoad(p.x, p.y, p.z, 0), p)
+end
+
+local function grab(cl)
+    local obj = cl.glow and NetworkDoesNetworkIdExist(cl.glow) and NetToObj(cl.glow) or 0
+    if not DoesEntityExist(obj) then return end
+    NetworkRequestControlOfEntity(obj)
+    local deadline = GetGameTimer() + 1000
+    while not NetworkHasControlOfEntity(obj) and GetGameTimer() < deadline do Wait(0) end
+    if not NetworkHasControlOfEntity(obj) then return end
+    local me = PlayerPedId()
+    FreezeEntityPosition(obj, false)
+    AttachEntityToEntity(obj, me, 0, 0.0, 1.1, -0.85, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
+    if with_dict('anim@heists@box_carry@') then TaskPlayAnim(me, 'anim@heists@box_carry@', 'idle', 4.0, -4.0, -1, 49, 0.0, false, false, false) end -- UNVERIFIED anim
+    dragging = { key = cl.key, obj = obj }
+    CreateThread(function()
+        while dragging do
+            DisableControlAction(0, 21, true) -- (no running with it)
+            local ped = PlayerPedId()
+            if IsPedInAnyVehicle(ped, false) or IsEntityDead(ped) then let_go() end
+            Wait(0)
+        end
+    end)
+end
+
+AddEventHandler('c3r:callout:ended', function()
+    let_go()
+    clues, clue_call, looked = {}, nil, {}
+end)
 
 -- Where it is: the person or car it's on, its prop (which may have rolled a little as it landed), or its point.
 local function clue_pos(cl)
@@ -368,7 +617,7 @@ local function nearest_clue()
     if not call or IsPedInAnyVehicle(me, false) then return nil end
     local here, best, best_d = GetEntityCoords(me), nil, math.huge
     for _, cl in ipairs(clues) do
-        local at = clue_pos(cl)
+        local at = (cl.drag or not looked[cl.key]) and clue_pos(cl) -- (seen: it's on the MDT, and E is for whoever's beside it now)
         local d = at and #(at - here)
         if d and d < (cl.range or 1.6) and d < best_d then best, best_d = cl, d end
     end
@@ -376,9 +625,24 @@ local function nearest_clue()
 end
 
 -- E (client/menu.lua asks first): evidence beside you is looked at before anyone's talked to.
+-- The call's spot, if I'm on one and within m metres: backup that works on the scene goes there, not to whoever I'm with.
+function CallSpot(m)
+    if not call then return nil end
+    local at = vector3(call.coords.x, call.coords.y, call.coords.z)
+    return #(GetEntityCoords(PlayerPedId()) - at) < m and at or nil
+end
+
 function CalloutInspect()
+    if dragging then
+        let_go()
+        return true
+    end
     local cl = nearest_clue()
     if not cl then return false end
+    if cl.drag and looked[cl.key] then
+        CreateThread(function() grab(cl) end)
+        return true
+    end
     TriggerServerEvent('c3r:callout:inspect', clue_call, cl.key)
     return true
 end
@@ -421,12 +685,38 @@ CreateThread(function()
         if call and clues[1] then cl = nearest_clue() end
         if cl then
             BeginTextCommandDisplayHelp('STRING')
-            AddTextComponentSubstringPlayerName('~INPUT_CONTEXT~ Inspect: ' .. cl.label)
+            AddTextComponentSubstringPlayerName(('~INPUT_CONTEXT~ %s: %s'):format(cl.drag and looked[cl.key] and 'Drag' or 'Inspect', cl.label))
             EndTextCommandDisplayHelp(0, false, false, -1)
             Wait(0)
         else
             Wait(call and clues[1] and 250 or 1000)
         end
+    end
+end)
+
+-- spikes: any car here driven through it loses its tyres (the officer's too, and traffic, on whichever game drives it).
+-- Not backup's own trucks.
+local WHEELS = { 0, 1, 4, 5 }
+CreateThread(function()
+    while true do
+        local close = false
+        if call and clues[1] then
+            local me = GetEntityCoords(PlayerPedId())
+            for _, cl in ipairs(clues) do
+                local at = cl.spikes and cl.at and vector3(cl.at.x, cl.at.y, cl.at.z)
+                if at and #(me - at) < 150.0 then
+                    close = true
+                    for _, v in ipairs(GetGamePool('CVehicle')) do
+                        if #(GetEntityCoords(v) - at) < cl.spikes and GetEntitySpeed(v) > 1.0 and NetworkHasControlOfEntity(v) and not IsBackup(v) then
+                            for _, w in ipairs(WHEELS) do
+                                if not IsVehicleTyreBurst(v, w, false) then SetVehicleTyreBurst(v, w, false, 1000.0) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        Wait(close and 150 or 1500)
     end
 end)
 
@@ -470,7 +760,7 @@ local function show_point()
     local pt = placing.points[placing.i]
     Prompt('place', 'info', ('%s %d/%d: %s'):format(placing.name, placing.i, #placing.points, pt[1]),
         pt[2] .. (pt[3] == 'car' and ' Sit in the car, then E.' or ' Stand there, facing their way, then E.')
-        .. ' Backspace: back. X: cancel.')
+        .. (pt[4] and ' Z: skip, not at this location.' or '') .. ' Backspace: back. X: cancel.')
 end
 
 local function where(at)
@@ -495,7 +785,7 @@ RegisterNetEvent('c3r:place:start', function(d)
     show_point()
     CreateThread(function()
         while placing and placing.i <= #placing.points do
-            for _, c in ipairs({ 38, 73, 177 }) do DisableControlAction(0, c, true) end -- (E, X, Backspace are the placer's)
+            for _, c in ipairs({ 20, 38, 73, 177 }) do DisableControlAction(0, c, true) end -- (Z, E, X, Backspace are the placer's)
             local me = PlayerPedId()
             if IsDisabledControlJustPressed(0, 38) then
                 local pt = placing.points[placing.i]
@@ -512,6 +802,13 @@ RegisterNetEvent('c3r:place:start', function(d)
                     CreateThread(function() local g = ghost(pt[3], p) if g and placing then placing.ghosts[pt[1]] = g elseif g then DeleteEntity(g) end end)
                     placing.i = placing.i + 1
                     if placing.i > #placing.points then finish_placing() else show_point() end
+                end
+            elseif IsDisabledControlJustPressed(0, 20) then
+                if placing.points[placing.i][4] then
+                    placing.i = placing.i + 1
+                    if placing.i > #placing.points then finish_placing() else show_point() end
+                else
+                    Prompt('place_warn', 'info', 'Needed', 'This one can\'t be skipped.', 3000)
                 end
             elseif IsDisabledControlJustPressed(0, 177) and placing.i > 1 then
                 placing.i = placing.i - 1

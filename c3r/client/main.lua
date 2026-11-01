@@ -119,8 +119,33 @@ AddEventHandler('onResourceStop', function(res)
     if res == GetCurrentResourceName() then close_duty() close_cfg() end
 end)
 
+-- Going on duty: a boom, a small shake, a white wall sweeping out from where you stand: 250 m in 2.8 s, floor to sky (the
+-- marker starts 200 m underground so its bottom never shows), then gone; and the welcome screen over the game, blurred
+-- for as long as it's up. Only on your own game.
+local SHIFT_MS = 2600
+local function duty_fx()
+    local pos = GetEntityCoords(PlayerPedId())
+    SendNUIMessage({ type = 'sfx', name = 'duty' })
+    SendNUIMessage({ type = 'shift', ms = SHIFT_MS })
+    ShakeGameplayCam('EXPLOSION_SHAKE', 0.15)
+    TriggerScreenblurFadeIn(300.0)
+    SetTimeout(SHIFT_MS, function() TriggerScreenblurFadeOut(350.0) end)
+    CreateThread(function()
+        local duration, radius = 2800, 250.0
+        local started = GetGameTimer()
+        while GetGameTimer() - started < duration do
+            local t = (GetGameTimer() - started) / duration
+            local size = radius * t * 2
+            DrawMarker(1, pos.x, pos.y, pos.z - 200.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, size, size, 1000.0,
+                255, 255, 255, math.floor(200 * (1.0 - t)), false, false, 2, false, nil, nil, false)
+            Wait(0)
+        end
+    end)
+end
+
 AddStateBagChangeHandler('c3rDuty', ('player:%d'):format(GetPlayerServerId(PlayerId())), function(_, _, on)
     Notify(on and '~b~C~w~3~r~R~s~ You are ~g~on duty~s~.' or '~b~C~w~3~r~R~s~ You are ~r~off duty~s~.')
+    if on then duty_fx() end
 end)
 
 RegisterNetEvent('c3r:dutyResult', function(ok, reason)

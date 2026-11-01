@@ -13,8 +13,8 @@ function Prompt(id, kind, title, text, ms)
     SendNUIMessage({ type = 'prompt', id = id, kind = kind, title = title, text = text, ms = ms })
 end
 
--- The PA key, as lwk_control has it bound ('B' when lwk_control isn't running).
-function PaKeyName() return KeyName('+lwk_control_pa', 'B') end
+-- The PA key, as lwk_control has it bound ('N' when lwk_control isn't running).
+function PaKeyName() return KeyName('+lwk_control_pa', 'N') end
 
 -- An officer's line out loud (server/stops.lua voice()): from = their server id, quieter with distance from them.
 RegisterNetEvent('c3r:voice', function(key, from, range)

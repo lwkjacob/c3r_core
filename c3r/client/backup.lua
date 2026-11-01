@@ -148,11 +148,11 @@ end
 -- ─── a unit's life ────────────────────────────────────────────────────────────
 
 local BLIP_COLOUR = { police = 38, cover = 38, pursuit = 38, air = 38, ambulance = 1, fire = 1, coroner = 0, mechanic = 47,
-                      roadservice = 47, animalrescue = 2, taxi = 5 }
+                      roadservice = 47, animalrescue = 2, taxi = 5, dot = 47 }
 
 local LABEL = { police = 'Prisoner transport', ambulance = 'Ambulance', fire = 'Fire department', coroner = 'Coroner',
                 mechanic = 'Mechanic', roadservice = 'Road service', animalrescue = 'Animal control', taxi = 'Taxi',
-                cover = 'Cover unit', pursuit = 'Pursuit unit', air = 'Air unit' }
+                cover = 'Cover unit', pursuit = 'Pursuit unit', air = 'Air unit', dot = 'DOT crew' }
 
 -- How a unit looks, from its config (all optional): livery, paint, extras on the vehicle; outfit and props on the
 -- crew. (SET_VEHICLE_EXTRA's last argument is "disable": true turns the extra off.)
@@ -328,7 +328,8 @@ end
 local function stop_ped(p)
     for _, o in pairs(Stop and Stop.occ or {}) do if o.ped == p then return o end end
 end
-local casualty = function(p) return IsCasualty(p) end -- (a callout's: the server marks them; client/medical.lua)
+-- (a callout's: the server marks them, client/medical.lua; or someone unhurt going with the ambulance: c:patient)
+local casualty = function(p) return IsCasualty(p) or (NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_patient == true) end
 local function ours(p) return stop_ped(p) ~= nil or Patients[p] ~= nil or casualty(p) or not IsEntityAMissionEntity(p) end
 local function human(p) local h = IsPedHuman(p) return h == true or h == 1 end
 local function peds_near(at, r, keep)
@@ -448,12 +449,14 @@ function JOB.ambulance(u, at)
         end
         Wait(was_dead and 10000 or 8000)
         for _, medic in ipairs(u.crew) do ClearPedTasks(medic) end
+        if IsEntityDead(p) and not (Patients[p] and Patients[p].revived) then was_dead = true end -- (gone while they worked)
         -- paramedics bring back Config.Medical.paramedic_revive of the dead; then they're a patient like any downed
         if was_dead and alive(u) and math.random() < (Config.Medical.paramedic_revive or 0) and control(p) and RevivePed(p) then
             was_dead, revived = false, revived + 1
         end
         if was_dead then
             pronounced = pronounced + 1
+            if casualty(p) then TriggerServerEvent('c3r:callout:aid', PedToNet(p), 'pronounced') end -- (a callout's: the call hears it)
         elseif DoesEntityExist(p) and (p == me() or control(p)) then
             local seat = p ~= me() and downed(p) and free_seat(u.veh)
             if p ~= me() and casualty(p) then -- (a callout's: the call hears it, before they're moved)
@@ -511,7 +514,10 @@ local function remove_dead(u, at, kind, want_human)
         end
     end
     if removed > 0 then note('removed', kind, removed) end
-    if #dead == 0 then Wait(4000) end
+    if #dead == 0 then
+        say(LABEL[kind] .. ': nothing here for us.')
+        Wait(4000)
+    end
 end
 function JOB.coroner(u, at) remove_dead(u, at, 'coroner', true) end
 function JOB.animalrescue(u, at) remove_dead(u, at, 'animalrescue', false) end
@@ -532,6 +538,20 @@ function JOB.fire(u, at)
         if #(GetEntityCoords(p) - at) < 30.0 and IsEntityOnFire(p) then StopEntityFire(p) end
     end
     Wait(4000)
+end
+
+-- DOT: out of the truck, a sweep of the road, and the call hears it's clean.
+function JOB.dot(u, at)
+    for _, p in ipairs(u.crew) do TaskLeaveVehicle(p, u.veh, 0) end
+    Wait(2500)
+    for _, p in ipairs(u.crew) do TaskGoStraightToCoord(p, at.x, at.y, at.z, 1.5, 12000, 0.0, 3.0) end
+    Wait(7000)
+    if not alive(u) then return end
+    for _, p in ipairs(u.crew) do TaskStartScenarioInPlace(p, 'WORLD_HUMAN_JANITOR', 0, true) end -- UNVERIFIED scenario
+    Wait(14000)
+    if not alive(u) then return end
+    for _, p in ipairs(u.crew) do ClearPedTasks(p) end
+    TriggerServerEvent('c3r:callout:service', 'dot', at)
 end
 
 -- Mechanic / road service: the officer's own car, within 40 m.
@@ -565,8 +585,16 @@ function JOB.mechanic(u)
 end
 JOB.roadservice = JOB.mechanic
 
--- Taxi: stop occupants left without a ride (their car towed, the driver arrested, gone or run off).
-local function stranded()
+-- Taxi: stop occupants left without a ride (their car towed, the driver arrested, gone or run off), or someone on a call
+-- waiting for one (c:fare).
+local function stranded(at)
+    local fares = {}
+    for _, p in ipairs(peds_near(at or pos(), 40.0, function(p)
+        return NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_taxi == true and not IsEntityDead(p) and not IsPedCuffed(p) and not IsPedInAnyVehicle(p, false)
+    end)) do
+        fares[#fares + 1] = { ped = p, net = PedToNet(p) }
+    end
+    if fares[1] then return fares end
     local s = Stop
     if not s or s.foot then return {} end
     local d = s.occ[s.ped_net]
@@ -582,10 +610,10 @@ local function stranded()
     return list
 end
 function CHECK.taxi() if #stranded() == 0 then return 'nobody_to_collect' end end
-function JOB.taxi(u)
+function JOB.taxi(u, at)
     local seat, max, s = 0, GetVehicleMaxNumberOfPassengers(u.veh), Stop
     u.carried = {}
-    local list = stranded()
+    local list = stranded(at)
     if #list == 0 then return say('Taxi: nobody waiting for a ride.') end
     for _, o in ipairs(list) do
         while seat < max and not IsVehicleSeatFree(u.veh, seat) do seat = seat + 1 end
@@ -593,7 +621,7 @@ function JOB.taxi(u)
         if control(o.ped) then
             o.leaving, o.anchor, o.task, o.following = true, nil, {}, false
             if o.felony then DropFelonyPose(o) end
-            take_from_stop(o.net, s) -- the stop's loops, menus and its end (walk off / let go) leave them be now
+            if s and s.occ[o.net] then take_from_stop(o.net, s) end -- the stop's loops, menus and its end (walk off / let go) leave them be now
             spawned[o.ped] = true
             TagBackup(o.ped)
             ClearPedTasks(o.ped)
@@ -607,6 +635,9 @@ function JOB.taxi(u)
         return true
     end)
     report()
+    local aboard = false
+    for _, p in ipairs(u.carried) do aboard = aboard or (DoesEntityExist(p) and IsPedInVehicle(p, u.veh, false)) end
+    if aboard then TriggerServerEvent('c3r:callout:service', 'taxi', GetEntityCoords(u.veh)) end
 end
 
 -- Cover: parks behind the officer's car, lights on, siren muted; one officer stands by.
@@ -649,7 +680,7 @@ exports('towTarget', function() return (tow_target()) end)
 -- ─── requests (the contract) ──────────────────────────────────────────────────
 
 local KINDS = { police = true, ambulance = true, fire = true, coroner = true, mechanic = true, roadservice = true,
-                animalrescue = true, taxi = true, cover = true, tow = true }
+                animalrescue = true, taxi = true, cover = true, tow = true, dot = true }
 
 local function on_duty() return LocalPlayer.state.c3rDuty == true and not IsEntityDead(me()) end
 
@@ -691,6 +722,7 @@ local function request(kind)
     local why = CHECK[kind] and CHECK[kind]()
     if why then return false, why end
     local at = scene()
+    if kind == 'dot' or kind == 'animalrescue' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
     local node, h = spawn_point(at)
     if not node then return false, 'no_route' end
     local started_on = Stop

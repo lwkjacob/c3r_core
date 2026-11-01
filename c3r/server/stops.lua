@@ -364,6 +364,15 @@ end
 
 -- That officer's menu, brought up to date (a callout opened a question from somewhere else).
 function StopQuestions(src) local s = Stops[src] if s then send_questions(s) end end
+-- A callout took someone back mid-conversation: they've turned on the officer, or dropped where they stand. Over for
+-- every officer on it (walking off alone hands it to the next one).
+function EndContact(src)
+    local s = Stops[src]
+    if not s then return end
+    local main = s.main or s
+    for u in pairs(main.units or {}) do leave(u) end
+    finish(main.src, 'cancelled')
+end
 
 -- Another unit's stop (s), joined by walking up to someone on it: the same people, the same conversation; what this
 -- officer does to someone hands that person to their game. contact = the ped net they walked up to.
@@ -394,11 +403,26 @@ local function stop_of(net)
     for _, s in pairs(Stops) do if not s.main and s.occ[net] and not s.occ[net].released then return s end end
 end
 
+-- Orders shouted at someone on foot: [action] = { what's said, their answer, their task }
+local SHOUTS = {
+    handsup = { 'Let me see your hands!', 'handsup', 'handsup' },
+    kneel = { 'Get down on your knees! Cross your ankles!', 'fel_kneel', 'fel_kneel' },
+    turn = { 'Turn around! Face away from me!', 'fel_turn', 'fel_turn' },
+}
+
 -- Someone on foot the officer walked up to: their own person and story (a pedestrian's, like a passenger's),
--- and the same menu, less what's about a car. p = { net, male }.
+-- and the same menu, less what's about a car. p = { net, male, pa? }: pa = one of SHOUTS, over the PA at someone they've
+-- got a gun on: from Config.PaRange, and they do that instead of the menu opening.
 local function start_foot(src, p)
     local ped = type(p) == 'table' and entity(p.net) or 0
-    if ped == 0 or IsPedAPlayer(ped) or GetVehiclePedIsIn(ped, false) ~= 0 or dist(src, ped) > TALK_RANGE then return end
+    local shout = type(p) == 'table' and SHOUTS[p.pa] or nil
+    local order = shout and shout[3]
+    local function told(s, o) -- (from a distance: the officer's game has them do it)
+        if not order then return end
+        say(s, shout[1], 'officer')
+        say(s, Dialogue.answer(shout[2], o), o)
+    end
+    if ped == 0 or IsPedAPlayer(ped) or GetVehiclePedIsIn(ped, false) ~= 0 or dist(src, ped) > (order and Config.PaRange or TALK_RANGE) then return end
     local key = 'ped:' .. p.net
     -- already someone's: another unit talking to them on foot, or one of the people on their stop: join it
     local theirs = (ByVehicle[key] and Stops[ByVehicle[key]]) or stop_of(p.net)
@@ -406,13 +430,20 @@ local function start_foot(src, p)
     if ByVehicle[key] then return refuse(src, 'Another unit is already talking to them.') end -- (being made up still)
     local co = Callouts.person(p.net)
     if co then -- someone in a callout: who they are and what they know is the call's (and carries on between officers)
+        if co.fighting then
+            Callouts.hail(co, src) -- (told to drop it: the call decides)
+            if co.fighting and not order then refuse(src, co.task and co.task.name == 'brawl' and "They're not listening." or "They're shooting at you.") end
+            return
+        end
         local o = co.o
+        o.role, o.seat, o.vehicle = 'pedestrian', nil, nil -- (they may have been pulled over first)
         local s = { src = src, key = key, occ = { [p.net] = o }, driver = o, car_items = {}, foot = true, callout = co.inc }
         ByVehicle[key], Stops[src] = src, s
         TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(o.truth),
-            callout = true, cuffed = o.cuffed == true } }, { foot = true, contact = p.net },
+            callout = true, cuffed = o.cuffed == true } }, { foot = true, contact = p.net, order = order },
             { Dialogue.CALL, table.unpack(Dialogue.CATEGORIES) })
         Callouts.contact(s, co)
+        told(s, o)
         send_questions(s)
         return log('callout contact by %d: %s', src, co.key)
     end
@@ -437,7 +468,8 @@ local function start_foot(src, p)
     if not known and p.cuffed ~= true then Stats.add(src, 'contacts') end
     TriggerEvent('c3r:stopStarted', src, nil, nil)
     TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(g.truth), cuffed = o.cuffed } },
-        { foot = true, contact = p.net }, Dialogue.CATEGORIES)
+        { foot = true, contact = p.net, order = order }, Dialogue.CATEGORIES)
+    told(s, o)
     send_questions(s)
     if not known then CreateThread(function() meet_all(src, { { p.net, o, p.look } }) end) end
     log('contact by %d on foot: %s %s (%s)', src, g.person.first, g.person.last, g.truth.secret)
@@ -452,9 +484,14 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     local src = source
     local function no(why) log('stop by %d refused: %s', src, why) end
     if not IsOnDuty(src) then return no('off duty') end
-    if Stops[src] then return no('already on a stop') end
     opts = type(opts) == 'table' and opts or {}
-    if opts.foot then return start_foot(src, type(people) == 'table' and people[1]) end
+    local who = opts.foot and type(people) == 'table' and people[1]
+    -- (the PA with a gun on someone else: whoever they were talking to on foot is left, and it's this person now)
+    if type(who) == 'table' and SHOUTS[who.pa] and Stops[src] and Stops[src].foot and not Stops[src].occ[who.net] then
+        finish(src, 'cancelled')
+    end
+    if Stops[src] then return no('already on a stop') end
+    if opts.foot then return start_foot(src, who) end
     local veh = entity(veh_net)
     if veh == 0 then return no(('car not known to the server (net %s)'):format(tostring(veh_net))) end
     if ByVehicle[veh_net] then -- another unit's stop: join it (walked up to the car, or to someone in it)
@@ -479,6 +516,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     end
     local empty = opts.empty == true and count == 0
     if not seats[-1] and not empty then return no('no driver') end
+    local co = seats[-1] and Callouts.person(seats[-1].net) -- (someone on a call at the wheel: them, not someone made up)
 
     local plate = str(GetVehicleNumberPlateText(veh), 8)
     plate = plate and plate:upper():gsub('%s+', '')
@@ -492,6 +530,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     local parked = opts.parked == true or empty
 
     local ok, gen = pcall(function()
+        if co then return { driver = { person = co.o.person, truth = co.o.truth, items = co.o.items, vehicle = Db.findVehicle(plate) }, passengers = {} } end
         -- the same car again soon: the same people, and anyone new who's got in since is made up. Empty: its
         -- owner (or whoever last drove it), for what they left in it.
         local r = Recent[plate]
@@ -527,7 +566,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
 
     local vehicle = gen.driver.vehicle
     local s = { src = src, key = veh_net, veh_net = veh_net, plate = plate, vehicle = vehicle, occ = {}, car_items = {},
-                parked = parked or nil, empty = empty or nil }
+                parked = parked or nil, empty = empty or nil, callout = co and co.inc or nil }
     local absent = empty and { facts = {} } or nil -- whoever left their things in an empty car: what's theirs is still evidence
     if empty then
         for _, item in ipairs(gen.driver.items) do s.car_items[#s.car_items + 1] = { name = item, owner = absent } end
@@ -536,16 +575,22 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     for seat, p in pairs(seats) do
         local g = seat == -1 and gen.driver or gen.passengers[seat]
         if g then
-            local o = { net = p.net, seat = seat, role = seat == -1 and 'driver' or 'passenger', person = g.person,
+            local mine = co and seat == -1 -- (their own record: what they've said stays said, and what's on them on them)
+            local o = mine and co.o or { net = p.net, seat = seat, role = seat == -1 and 'driver' or 'passenger', person = g.person,
                         truth = g.truth, items = g.items, vehicle = vehicle, answers = {}, facts = {} }
             s.occ[p.net] = o
             if seat == -1 then s.driver = o end
-            local on, car = Generator.stash(g.items)
-            o.pockets = Generator.some(Data.pockets, math.random(1, 3))
-            for _, item in ipairs(on) do table.insert(o.pockets, 1, item) end
-            for _, item in ipairs(car) do s.car_items[#s.car_items + 1] = { name = item, owner = o } end
+            if mine then
+                o.seat, o.role, o.vehicle = seat, 'driver', vehicle
+                o.out_srv, o.froze, o.refused = nil, nil, nil -- (sat at the wheel now, whatever an earlier stop did)
+            else
+                local on, car = Generator.stash(g.items)
+                o.pockets = Generator.some(Data.pockets, math.random(1, 3))
+                for _, item in ipairs(on) do table.insert(o.pockets, 1, item) end
+                for _, item in ipairs(car) do s.car_items[#s.car_items + 1] = { name = item, owner = o } end
+            end
             BindSubject(p.net, g.person, vehicle, g.items, g.truth)
-            list[#list + 1] = { net = p.net, seat = seat, role = o.role, look = look(g.truth) }
+            list[#list + 1] = { net = p.net, seat = seat, role = o.role, look = look(g.truth), callout = mine or nil }
         end
     end
     for _, item in ipairs(Generator.some(Data.car, math.random(1, 3))) do s.car_items[#s.car_items + 1] = { name = item } end
@@ -554,21 +599,25 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     end
     Stops[src] = s
     -- something to hide: they may run instead of pulling over
-    s.pursuit = not parked and chance(Config.Flee.car, gen.driver.truth.secret) or nil
+    s.pursuit = not parked and ((co and co.spec.runs == true) or (not co and chance(Config.Flee.car, gen.driver.truth.secret))) or nil
     -- who's driving isn't known until they're identified (ID or name): see identify()
     if empty then
         TriggerEvent('c3r:vehicleContact', src, vehicle) -- nobody to stop: a car looked at
-    else
+    elseif not co then -- (the call's: it's on the call's incident)
         Stats.add(src, 'stops')
         TriggerEvent(s.pursuit and 'c3r:pursuitStarted' or 'c3r:stopStarted', src, nil, vehicle)
+    elseif s.pursuit then -- (no stop on the MDT, but a chase is a chase)
+        TriggerEvent('c3r:pursuitStarted', src, nil, vehicle)
     end
     -- only what changes how they drive: the truth itself stays on the server
     TriggerClientEvent('c3r:stop:started', src, veh_net, list, { slow = gen.driver.truth.secret == 'drunk',
-        flee = s.pursuit, bail = s.pursuit and math.random() < Config.Flee.bail,
+        flee = s.pursuit, bail = s.pursuit and math.random() < (co and co.spec.bail or Config.Flee.bail),
         parked = parked or nil, empty = empty or nil,
         contact = parked and math.type(opts.contact) == 'integer' and s.occ[opts.contact] and opts.contact or nil },
-        Dialogue.CATEGORIES)
+        co and { Dialogue.CALL, table.unpack(Dialogue.CATEGORIES) } or Dialogue.CATEGORIES)
+    if co then Callouts.contact(s, co) end
     send_questions(s)
+    if co then return log('callout contact by %d, in a car: %s', src, co.key) end
     local faces = {}
     for net, o in pairs(s.occ) do faces[#faces + 1] = { net, o, seats[o.seat] and seats[o.seat].look } end
     CreateThread(function() meet_all(src, faces) end)
@@ -647,7 +696,7 @@ function ACT.drugs(s, o)
                 if not found and item:lower():find(d[1], 1, true) then found = d[2] end
             end
         end
-        found = found or 'THC'
+        found = found or o.swab or 'THC' -- (swab: a callout says what's really in them)
     end
     result(s, 'Drug swab', found and ('Positive · ' .. found) or 'Negative', found ~= nil)
     note(s, ('Drug swab, %s: %s'):format(label(o), found and ('positive for ' .. found) or 'negative'))
@@ -692,7 +741,7 @@ local back_in = order('Go ahead and get back in the vehicle.', 'back', 'back')
 function ACT.back(s, o) o.out_srv = false back_in(s, o) end
 ACT.follow = order('Come with me, please. Walk this way.', 'follow', 'follow')
 ACT.stay = order('Stay right there.', 'back', 'stay')
-ACT.handsup = order('Let me see your hands!', 'handsup', 'handsup')
+for action, t in pairs(SHOUTS) do ACT[action] = order(t[1], t[2], t[3]) end
 
 -- A ticket or a warning is written down, but they stay until told they're free to go; the stop then ends
 -- with the strongest of what they got (cited over warning over released).
@@ -905,7 +954,7 @@ local CAR_ACTS = { search_car = true, tow = true, felony = true } -- done at the
 local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true,
                search_car = true, tow = true, felony = true }
 -- Shouted (the PA, or a felony stop's orders): heard from Config.PaRange. Everything else is said face to face.
-local SHOUTED = { exit = true, back = true, handsup = true, stay = true, felony = true, fel_out = true, fel_back = true, fel_kneel = true }
+local SHOUTED = { exit = true, back = true, handsup = true, kneel = true, turn = true, stay = true, felony = true, fel_out = true, fel_back = true, fel_kneel = true }
 local FELONY_ONLY = { felony = true, fel_out = true, fel_back = true, fel_kneel = true }
 
 -- target = the occupant's ped net id (the driver when missing)
@@ -1044,7 +1093,7 @@ end)
 
 local BACKUP_LABEL = { ambulance = 'ambulance', police = 'prisoner transport', tow = 'tow truck', coroner = 'coroner',
                        fire = 'fire department', mechanic = 'mechanic', roadservice = 'road service',
-                       animalrescue = 'animal control', taxi = 'taxi', cover = 'cover unit',
+                       animalrescue = 'animal control', taxi = 'taxi', cover = 'cover unit', dot = 'DOT crew',
                        light = 'pursuit units', medium = 'pursuit units', heavy = 'pursuit units', air = 'air unit' }
 local BackupNoteAt, BackupNets = {}, {}
 

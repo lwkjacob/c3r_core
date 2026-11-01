@@ -3,10 +3,10 @@
 
     The clerk calls it in: someone's robbed the store and run. What really happened is one of three stories, and the
     card, the people on scene and the questions are the same for all of them: the clerk, a witness outside and the CCTV
-    first (three units can take one each), then the area they went, where there's a young man.
+    first (three units can take one each), then the area they went.
       robbery    a man with a knife and a bandana over his face took the till; he's hiding nearby with the cash
       inside     the clerk staged it to cover a debt: the recording has a gap, nobody came out of the store, and the till
-                 money is on him. The man out there had nothing to do with it: he's been on the phone for half an hour
+                 money is on him. There's nobody out there to find
       shoplift   a teenager walked out with a couple of beers and some chips; the clerk called it a robbery
     It's dealt with when everyone arrested has been taken in, the one it's about is let go or gets away, or the clerk's
     been heard and every unit has left (nobody still talking to anyone).
@@ -131,18 +131,6 @@ local function resolve(c, culprit, ends)
     end)
 end
 
--- A man in the area who's nothing to do with it: dressed like the description, with his phone as his alibi.
-local function bystander(c, key, at)
-    c:person(key, { at = at, label = 'Man', male = true, model = LOOK, age = { 19, 28 }, secret = 'clean', demeanor = 'polite',
-        scene = 'WORLD_HUMAN_STAND_MOBILE', questions = FOUND_Q, items = {},
-        pockets = { 'Phone: a call to "Mel", 34 minutes, still connected' }, lines = {
-            c_where = { { "Right here. I've been on the phone to my girlfriend the whole time. Half an hour, at least.", set = { c_alibi = 'phone' } } },
-            c_store = { "The store? No. Look, she's still on the line. Thirty-four minutes. Ask her." },
-            c_proof = { "Her. Mel. She's on the phone right now, here, talk to her. She'll tell you she hasn't let me get a word in." },
-            where = { "Nowhere. Just standing here on the phone." },
-        } })
-end
-
 local function clerk_lines(lines)
     lines.where = lines.where or { "Here. Behind this counter. All night." }
     return lines
@@ -151,6 +139,7 @@ end
 Callout({
     id = 'robbery',
     name = 'Store robbery',
+    voice = 'call_robbery', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
     weight = 1,
     reports = {
@@ -162,9 +151,9 @@ Callout({
     -- call is (units are on scene within Config.Callouts.arrive m of it).
     points = {
         { 'clerk', 'The clerk, behind the counter.' },
-        { 'cctv', 'The CCTV screen behind the counter: what the officer looks at.' },
-        { 'witness', 'A witness outside, on the pavement in front of the store.' },
-        { 'dropped', 'Something dropped on the way: on the ground between the store and where they hide.' },
+        { 'cctv', 'The CCTV screen behind the counter: what the officer looks at.', optional = true },
+        { 'witness', 'A witness outside, on the pavement in front of the store.', optional = true },
+        { 'dropped', 'Something dropped on the way: on the ground between the store and where they hide.', optional = true },
         { 'suspect', 'Where the one they are after hides: an alley or behind a building, a street or two away.' },
     },
     -- Add more with /c3rplace robbery in game (it writes them here). This one is a rough placeholder.
@@ -305,7 +294,6 @@ Callout({
                     c_way = { { "Nobody went anywhere. The clerk came out, looked up and down the street, and went back in. Then you lot turned up.", set = { c_nobody = 'yes' } } },
                     c_look = { "Who? There wasn't anyone." },
                 } })
-                bystander(c, 'suspect', 'suspect') -- (someone out there all the same: nothing to do with it)
                 c:clue('cctv', { at = 'cctv', label = 'CCTV',
                     text = 'The recording stops for nineteen minutes, just before the call. The last thing on it: the clerk, reaching up under the counter towards the recorder.' })
                 c:clue('dropped', { at = 'dropped', label = 'Something dropped', prop = 'ng_proc_sodacan_01a',
@@ -313,6 +301,7 @@ Callout({
                 card(c)
                 wire(c)
                 c:on('inspect', function(clue)
+                    if clue == 'dropped' then c:done('search') end -- (only litter, and nobody out there to find)
                     if clue == 'cctv' then
                         c:who('clerk').facts.c_gap = true -- (now there's something to ask him)
                         c:questions('clerk')
@@ -325,7 +314,8 @@ Callout({
                         if c:is_done('cctv') then on[#on + 1] = 'the gap in the CCTV' end
                         if c:who('clerk').facts.found then on[#on + 1] = 'the till money in his jacket' end
                         if c:who('clerk').facts.c_admit then on[#on + 1] = 'his admission' end
-                        if c:who('witness').facts.c_nobody then on[#on + 1] = 'the witness: nobody came out' end
+                        local witness = c:who('witness') -- (not every store has one)
+                        if witness and witness.facts.c_nobody then on[#on + 1] = 'the witness: nobody came out' end
                         return ('Staged robbery: the clerk, %s, arrested.'):format(k) .. (on[1] and (' Recorded: ' .. table.concat(on, ', ') .. '.') or '')
                     elseif out.clerk == 'cited' or out.clerk == 'warning' or out.clerk == 'released' then
                         return ('Staged robbery: the clerk, %s, %s.'):format(k,

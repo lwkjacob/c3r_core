@@ -259,9 +259,10 @@ function ReadLook(ped)
 end
 
 -- Walking up to anyone (menu.lua's E with no stop on): someone sitting in a car that's standing still is a stop
--- of that car where it is; someone on foot is a stop of just them.
-function RequestContact(ped)
-    if Stop or asking or not DoesEntityExist(ped) then return end
+-- of that car where it is; someone on foot is a stop of just them. pa: an order shouted from a distance, gun on them
+-- (client/pa.lua): they do that, and no menu.
+function RequestContact(ped, pa)
+    if not DoesEntityExist(ped) or (not pa and (Stop or asking)) then return end
     local veh = GetVehiclePedIsIn(ped, false)
     if veh ~= 0 then
         if GetPedInVehicleSeat(veh, -1) == 0 or IsPedAPlayer(GetPedInVehicleSeat(veh, -1)) or GetEntitySpeed(veh) > 1.0 then return end
@@ -272,7 +273,7 @@ function RequestContact(ped)
         if not NetworkGetEntityIsNetworked(ped) then NetworkRegisterEntityAsNetworked(ped) end
         if wait_until(1500, function() return NetworkGetEntityIsNetworked(ped) end) then
             TriggerServerEvent('c3r:stop:start', nil, { { net = PedToNet(ped), male = is_male(ped), look = ReadLook(ped),
-                cuffed = IsPedCuffed(ped) or nil } }, nil, { foot = true })
+                cuffed = IsPedCuffed(ped) or nil, pa = pa or nil } }, nil, { foot = true })
         end
         SetTimeout(4000, function() asking = false end)
     end)
@@ -739,7 +740,7 @@ function Casual(s)
     for _, o in pairs(s.occ) do
         -- (a callout prisoner stays cuffed where they are, or in the car: the officer can go and talk to the next person,
         -- and come back to them with E. Not while holding them by the arm.)
-        if (o.cuffed and not o.callout) or o.escorted then return false end
+        if (o.cuffed and not o.callout) or o.escorted or o.fleeing then return false end -- (running: it's a chase, not a chat)
     end
     return true
 end
@@ -783,8 +784,8 @@ local function start_foot(people, hint, categories)
     if s.assist then return Assisting(s) end
     CreateThread(function()
         if not claim(s) or Stop ~= s then return end
-        TriggerEvent('c3r:stop:task', 'stay', p.net)
-        OpenMenuFor(p.net)
+        TriggerEvent('c3r:stop:task', hint.order or 'stay', p.net) -- (order: told from a distance, they do that instead)
+        if not hint.order then OpenMenuFor(p.net) end
     end)
     CreateThread(function() watch(s) end)
     CreateThread(function() body(s) end)
@@ -1280,14 +1281,23 @@ function TASKS.fel_back(s, o, mine)
 end
 
 function TASKS.fel_kneel(s, o, mine)
-    if IsPedInAnyVehicle(o.ped, false) or not load_dict('random@arrests@busted') then return end
+    if o.felony == 'kneel' or IsPedInAnyVehicle(o.ped, false) or not load_dict('random@arrests@busted') then return end
     ClearPedTasks(o.ped)
     face_away(o.ped)
-    o.felony, o.moving = 'kneel', true
+    o.felony, o.moving, o.following = 'kneel', true, false
     TaskPlayAnim(o.ped, 'random@arrests@busted', 'enter', 4.0, -4.0, -1, 2, 0.0, false, false, false)
     Wait(math.max(500, math.floor(GetAnimDuration('random@arrests@busted', 'enter') * 1000) - 100))
     o.moving = false
     if current(s, o, mine) then pose(o, 'kneel') end
+end
+
+-- Their back to the officer, hands up (already on their knees: they stay there), held like the felony poses.
+function TASKS.fel_turn(s, o)
+    if IsPedInAnyVehicle(o.ped, false) then return end
+    o.following = false
+    if o.felony ~= 'kneel' then ClearPedTasks(o.ped) end
+    face_away(o.ped)
+    if o.felony ~= 'kneel' then pose(o, 'back') end
 end
 
 -- The server started one: no casual chat, and the engine goes off.
@@ -1670,7 +1680,7 @@ local function let_go(s)
         SetVehicleIndicatorLights(s.veh, 0, false)
         SetVehicleIndicatorLights(s.veh, 1, false)
         SetNetworkIdCanMigrate(s.veh_net, true)
-        SetEntityAsNoLongerNeeded(s.veh)
+        if not (s.occ[s.ped_net] and s.occ[s.ped_net].callout) then SetEntityAsNoLongerNeeded(s.veh) end -- (a call's car is the call's)
     end
     for net, o in pairs(s.occ) do
         if Custody[net] or o.transported or o.away then
@@ -1701,6 +1711,7 @@ local function drive_off(s)
         if not o.cuffed and not o.escaped and DoesEntityExist(o.ped) and not IsEntityDead(o.ped) then free[#free + 1] = o end
     end
     local driver = s.occ[s.ped_net]
+    if driver and driver.callout then return end -- (the call says what they do next)
     if s.towed or not DoesEntityExist(s.veh) or not driver or driver.cuffed or driver.escaped
         or not DoesEntityExist(s.ped) or IsEntityDead(s.ped) then
         for _, o in ipairs(free) do CreateThread(function() walk_off(o) end) end

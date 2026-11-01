@@ -31,6 +31,7 @@ Config.Backup = {
 --                                          (3 arms, 4 legs, 6 shoes, 8 undershirt, 9 vest, 11 jacket)
 --   props = { [0] = { 1, 0 } }             hats and glasses: prop = { drawable, texture } (0 hat, 1 glasses)
 -- e.g.  Config.Backup.units.cover.livery = 2
+Config.Backup.units.dot = { car = 'utillitruck2', crew = { 's_m_y_construct_01', 's_m_y_construct_02' } } -- road crew: sweeps debris off the road
 Config.Backup.spikes = 0.5 -- in a car chase, how often a pursuit request's first car lays a Stop Stick up ahead (needs lwk_stopstick)
 
 -- The tow truck: it comes up the road from `distance` m behind the car; stuck for `timeout_ms`, it turns up anyway.

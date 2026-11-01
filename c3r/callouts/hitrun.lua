@@ -249,6 +249,7 @@ end
 Callout({
     id = 'hitrun',
     name = 'Hit and run',
+    voice = 'call_hitrun', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
     weight = 1,
     reports = {

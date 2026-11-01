@@ -166,6 +166,7 @@ local function house(street, at, p) return { street = street, at = at, points = 
 Callout({
     id = 'domestic',
     name = 'Domestic disturbance',
+    voice = 'call_domestic', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 2,
     weight = 1,
     reports = {

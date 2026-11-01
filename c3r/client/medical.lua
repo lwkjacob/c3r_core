@@ -95,6 +95,8 @@ local function items(p)
           desc = 'Chest compressions. It sometimes brings back someone who has only just gone.' },
         { action = 'pressure', label = 'Apply pressure', icon = 'bandage', off = dead and 'No pulse' or pt.stable and 'Bleeding controlled' or nil,
           desc = 'Hold the wound so they stop bleeding out until paramedics arrive.' },
+        { action = 'narcan', label = 'Give Narcan', icon = 'medic', off = dead and 'No pulse' or nil,
+          desc = 'Reverses an opioid overdose for a while. It does nothing for anything else.' },
         BackupActive('ambulance') and { action = 'cancel_ambulance', label = 'Cancel ambulance', icon = 'medic', desc = 'Call it off.' }
             or { action = 'ambulance', label = 'Call ambulance', icon = 'medic', desc = 'Paramedics treat them and take them to hospital.' },
         BackupActive('coroner') and { action = 'cancel_coroner', label = 'Cancel coroner', icon = 'file', desc = 'Call it off.' }
@@ -201,8 +203,9 @@ function DO.vitals(p)
             fresh and 'Not breathing. Start CPR, and get paramedics on the way.' or 'Not breathing, and cold to the touch: they have been gone a while.', 9000)
     end
     local pt = Patients[p]
+    local says = NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_vitals -- (a callout's: not everyone's bleeding)
     Prompt('medical', 'info', 'Weak pulse',
-        pt and pt.stable and 'Breathing. The bleeding is under control.' or 'Breathing, but bleeding heavily. Apply pressure.', 9000)
+        says or pt and pt.stable and 'Breathing. The bleeding is under control.' or 'Breathing, but bleeding heavily. Apply pressure.', 9000)
 end
 
 function DO.cpr(p)
@@ -227,12 +230,20 @@ function DO.pressure(p)
     Prompt('medical', 'ok', 'Bleeding controlled', 'They will hold on until paramedics arrive.', 7000)
 end
 
+function DO.narcan(p)
+    if IsEntityDead(p) then return false end
+    act(p, ANIM.vitals, 4000)
+    if not DoesEntityExist(p) or IsEntityDead(p) then return false end
+    -- (an overdose on a call: the call says what it did)
+    if not (NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_vitals) then Prompt('medical', 'info', 'Narcan given', 'No change.', 6000) end
+end
+
 function DO.ambulance() CallBackup('ambulance') end
 function DO.coroner() CallBackup('coroner') end
 function DO.cancel_ambulance() CallBackup('cancel:ambulance') end
 function DO.cancel_coroner() CallBackup('cancel:coroner') end
 
-local CALL_AID = { vitals = true, pressure = true, cpr = true }
+local CALL_AID = { vitals = true, pressure = true, cpr = true, narcan = true }
 RegisterNUICallback('medical', function(d, cb)
     cb({})
     local p = target
