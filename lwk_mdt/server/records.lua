@@ -117,7 +117,7 @@ Records.findings_text = findings_text
 local SERVICES = {
     ambulance = 'Ambulance', police = 'Prisoner transport', tow = 'Tow truck', coroner = 'Coroner',
     fire = 'Fire department', mechanic = 'Mechanic', roadservice = 'Road service',
-    animalrescue = 'Animal control', taxi = 'Taxi',
+    animalrescue = 'Animal control', taxi = 'Taxi', dot = 'DOT crew',
 }
 
 local ACTIONS = {

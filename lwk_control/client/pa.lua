@@ -22,6 +22,8 @@ pa('walk_back', 'walk_back', { 'walk backwards', 'walk back', 'walk backwards to
     'walk backwards towards me', 'walk back towards me', 'back up toward my voice', 'walk toward my voice',
     'walk backwards toward my voice' })
 pa('kneel', 'kneel', { 'get on your knees', 'on your knees', 'get down on your knees', 'kneel down', 'get down' })
+pa('turn_around', 'turn_around', { 'turn around', 'turn around for me', 'turn away', 'turn your back', 'face away',
+    'face away from me', 'turn and face away' })
 pa('hands_up', 'hands_up', { 'hands up', 'show me your hands', 'let me see your hands', 'hands where i can see them',
     'put your hands up' })
 pa('back_in', 'back_in', { 'get back in the car', 'get back in your car', 'back in the vehicle', 'get back in the vehicle',

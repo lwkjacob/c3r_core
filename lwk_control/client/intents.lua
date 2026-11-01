@@ -72,6 +72,8 @@ local SERVICES = {
     { type = 'roadservice',  label = 'road service',   say = { 'road service', 'roadside assistance' } },
     { type = 'animalrescue', label = 'animal control', say = { 'animal control', 'animal rescue' } },
     { type = 'taxi',         label = 'taxi',           say = { 'taxi', 'cab' } },
+    { type = 'dot',          label = 'DOT crew',       say = { 'dot', 'd o t', 'dot crew', 'd o t crew', 'dot unit', 'department of transportation',
+                                                               'road crew', 'cleanup crew', 'clean up crew' } },
 }
 
 -- Closest vehicle within max_dist m that isn't the one you're in or an emergency vehicle (class 18).

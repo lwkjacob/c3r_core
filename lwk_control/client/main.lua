@@ -449,7 +449,7 @@ RegisterCommand('-lwk_control_pa', function()
     pa_held = false
     SendNUIMessage({ type = 'pttUp' })
 end, false)
-RegisterKeyMapping('+lwk_control_pa', 'PA: speak through the loudspeaker (lwk_control)', 'keyboard', Config.PaKey or 'b')
+RegisterKeyMapping('+lwk_control_pa', 'PA: speak through the loudspeaker (lwk_control)', 'keyboard', Config.PaKey or 'n')
 
 -- Speech to the subject: lwk_npcai owns the key and calls this on press (true) / release (false).
 -- Same mic and model, no radio animation or clicks; the transcript goes back as lwk_control:subjectSpeech.
@@ -573,6 +573,17 @@ exports('getCallsign', function() return CallsignRaw or '' end)
 exports('say', function(clips, text)
     if type(text) == 'string' then Notify('~b~DISPATCH~s~ ' .. text) end
     if type(clips) == 'table' then Speak(clips) end
+end)
+
+-- A call going out: "<key>_to" + the location of `at`, from the location's own clips. No such line, or no clips for that
+-- location: the plain line, <key>.
+exports('sayCall', function(key, at, text)
+    if type(text) == 'string' then Notify('~b~DISPATCH~s~ ' .. text) end
+    local where = Brain.location_words(LocationAt(at), PlaceClipExists)
+    if not where or not Clip(key .. '_to') then return Speak({ key }) end
+    local clips = { key .. '_to' }
+    for _, it in ipairs(where) do clips[#clips + 1] = it end
+    Speak(clips)
 end)
 
 -- Run an intent by id as if it had been said (no confirm prompt: a button press is deliberate).

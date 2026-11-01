@@ -105,6 +105,14 @@ RegisterNetEvent('lwk_control:releaseTraffic', function()
     reply(src, 'traffic_released', 'Copy, releasing traffic.')
 end)
 
+-- Is anyone holding traffic within m metres of there? (c3r's callouts ask.)
+exports('isTrafficHeld', function(at, m)
+    for _, z in pairs(Zones) do
+        if #(vector3(z.x, z.y, z.z) - vector3(at.x, at.y, at.z)) <= (m or 0.0) + z.radius and z.expires > os.time() then return true end
+    end
+    return false
+end)
+
 -- ─── units ────────────────────────────────────────────────────────────────────
 -- On-duty officers for "nearest unit" / "have Two Boy Four meet me". Each client reports its own
 -- c3r duty and callsign; positions come from the server (OneSync).

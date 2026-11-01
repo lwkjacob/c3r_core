@@ -14,7 +14,7 @@ Config.PreRollMs   = 300
 Config.MicProcessing = true
 
 Config.PttKey = 'h'
-Config.PaKey = 'b' -- hold to speak through the PA (c3r stops: "pull over", "driver, step out", a felony stop's orders)
+Config.PaKey = 'n' -- hold to speak through the PA (c3r stops: "pull over", "driver, step out", a felony stop's orders)
 
 -- Hand-to-shoulder radio animation while push-to-talk is held (other players see it).
 Config.RadioAnimation          = true
