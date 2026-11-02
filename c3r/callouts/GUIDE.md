@@ -9,12 +9,18 @@ The shipped callouts are worked examples worth reading:
 - `hitrun.lua`
 - `armed.lua`, which has armed people who draw, fire and give up
 - `stalking.lua`, which has someone who drives off from spot to spot
+- `warrant.lua`, with a real wanted person from the records, at home or at work
 - `crisis.lua`, where how the officer behaves matters more than what they find
 - `hazard.lua`, with something to drag, tyres to burst, traffic to hold and a road crew to call
 - `shots.lua`, with real bangs, a standoff that can be talked down and a shooter who runs
+- `barricade.lua`, where you contain the scene and talk someone out from cover
 - `bar.lua`, with two people fighting each other and a taxi home
 - `overdose.lua`, with a clock on someone's life
+- `welfare.lua`, where the caller is on scene and telling them too soon can be the mistake
 - `racing.lua`, with several cars running in different directions and a crowd scattering
+- `crash.lua`, with a road to clear: casualties, tow trucks, the fire department and held traffic
+- `parked.lua`, about a car: its plate, its owner and the tow truck the officer calls
+- `ems/ems_collapse.lua`, `ems/ems_fall.lua` and `ems/ems_overdose.lua`, medical calls for medics on the Ambulance service (put your own medical calls in `ems/` too)
 
 > **Back up your own callouts.** An update can replace this folder. Keep a copy of your files somewhere else, and put them back after you update.
 
@@ -42,7 +48,9 @@ Callout({
     name = 'Noise complaint',  -- on the offer and the card
     priority = 3,              -- 1 (urgent) to 3
     voice = 'call_noise',      -- optional: dispatch's line (lwk_control_assets/nui/voice/call_noise_1.ogg; call_noise_to_1.ogg leads into the location). Left out, or no such file: "Incoming 911 call."
+    alert = 'Assist request',  -- optional: the on-screen line for a planned job nobody rang in. Left out: "Incoming 911 call".
     weight = 1,                -- how often it comes up, against the other callouts
+    service = 'ambulance',     -- optional: a medic's call, offered only to medics. Left out: police.
     enabled = true,            -- false: never offered (still /requestcall-able)
     reports = {                -- what the caller said: one is picked, the same pool for every story
         'Caller reports loud music and shouting from a house party.',
@@ -152,10 +160,13 @@ c:person('host', { at = 'host', label = 'Host', male = true, home = true, secret
 | `items` | What a search finds that **matters**: it shows as evidence and sets the `found` fact. |
 | `pockets` | Everyday things a search finds that aren't evidence ('Gas station receipt'). |
 | `injured` | `true`: on the ground hurt. E beside them opens first aid, paramedics take them, and `'aid'` fires. |
-| `vitals` | What **Check vitals** says about someone `injured`, instead of the bleeding. |
+| `vitals` | What **Check vitals** says about someone `injured`, instead of the bleeding. A medic's screen shows it too. |
+| `injuries` | What a medic finds on someone `injured`: `{ { 'lleg', 'bleed' }, { 'head', 'wound' } }`. Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`. Kinds: `bleed`, `wound`, `fracture`, `airway`, `breathing`, `overdose`, `sugar`, `pulse`. |
 | `runs` | `true`: pulled over while driving (see `c:task(..., 'drive')`), they floor it and it's a chase. `bail = 0.3`: how often it ends with them on foot. |
 | `seated` | A vehicle key: they start at the wheel of it, engine running. Give them the car's point as `at`, and make the car `locked = false`. |
+| `wanted` | `true`: someone on file with an active warrant, with their own name, record and face. With `home`, they've moved there. Nobody free: a new person with a warrant. Their gender is theirs, so don't count on `male`. `warrant.lua` is the example. |
 | `weapon` | A weapon name ('WEAPON_PISTOL'): what they use when told to `aim` or `shoot`. It's not shown until then. Put it in `items` too, so a search finds it. |
+| `reach` | Metres (up to 20): E reaches them from that far, so they can be questioned from cover. Everything else (cuffs, searches, tickets) still needs an officer beside them. `barricade.lua` is the example. |
 | `scene` | What they're doing: a scenario name, or `{ dict, anim }`. |
 | `questions` | Their questions under **The call**: `{ id = 'c_...', label, needs?, press?, stress? }`. |
 | `lines` | What they say: `lines[question id] = { 'one answer', 'or another' }`. |
@@ -200,7 +211,7 @@ c:clue('car', { on = 'car', label = 'His car', hidden = true, text = 'A crack ac
 **Vehicles:**
 - The plate is made for you and is on file. Run it and it comes back registered to `owner` (a person key), or to someone else.
 - `make`, `name` and `color` are what the plate check says. `paint` is the GTA colour index.
-- `damage = 'front'` smashes the front end.
+- `damage` is what a crash did to it: `'dent'` (a small bump to the front), `'rear'`, `'side'`, `'front'` (the front end smashed in) or `'wreck'` (smashed all round, windscreen gone, bonnet sprung, engine smoking).
 
 **Clues:**
 - `scatter = { model = 'x', count = 8, radius = 4.0 }` lays more of the prop around it.
@@ -245,7 +256,7 @@ c:objective('decide', 'Deal with it: arrest, ticket or warn, or let them go', { 
 | `contact_ended` | person, outcome, src | `released`, `cited`, `warning`, `arrested`, `fled`, or `cancelled` (walked off). |
 | `inspect` | clue, src | Evidence looked at, the first time. |
 | `custody` | person, how, src | A prisoner taken in: `booked` at a station, or `transport`. |
-| `aid` | person, what, src | Someone injured seen to. First aid gives `vitals`, `pressure`, `cpr` or `narcan`; paramedics give `hospital` or `treated`. |
+| `aid` | person, what, src | Someone injured seen to. First aid gives `vitals`, `pressure`, `cpr` or `narcan`; paramedics give `hospital` or `treated`. A player medic gives `stabilised`, `hospital` (loaded), `delivered` or `pronounced`. |
 | `gone` | person | They no longer exist (taken away, or deleted). |
 | `dead` | person | They've died, once. (`dead = true` on a person: they're found that way, such as an animal in the road; `gone` fires when the coroner or animal control takes them.) They become a casualty: paramedics and the coroner see to them, and `aid` gives `pronounced` too. Handle this for anyone an objective or the ending depends on, or the call can stick. See `resolve()` in `armed.lua`. |
 | `fired` | person | Someone told to `shoot` really has fired, once. Announce shots here, not when you give the order. |
@@ -253,7 +264,10 @@ c:objective('decide', 'Deal with it: arrest, ticket or warn, or let them go', { 
 | `hail` | person, src | An officer told someone who's shooting to drop it: E beside them, or the PA with a gun on them. |
 | `parked` | person | Someone told to `drive` has arrived and got out of the car. |
 | `dragged` | clue, clear, src | A `drag` clue was let go. `clear`: moved a couple of metres and off the road. |
-| `service` | kind, src | A backup unit finished its job at the call: `dot`, or `taxi` once a `c:fare` is aboard. |
+| `service` | kind, src | A backup unit finished its job at the call: `dot`, `fire`, or `taxi` once a `c:fare` is aboard. |
+| `towed` | vehicle, src | One of the call's cars was loaded onto a tow truck, or was removed from the world (`src` is nil then). |
+| `tow` | vehicle, stage, src | A tow truck for one of the call's cars: `coming`, or `off` (called off, or it couldn't load the car). The officer calls it: G at the car, or by radio beside it. |
+| `plate` | vehicle, src | A unit on the call looked up one of its cars: G at the car (the empty car's wheel too), by radio, or on the MDT. Can fire more than once. |
 | `stunned` | person | Someone in a `brawl` was tased, by lwk_taser or the game's stun gun. |
 | `leave` | src | A unit left the call. |
 | `tick` | seconds | Once a second. |
@@ -269,7 +283,7 @@ The shipped callouts end:
 - or when the person it's about is ticketed, warned, let go, gets away or dies;
 - or when the main witness has been heard and every unit has left for 15 seconds (`c:near` / `c:talking` in a `tick`).
 
-Copy `resolve()` from `robbery.lua` or `hitrun.lua` for a solid ending.
+Copy `resolve()` from `robbery.lua` or `hitrun.lua` for a solid ending. A medical call uses `Ems.card(c, 'patient')` and `Ems.wire(c, 'patient', function(how) ... end)` instead: the card, and the ending when the patient is handed over at hospital, pronounced or gone.
 
 Units can always leave a call with **X** or by clearing with dispatch. The last unit off cancels it. A call also ends by itself after 30 minutes (`Config.Callouts.max_minutes`).
 
@@ -284,24 +298,28 @@ Units can always leave a call with **X** or by clearing with dispatch. The last 
 | `c:custody(person)` | They're under arrest: the card says to take them in. |
 | `c:who(person)` | Their record on the call: `.facts`, `.cuffed`, `.person` (name, address...). Read it, don't replace it. |
 | `c:name(person)` / `c:plate(vehicle)` / `c:owner(vehicle)` / `c:street()` | Real names, plates, who a car is registered to, the call's street. |
+| `c:moved(vehicle)` | How far a car is from its point, in metres. 0 if it's no longer in the world (`towed` has fired). |
 | `c:near(person, m)` / `c:near(nil, m)` | Is any unit within m metres of them, or of the call. |
 | `c:apart(a, b)` | Out of each other's earshot: more than 10 m apart, or either cuffed or in a car. |
 | `c:talking()` / `c:talking(person)` | Is an officer talking to anyone on the call, or to them. |
 | `c:questions(person)` | After giving them a fact from elsewhere: the officer talking to them sees what it opens. |
 | `c:task(person, 'go' \| 'flee' \| 'surrender' \| 'wander' \| 'scene', point?)` | What they do now. `go` walks them to a point. |
-| `c:task(person, 'drive', { car = 'key', to = 'point', fast = true })` | `fast`: flat out, through traffic. With no `to` they just keep going. Into that car (make it `locked = false`) and off to the point, in traffic. They get out there and `parked` fires; if they're not there after 2 minutes they stop where they are. Officers can pull them over on the way, and it's still them. Returns false if it can't happen: the car or point isn't there, or an officer's talking to them. `stalking.lua` is the example. |
+| `c:task(person, 'drive', { car = 'key', to = 'point', fast = true })` | `fast`: flat out, through traffic. With no `to` they just keep going. Into that car (they have the keys: it unlocks) and off to the point, in traffic. They get out there and `parked` fires; if they're not there after 2 minutes they stop where they are. Officers can pull them over on the way, and it's still them. Returns false if it can't happen: the car or point isn't there, or an officer's talking to them. `stalking.lua` is the example. |
 | `c:task(person, 'brawl', other)` | Fists, on another person on the call (give both the task, from `build` on). Nobody can talk to them until `surrender`; pressing E or the PA fires `hail`, and a taser fires `stunned`. `bar.lua` is the example. |
 | `c:fare(person)` | They're waiting for a ride: a taxi called to the scene takes them, and `service` fires with `taxi`. |
 | `c:task(person, 'aim', other)` | Their `weapon` out, pointed at another person on the call. Use it from `build` on. |
-| `c:task(person, 'hold')` | Their `weapon` out, waiting. Nobody can talk to them until `surrender`; pressing E or the PA fires `hail`. `armed.lua`'s `inside` story is the example. |
+| `c:task(person, 'hold', other?)` | Their `weapon` out, waiting, on `other` if you name someone on the call. Nobody can talk to them until `surrender`; pressing E or the PA fires `hail`. `armed.lua`'s `inside` story is the example, `shooter.lua`'s `grudge` for `other`. |
 | `c:patient(person)` | Someone unhurt who'll go with paramedics: an ambulance called to the scene takes them, and `aid` fires. `crisis.lua` is the example. |
 | `c:bang('WEAPON_PISTOL', 'point', shots?)` | A real shot straight up from that point, sound and all, on the nearest unit's game. `WEAPON_FIREWORK` for a firework. Nobody's hurt. |
 | `c:clear(clue, keep?)` | The clue's dealt with: its prop goes (stays, with `keep`), and it can't be inspected, dragged or burst tyres any more. |
 | `c:held()` | Is anyone holding traffic at the call ("hold traffic" on the radio)? `nil` if `lwk_control` isn't running. |
 | `c:remove(person, car?)` | Gone from the world, with their car: got clean away. `gone` fires. |
+| `c:file(person)` | Their record on the call's MDT incident now, before anyone's met them. Use it from `build` on. |
+| `c:warrant(person, text)` | A warrant on their record, or cleared with `nil`. An active warrant stands: a second doesn't replace it. |
 | `c:die(person)` | They die now: someone down whose time has run out. CPR and paramedics can still bring them back. |
 | `c:collapse(person, vitals?)` | They drop where they stand, as if `injured`: first aid, paramedics and `aid`. Ends any conversation with them. |
 | `c:task(person, 'shoot', point?)` | They fight every player near. With no `weapon`, with their fists. If an officer is talking to them, the talking ends. With a point (a window, a doorway), they go there and hold it, using cover. Without one, they come after the officer. They fire at up to about 40 m, so start it from no further than that. Nobody can talk to them until `surrender`, which your call must do: see `dangerous()` in `armed.lua`. |
+| `c:hangup(person)` | The talking's over: any officer talking to them is cut off, and a task given while they were talking goes through. |
 | `c:health(person)` | Their health: 200 is unhurt, 100 or less is dead. |
 | `c:say(person, text)` | A line heard by units within 30 m. |
 | `c:tell(src, title, text)` | Something one officer notices (a card on their screen). |

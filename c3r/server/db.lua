@@ -242,6 +242,20 @@ function Db.setWarrant(id, text)
     return (tonumber(n) or 0) > 0
 end
 
+-- People with an active warrant, a few at random: -> { person_id, ... }
+-- ponytail: ORDER BY RAND() scans the table; fine for thousands, an index on warrant if it ever isn't.
+function Db.wanted()
+    local rows = MySQL.query.await('SELECT id FROM c3r_people WHERE warrant IS NOT NULL ORDER BY RAND() LIMIT 8')
+    local out = {}
+    for _, r in ipairs(type(rows) == 'table' and rows or {}) do out[#out + 1] = r.id end
+    return out
+end
+
+-- They've moved: a callout found them at a new address.
+function Db.setAddress(id, address)
+    MySQL.update.await('UPDATE c3r_people SET address = ? WHERE id = ?', { address, id })
+end
+
 -- The same for a car's BOLO. id = its record id.
 function Db.setBolo(id, text)
     local n

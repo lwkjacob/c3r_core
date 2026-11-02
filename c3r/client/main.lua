@@ -35,15 +35,19 @@ end
 local function on_duty() return LocalPlayer.state.c3rDuty == true end
 
 exports('isOnDuty', on_duty)
-exports('getService', function() return on_duty() and 'police' or nil end) -- one role for now
-exports('setDuty', function(on)
-    TriggerServerEvent('c3r:setDuty', on == true)
+exports('getService', function() return on_duty() and LocalPlayer.state.c3rService or nil end)
+exports('setDuty', function(on, service)
+    TriggerServerEvent('c3r:setDuty', on == true, service)
     return true
 end)
 
-RegisterCommand(Config.DutyCommand, function() TriggerServerEvent('c3r:setDuty', not on_duty()) end, false)
+-- On shift as police: pull-overs, staged violators and the PA are theirs alone.
+function OnPatrol() return on_duty() and LocalPlayer.state.c3rService == 'police' end
 
--- The service screen (F11): pick a service to go on duty, or end the shift. Police only for now.
+-- /duty, or /duty ambulance
+RegisterCommand(Config.DutyCommand, function(_, args) TriggerServerEvent('c3r:setDuty', not on_duty(), args[1]) end, false)
+
+-- The service screen (F11): pick a service to go on duty, or end the shift.
 local duty_open = false
 local function close_duty()
     if not duty_open then return end
@@ -58,7 +62,7 @@ RegisterCommand('+c3r_duty', function()
     if IsNuiFocused() then return end -- another menu is up
     duty_open = true
     SetNuiFocus(true, true)
-    SendNUIMessage({ type = 'duty', open = true, on = on_duty(), key = KeyName('+c3r_duty', 'F11') })
+    SendNUIMessage({ type = 'duty', open = true, on = on_duty(), service = LocalPlayer.state.c3rService, key = KeyName('+c3r_duty', 'F11') })
 end, false)
 RegisterCommand('-c3r_duty', function() end, false)
 RegisterKeyMapping('+c3r_duty', 'Service screen: go on / off duty (c3r)', 'keyboard', Config.DutyKey)
@@ -66,7 +70,7 @@ RegisterKeyMapping('+c3r_duty', 'Service screen: go on / off duty (c3r)', 'keybo
 RegisterNUICallback('duty', function(d, cb)
     cb({})
     close_duty()
-    if d.service == 'police' then TriggerServerEvent('c3r:setDuty', not on_duty()) end
+    if d.service then TriggerServerEvent('c3r:setDuty', not on_duty(), d.service) end
 end)
 RegisterNUICallback('dutyClose', function(_, cb)
     cb({})

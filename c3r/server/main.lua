@@ -13,29 +13,41 @@ end
 -- ─── duty ─────────────────────────────────────────────────────────────────────
 -- The player's state bag carries it to their client (and anyone else's), so isOnDuty never needs a round trip.
 
-local Duty = {} -- [src] = true while on duty
+local Duty = {} -- [src] = their service while on duty: 'police' | 'ambulance'
+local ACE = { police = function() return Config.DutyAce end, ambulance = function() return Config.Ems.ace end }
 
-local function set_duty(src, on)
+-- service: which one they're going on as (police unless said). c3rDuty is "on shift"; c3rService says as what.
+local function set_duty(src, on, service)
     on = on == true
-    if (Duty[src] == true) == on then return true end
-    if on and Config.DutyAce and not IsPlayerAceAllowed(src, Config.DutyAce) then return false, 'not_allowed' end
-    Duty[src] = on or nil
+    service = service or 'police'
+    if not ACE[service] then return false, 'no_service' end
+    if (Duty[src] ~= nil) == on then
+        if on and Duty[src] ~= service then return false, 'on_shift' end -- (end the shift first)
+        return true
+    end
+    if on and ACE[service]() and not IsPlayerAceAllowed(src, ACE[service]()) then return false, 'not_allowed' end
+    Duty[src] = on and service or nil
+    if on then Player(src).state:set('c3rService', service, true) end -- (first: anything watching c3rDuty can read it)
     Player(src).state:set('c3rDuty', on, true)
-    TriggerEvent('c3r:duty', src, on)
+    if not on then Player(src).state:set('c3rService', nil, true) end
+    TriggerEvent('c3r:duty', src, on, service)
     log('%s is %s duty', GetPlayerName(src) or src, on and 'on' or 'off')
     return true
 end
 
-RegisterNetEvent('c3r:setDuty', function(on)
+RegisterNetEvent('c3r:setDuty', function(on, service)
     local src = source
-    local ok, reason = set_duty(src, on)
+    local ok, reason = set_duty(src, on, type(service) == 'string' and service or nil)
     TriggerClientEvent('c3r:dutyResult', src, ok, reason)
 end)
 
 -- The bag lives on the player and outlasts a restart of this resource, but Duty doesn't: start everyone off.
 CreateThread(function()
     for _, id in ipairs(GetPlayers()) do
-        if Player(id).state.c3rDuty then Player(id).state:set('c3rDuty', false, true) end
+        if Player(id).state.c3rDuty then
+            Player(id).state:set('c3rDuty', false, true)
+            Player(id).state:set('c3rService', nil, true)
+        end
     end
 end)
 
@@ -43,9 +55,11 @@ AddEventHandler('playerDropped', function()
     if Duty[source] then set_duty(source, false) end
 end)
 
-function IsOnDuty(src) return Duty[tonumber(src)] == true end
+function IsOnDuty(src) return Duty[tonumber(src)] ~= nil end
+function ServiceOf(src) return Duty[tonumber(src)] end -- 'police' | 'ambulance' | nil
 exports('isOnDuty', IsOnDuty)
-exports('setDuty', function(src, on) return set_duty(tonumber(src), on) end)
+exports('getService', ServiceOf)
+exports('setDuty', function(src, on, service) return set_duty(tonumber(src), on, service) end)
 
 -- ─── people and vehicles ──────────────────────────────────────────────────────
 -- These wait on SQL, and a call from another resource can't wait inside c3r: the result comes back

@@ -19,9 +19,11 @@
             items     what a search finds on them that matters (it shows as evidence)
             pockets   everyday things a search finds that aren't evidence ('Gas station receipt')
             age       { min, max }: how old their ID says they are ({ 18, 19 } for a teenager)
+            wanted    true: someone on file with an active warrant, their own name, record and face
             home      true: they live at the call's address; a point's name: on the street that point is on
             injured   true: on the ground hurt. E beside them is first aid; paramedics take them ('aid' fires)
             weapon    'WEAPON_PISTOL': what they use when told to 'aim' or 'shoot' (put it in items too, for a search)
+            reach     m (up to 20): E reaches them from that far, questioned from cover; cuffs, searches and tickets still need an officer beside them
             scene     what they're doing: a scenario ('WORLD_HUMAN_SMOKING') or an anim { dict, name, flag }
             questions { { id = 'c_...', label = 'What did you see?', needs?, hide?, press?, stress? } }
                       needs = { c_fact = 'value' | true | { list } }: only once they've said it (see lines)
@@ -34,7 +36,7 @@
       c:vehicle(key, { at, model, make, name, color, paint?, owner?, stolen?, locked?, damage? })
           A parked car, on file: run its plate and it comes back registered to `owner` (a person key) or someone else.
           model = the spawn name ('asea'); make / name / color = what the plate check says ('Declasse', 'Asea', 'Silver');
-          paint = GTA colour id; locked defaults to true; damage = 'front': the front end smashed in.
+          paint = GTA colour id; locked defaults to true; damage = 'dent', 'rear', 'side', 'front' (the front end smashed in) or 'wreck' (all round, smoking).
       c:clue(key, { at | on, label, text, prop?, hidden? })
           Evidence: up close, "E Inspect: <label>" shows text and puts it on every unit's MDT. on = a vehicle key puts
           it on that car (for something about a person, give them a question instead).
@@ -57,6 +59,9 @@
           'gone' (person)                      they're gone (taken away by a unit, or deleted)
           'dead' (person)                      they've died (handle anyone the card or the ending depends on)
           'custody' (person, how, src)         a prisoner taken in: 'booked' at a station, or 'transport'
+          'plate' (vehicle, src)               a unit on the call looked up one of its cars
+          'tow' (vehicle, stage, src)          a tow truck for it: 'coming', or 'off' (called off, or it couldn't load it)
+          'towed' (vehicle, src)               it's on the truck, or was removed from the world (src is nil then)
           'aid' (person, what, src)            someone injured seen to: 'vitals', 'pressure', 'cpr' (first aid), or by
                                                paramedics: 'hospital' (taken away) or 'treated' (at the scene)
       c:custody(person)        they're under arrest: "Take <name> in: book them at a station, or call prisoner
@@ -67,6 +72,7 @@
       c:who(person)            their record on the call: .facts, .cuffed, .identified ...
       c:name(person)           their real name; c:plate(vehicle) its plate; c:street() the call's street
       c:owner(vehicle)         who the car's registered to: { first, last, address }
+      c:moved(vehicle)         how far it is from its point (0: no longer in the world)
       c:apart(a, b)            out of each other's earshot (10 m, or either cuffed / in a car)
       c:task(person, 'aim', other) / c:task(person, 'shoot', point?)   their weapon on someone / fighting every player
           near, from a point if given; nobody can talk to them until 'surrender' (see dangerous() in armed.lua)
@@ -76,6 +82,7 @@
       c:task(person, 'brawl', other)   fists on another person; c:fare(person)   a taxi can take them
       c:bang('WEAPON_PISTOL', 'point', shots?)   a real shot straight up from there; 'WEAPON_FIREWORK' for fireworks
       c:die(person)   someone down dies now; c:remove(person, car?)   got away, gone from the world
+      c:file(person)   their record on the call's MDT incident now; c:warrant(person, text | nil)   a warrant on them, or cleared
       c:patient(person)   someone unhurt who'll go with paramedics; c:collapse(person)   they drop, a casualty
       c:task(person, 'drive', { car = 'key', to = 'point' })   into that car and off there; 'parked' fires when they're out
       c:say(person, text)      a line heard on scene
@@ -111,6 +118,7 @@ Callout({
     id = 'example',
     name = 'Suspicious person',
     -- voice = 'call_suspicious', -- dispatch's line (lwk_control_assets/nui/voice/call_suspicious_1.ogg); left out: "Incoming 911 call."
+    -- alert = 'Assist request',  -- the on-screen line, for a planned job nobody rang in; left out: "Incoming 911 call".
     priority = 3,
     enabled = true, -- false: a template only (no calls made from it)
     reports = {

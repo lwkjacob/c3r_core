@@ -538,6 +538,7 @@ function JOB.fire(u, at)
         if #(GetEntityCoords(p) - at) < 30.0 and IsEntityOnFire(p) then StopEntityFire(p) end
     end
     Wait(4000)
+    if alive(u) then TriggerServerEvent('c3r:callout:service', 'fire', at) end
 end
 
 -- DOT: out of the truck, a sweep of the road, and the call hears it's clean.
@@ -722,7 +723,7 @@ local function request(kind)
     local why = CHECK[kind] and CHECK[kind]()
     if why then return false, why end
     local at = scene()
-    if kind == 'dot' or kind == 'animalrescue' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
+    if kind == 'dot' or kind == 'animalrescue' or kind == 'fire' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
     local node, h = spawn_point(at)
     if not node then return false, 'no_route' end
     local started_on = Stop

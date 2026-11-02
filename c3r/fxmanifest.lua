@@ -18,6 +18,7 @@ shared_scripts { -- config/main.lua first: it makes Config
     'config/patrol.lua',
     'config/backup.lua',
     'config/medical.lua',
+    'config/ems.lua',
     'config/callouts.lua',
     'config/presence.lua',
 }
@@ -31,9 +32,11 @@ server_scripts {
     'server/main.lua',
     'server/stops.lua',
     'server/callouts.lua',
+    'server/ems.lua',
     'server/stats.lua',
     'server/presence.lua',
     'callouts/*.lua', -- the calls (server only: the truth never reaches a game)
+    'callouts/ems/*.lua', -- medics' calls
     'server/config_edit.lua',
 }
 
@@ -47,6 +50,7 @@ client_scripts {
     'client/staged.lua',
     'client/backup.lua',
     'client/medical.lua',
+    'client/ems.lua',
     'client/callouts.lua',
     'client/presence.lua',
 }

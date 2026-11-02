@@ -146,7 +146,7 @@ end
 
 -- cmds: a command or a list of them, in the order said. On a felony stop only the first runs: one order at a time.
 exports('pa', function(cmds)
-    if not LocalPlayer.state.c3rDuty then return false end
+    if not OnPatrol() then return false end
     if type(cmds) == 'string' then cmds = { cmds } end
     if type(cmds) ~= 'table' then return false end
     for _, cmd in ipairs(cmds) do

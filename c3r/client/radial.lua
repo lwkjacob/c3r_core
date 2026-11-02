@@ -101,6 +101,7 @@ local function items(t)
         list[#list + 1] = { label = 'Services', icon = 'radio', to = 'services' }
         return list
     end
+    if not OnPatrol() then return { BACKUP } end -- (a medic: units to call, nothing of a stop's)
     if t.far then
         local list = felony_items(s)
         list[#list + 1] = BACKUP

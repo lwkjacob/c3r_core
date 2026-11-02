@@ -196,7 +196,7 @@ CreateThread(function()
     local next_scan, siren_was = 0, false
     while true do
         local own = targeting and police_car()
-        if targeting and (not own or Stop or not LocalPlayer.state.c3rDuty) then
+        if targeting and (not own or Stop or not OnPatrol()) then
             stop_targeting()
             own = nil
         end
@@ -370,7 +370,7 @@ local function toggle_target()
     if Stop then return end -- during a stop, the mode key has "Stop pullover"
     if targeting then return stop_targeting() end
     -- off duty or on foot: say nothing (Left Shift is also sprint, so it's pressed all the time)
-    if not LocalPlayer.state.c3rDuty or not police_car() then return end
+    if not OnPatrol() or not police_car() then return end
     targeting = true
     Prompt('target', 'alert', 'Pick a vehicle',
         ('Drive so the red circle sits under the car you want to stop. %s again to cancel.'):format(target_key()))
@@ -384,7 +384,7 @@ RegisterKeyMapping('+c3r_target', 'Pick a car to pull over / cancel (c3r)', 'key
 -- (21 is Left Shift). Only while driving on duty, and only for the default key.
 CreateThread(function()
     while true do
-        if Config.TargetKey == 'LSHIFT' and LocalPlayer.state.c3rDuty and police_car() then
+        if Config.TargetKey == 'LSHIFT' and OnPatrol() and police_car() then
             if IsDisabledControlJustPressed(0, 21) then toggle_target() end
             Wait(0)
         else
@@ -1780,7 +1780,7 @@ local function let_go(s)
         SetVehicleIndicatorLights(s.veh, 0, false)
         SetVehicleIndicatorLights(s.veh, 1, false)
         SetNetworkIdCanMigrate(s.veh_net, true)
-        if not (s.occ[s.ped_net] and s.occ[s.ped_net].callout) then SetEntityAsNoLongerNeeded(s.veh) end -- (a call's car is the call's)
+        if not Entity(s.veh).state.c3r_callout then SetEntityAsNoLongerNeeded(s.veh) end -- (a call's car is the call's, empty or not)
     end
     for net, o in pairs(s.occ) do
         if Custody[net] or o.transported or o.away then
@@ -2174,7 +2174,14 @@ local TOW_NORMAL, TOW_AROUND = 786603, 787006
 
 -- car: what's towed; s: the stop it belongs to (its people are put out first), or nil for a car on its own.
 function TowCar(car, s)
+    local function unpin() -- (its stop ended with the truck on the way: nothing else lets go of the car now)
+        if s and Stop ~= s and DoesEntityExist(car) and NetworkHasControlOfEntity(car) then
+            SetVehicleUndriveable(car, false)
+            SetNetworkIdCanMigrate(s.veh_net, true)
+        end
+    end
     local function untow() -- (the server lets it be asked for again, or after a few tries removes the car)
+        unpin()
         if DoesEntityExist(car) and NetworkGetEntityIsNetworked(car) then
             return TriggerServerEvent('c3r:tow:failed', NetworkGetNetworkIdFromEntity(car))
         end
@@ -2204,6 +2211,7 @@ function TowCar(car, s)
     towing[truck], towing[driver] = true, true
     local job = { off = tow_off_early or nil }
     tow_job, tow_off_early = job, false
+    if NetworkGetEntityIsNetworked(car) then TriggerServerEvent('c3r:tow:coming', NetworkGetNetworkIdFromEntity(car)) end
     for _, e in ipairs({ truck, driver }) do SetNetworkIdCanMigrate(NetworkGetNetworkIdFromEntity(e), false) end -- (stays ours to delete)
     TagBackup(truck)
     TagBackup(driver)
@@ -2224,6 +2232,7 @@ function TowCar(car, s)
     local function called_off()
         RemoveBlip(blip)
         if DoesEntityExist(truck) and DoesEntityExist(driver) then TaskVehicleDriveWander(driver, truck, 15.0, TOW_NORMAL) end
+        unpin()
         if s and Stop == s then s.towed = nil end
         if DoesEntityExist(car) and NetworkGetEntityIsNetworked(car) then
             TriggerServerEvent('c3r:tow:cancelled', NetworkGetNetworkIdFromEntity(car))
@@ -2292,8 +2301,8 @@ function TowCar(car, s)
     end
     if loaded then
         Prompt('tow', 'ok', 'Vehicle loaded', 'The tow truck is taking it to the impound lot.', 5000)
-        if not s and NetworkGetEntityIsNetworked(car) then
-            TriggerServerEvent('c3r:tow:loaded', NetworkGetNetworkIdFromEntity(car)) -- (a wanted car: it's been found)
+        if NetworkGetEntityIsNetworked(car) then
+            TriggerServerEvent('c3r:tow:loaded', NetworkGetNetworkIdFromEntity(car)) -- (a wanted car: it's been found; a call's car: gone)
         end
     else
         pcall(function() exports.lwk_control:say(nil, 'Tow truck unable to load the vehicle.') end)

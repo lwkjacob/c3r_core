@@ -14,6 +14,10 @@ function PickingPerson() return browsing ~= nil end
 
 local NEAR_PERSON = 2.0 -- m: at their window, or beside them once out
 local NEAR_SEAT = 3.0   -- m: someone sat in a car (it's their seat that's measured, maybe across the car)
+local FAR_TALK = 20.0   -- m: no one's reach (a callout's `reach`) goes further than this
+
+-- How far E reaches them: a callout person with `reach` is talked to from there, from cover.
+local function reach_of(ped) return NetworkGetEntityIsNetworked(ped) and Entity(ped).state.c3r_reach or NEAR_PERSON end
 local SEAT_NAMES = { [-1] = 'Driver', [0] = 'Front passenger', [1] = 'Rear passenger', [2] = 'Rear passenger' }
 local STAYS_OPEN = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true } -- talk: keep the menu up
 local HEAD = 31086
@@ -30,13 +34,14 @@ local function people(s)
     return out
 end
 
--- On foot, the car stopped, and right beside one of them (in the car or standing behind it).
-local function in_reach(s)
+-- On foot, the car stopped, and right beside one of them (in the car or standing behind it). near: how close counts
+-- (left out: as far as E reaches them).
+local function in_reach(s, near)
     local me = PlayerPedId()
     if not s.stopped or IsPedInAnyVehicle(me, false) then return false end
     local pos = GetEntityCoords(me)
     for _, o in pairs(s.occ) do
-        if DoesEntityExist(o.ped) and #(pos - GetEntityCoords(o.ped)) < (IsPedInAnyVehicle(o.ped, false) and NEAR_SEAT or NEAR_PERSON) then
+        if DoesEntityExist(o.ped) and #(pos - GetEntityCoords(o.ped)) < (IsPedInAnyVehicle(o.ped, false) and NEAR_SEAT or near or reach_of(o.ped)) then
             return true
         end
     end
@@ -92,7 +97,7 @@ local function open_menu(s, o)
     browsing, open, target = nil, true, o
     SetNuiFocus(true, true)
     SendNUIMessage({ type = 'radial', open = true, kind = 'person', key = KeyName('+c3r_interact', 'E'),
-                     who = who(o), role = o.role, out = o.out == true, following = o.following == true, foot = s.foot == true,
+                     who = who(o), role = o.role, medic = not OnPatrol(), out = o.out == true, following = o.following == true, foot = s.foot == true,
                      cuffed = o.cuffed == true, escorted = o.escorted == true, seated = o.seated ~= nil, sitting = o.sitting == true,
                      categories = s.categories, questions = o.questions or {},
                      active = { police = BackupActive('police'), ambulance = BackupActive('ambulance'), cover = BackupActive('cover'),
@@ -118,11 +123,11 @@ local function contacts(s)
     local pos, out = GetEntityCoords(me), {}
     for _, ped in ipairs(GetGamePool('CPed')) do
         local d = ped ~= me and not mine[ped] and #(GetEntityCoords(ped) - pos) -- (distance first: the rest only for someone close)
-        if d and d < NEAR_SEAT and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped) and not IsBackup(ped)
-            and not IsDowned(ped) then
+        if d and d < FAR_TALK and (d < NEAR_SEAT or d < reach_of(ped)) and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped)
+            and not IsBackup(ped) and not IsDowned(ped) then
             local veh = GetVehiclePedIsIn(ped, false)
             local driver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) or 0
-            if (veh == 0 and d < NEAR_PERSON) or (veh ~= 0 and GetEntitySpeed(veh) < 1.0 and (driver == 0 or not IsPedAPlayer(driver))) then
+            if (veh == 0 and d < reach_of(ped)) or (veh ~= 0 and d < NEAR_SEAT and GetEntitySpeed(veh) < 1.0 and (driver == 0 or not IsPedAPlayer(driver))) then
                 out[#out + 1] = { ped = ped, d = d }
             end
         end
@@ -149,8 +154,9 @@ RegisterCommand('+c3r_interact', function()
     if open or MedicalOpen() then return end
     if CalloutPlacing and CalloutPlacing() then return end -- (/c3rplace: E sets a point)
     if CalloutInspect and CalloutInspect() then return end -- evidence on a call, right beside you (client/callouts.lua)
+    if EmsInteract and EmsInteract() then return end -- a medic's bag, stretcher and handover (client/ems.lua)
     local down = LocalPlayer.state.c3rDuty and DownedNear()
-    if down then return OpenMedical(down) end -- someone down beside you: first aid (client/medical.lua)
+    if down then return (OnPatrol() and OpenMedical or EmsTreat)(down) end -- someone down beside you: first aid (client/medical.lua), or a medic's work
     if not s then -- anyone at all: they become the stop
         if browsing then browsing = nil return end -- the key again: never mind
         local list = contacts()
@@ -160,7 +166,7 @@ RegisterCommand('+c3r_interact', function()
     end
     -- someone else, while only chatting to someone (on foot, or in a parked car): that one's done with, and
     -- this one becomes the stop. Not on a traffic stop, and not with anyone in cuffs.
-    local other = Casual(s) and not in_reach(s) and nearest_contact(s)
+    local other = Casual(s) and not in_reach(s, NEAR_PERSON) and nearest_contact(s)
     if other then
         TriggerServerEvent('c3r:stop:act', 'cancel')
         return CreateThread(function()
@@ -184,7 +190,7 @@ CreateThread(function()
     local last = {} -- (what the page was last told: only send again when it moves or changes)
     while true do
         local s = Stop
-        local free = not s or (Casual(s) and not in_reach(s)) -- E would start talking to someone new
+        local free = not s or (Casual(s) and not in_reach(s, NEAR_PERSON)) -- E would start talking to someone new
         local down_open = MedicalOpen()
         if not open and GetGameTimer() >= scan_at then -- anyone nearby (a few times a second is plenty)
             scan_at = GetGameTimer() + 400
@@ -251,7 +257,7 @@ CreateThread(function()
             InvalidateIdleCam()
             InvalidateVehicleIdleCam()
             if not Stop or not target or not DoesEntityExist(target.ped) or IsEntityDead(target.ped)
-                or #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(target.ped)) > NEAR_PERSON + 2.0 then
+                or #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(target.ped)) > reach_of(target.ped) + 2.0 then
                 CloseMenu()
             end
         end

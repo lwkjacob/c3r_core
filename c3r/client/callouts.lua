@@ -108,10 +108,11 @@ RegisterNetEvent('c3r:callout:offer', function(r)
     -- dispatch over the radio: the call's own line, or "Incoming 911 call", in the area of where it is (lwk_control_assets
     -- voice/<key>_to_1.ogg + the location's clips; voice/<key>_1.ogg with no location), the details as text
     local clip = r.voice and LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(r.voice)) and r.voice or 'incoming_call'
+    local alert = r.alert or 'Incoming 911 call' -- (a planned job isn't a 911 call: the callout's `alert`)
     local said = pcall(function()
-        exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('Incoming 911 call: %s, %s. Priority %d.'):format(r.name:lower(), r.street, r.priority))
+        exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('%s: %s, %s. Priority %d.'):format(alert, r.name:lower(), r.street, r.priority))
     end)
-    if not said then Notify(('~b~DISPATCH~s~ Incoming 911 call: %s, %s.'):format(r.name:lower(), r.street)) end
+    if not said then Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(alert, r.name:lower(), r.street)) end
 end)
 
 RegisterNetEvent('c3r:callout:joined', function(r)
@@ -250,6 +251,7 @@ end
 -- or just standing there.
 local function scene(ped, sc)
     ClearPedTasks(ped)
+    SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true) -- (back from 'hold': the gun's put away)
     if type(sc) == 'string' then
         TaskStartScenarioInPlace(ped, sc, 0, true) -- UNVERIFIED per scenario: the callout names it
     elseif type(sc) == 'table' and sc[1] and with_dict(sc[1]) then
@@ -335,9 +337,10 @@ local function drive(ped, args)
     if not DoesEntityExist(veh) then return end
     if not IsPedInVehicle(ped, veh, false) then
         ClearPedTasks(ped)
-        TaskEnterVehicle(ped, veh, 10000, -1, 1.5, 1, 0)
-        local deadline = GetGameTimer() + 11000
-        while DoesEntityExist(ped) and not IsPedInVehicle(ped, veh, false) and GetGameTimer() < deadline do Wait(200) end
+        local walk = math.min(100000, math.floor(10000 + #(GetEntityCoords(ped) - GetEntityCoords(veh)) * 800)) -- (from up the street, too)
+        TaskEnterVehicle(ped, veh, walk, -1, 1.5, 1, 0)
+        local deadline = GetGameTimer() + walk + 1000
+        while DoesEntityExist(ped) and NetworkHasControlOfEntity(ped) and not IsPedInVehicle(ped, veh, false) and GetGameTimer() < deadline do Wait(200) end
     end
     if not DoesEntityExist(ped) or not IsPedInVehicle(ped, veh, false) or not NetworkHasControlOfEntity(ped) then return end -- (not: another game has them now, and its own copy of this)
     if Stop and Stop.occ[NetworkGetNetworkIdFromEntity(ped)] then return end -- (an officer got to them first)
@@ -383,6 +386,7 @@ end
 
 local function run(ped, name, args, sc, weapon)
     if name == 'go' and args then -- (walking there round buildings and cars, not through them)
+        SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
         TaskFollowNavMeshToCoord(ped, args.x, args.y, args.z, 1.0, -1, 1.5, 0, type(args) == 'vector4' and args.w or 0.0)
     elseif name == 'flee' then
         RunFrom(ped, nearest_player_ped(GetEntityCoords(ped))) -- (client/stop.lua)
@@ -396,7 +400,8 @@ local function run(ped, name, args, sc, weapon)
     elseif name == 'hold' then
         ClearPedTasks(ped)
         draw(ped, weapon)
-        TaskStandStill(ped, -1)
+        local target = args and their_ped_soon(args.net)
+        if target then TaskAimGunAtEntity(ped, target, -1, false) else TaskStandStill(ped, -1) end
     elseif name == 'shoot' then
         shoot(ped, args, weapon)
     elseif name == 'brawl' and args then
@@ -460,8 +465,48 @@ local function lay(obj, a)
     if a.place then to_ground(obj) end
 end
 
--- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground; damage = 'front': the
--- front end caved in (the first game to own it only: dents add up).
+-- What a crash did to a parked car. SET_VEHICLE_DAMAGE's offsets are from the car's middle: high.y is the front bumper,
+-- low.y the back, high.x the right side. How each one looks UNVERIFIED by eye.
+local function dents(veh, how)
+    local low, high = GetModelDimensions(GetEntityModel(veh))
+    if how == 'dent' then
+        SetVehicleDamage(veh, 0.0, high.y, 0.1, 250.0, 0.8, true)
+    elseif how == 'rear' then
+        SetVehicleDamage(veh, 0.0, low.y, 0.1, 300.0, 0.9, true)
+    elseif how == 'front' or how == 'wreck' then
+        SetVehicleDamage(veh, 0.0, high.y, 0.1, 400.0, 1.2, true)
+        SetVehicleDamage(veh, high.x * 0.6, high.y, 0.2, 300.0, 0.8, true) -- (one corner worse: the headlight)
+        SetVehicleBodyHealth(veh, 550.0)
+        SetVehicleEngineHealth(veh, 700.0) -- (dented, not on fire)
+    end
+    if how == 'side' or how == 'wreck' then
+        SetVehicleDamage(veh, high.x, 0.0, 0.2, 400.0, 1.2, true)
+        SetVehicleDamage(veh, high.x, high.y * 0.5, 0.2, 300.0, 0.8, true)
+        SetVehicleBodyHealth(veh, 550.0)
+    end
+    if how == 'wreck' then
+        SetVehicleDamage(veh, 0.0, low.y, 0.1, 400.0, 1.2, true)
+        SmashVehicleWindow(veh, 6) -- (the windscreen)
+        SetVehicleDoorOpen(veh, 4, true, true) -- (the bonnet, sprung)
+        SetVehicleBodyHealth(veh, 300.0)
+        SetVehicleEngineHealth(veh, 250.0) -- (smoking, and not burning: that's under 0)
+    end
+end
+
+-- Once, when I'm close: a car's made at 300 m, too far off for the game to dent it. Waits for as long as this game has the
+-- car (a game that takes it over does the same); the state bag stops it happening twice, because dents add up.
+local function dent_when_close(veh, how)
+    while DoesEntityExist(veh) and NetworkHasControlOfEntity(veh) and not Entity(veh).state.c3r_dented do
+        if #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(veh)) < 60.0 then
+            Entity(veh).state:set('c3r_dented', true, true)
+            return dents(veh, how)
+        end
+        Wait(500)
+    end
+end
+
+-- A parked car in the story: its paint, its plate, locked, engine off, wheels on the ground; damage: 'dent', 'rear', 'side',
+-- 'front' (caved in) or 'wreck'.
 local function park(veh, a)
     SetEntityAsMissionEntity(veh, true, true)
     if a.place then SetVehicleOnGroundProperly(veh) end
@@ -469,13 +514,7 @@ local function park(veh, a)
     if a.plate then SetVehicleNumberPlateText(veh, a.plate) end
     if GetPedInVehicleSeat(veh, -1) == 0 then SetVehicleEngineOn(veh, false, true, true) end -- (not under someone driving it: it changes games with them)
     SetVehicleDoorsLocked(veh, a.locked and 2 or 1)
-    if a.damage == 'front' then
-        local _, max = GetModelDimensions(GetEntityModel(veh)) -- (the front bumper is at max.y)
-        SetVehicleDamage(veh, 0.0, max.y, 0.1, 400.0, 1.2, true)
-        SetVehicleDamage(veh, max.x * 0.6, max.y, 0.2, 300.0, 0.8, true) -- (one corner worse: the headlight)
-        SetVehicleBodyHealth(veh, 550.0)
-        SetVehicleEngineHealth(veh, 700.0) -- (dented, not on fire)
-    end
+    if a.damage then dent_when_close(veh, a.damage) end
 end
 
 -- a = { net, scene, task, place (the first time: facing the point's heading), heading, down } (a person), or

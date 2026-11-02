@@ -191,6 +191,8 @@ local function revive(p)
 end
 
 RevivePed = revive -- (client/backup.lua: paramedics bring people back too)
+-- (client/ems.lua: a player medic works with the same hands)
+ControlPed, LoadDict, KneelAt, LiePed, MedicAnim = control, load_dict, kneel_at, lie, ANIM
 
 local DO = {}
 

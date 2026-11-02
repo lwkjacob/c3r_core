@@ -126,7 +126,7 @@ local function drive(a)
         Wait(250)
         if Stop and Stop.veh == a.veh then a.handed = true break end -- pulled over: the stop has it now
         local me = PlayerPedId()
-        if a.released or GetGameTimer() > a.ends or not LocalPlayer.state.c3rDuty or IsEntityDead(me)
+        if a.released or GetGameTimer() > a.ends or not OnPatrol() or IsEntityDead(me)
             or not DoesEntityExist(a.veh) or not DoesEntityExist(a.ped) or IsEntityDead(a.ped)
             or not IsPedInVehicle(a.ped, a.veh, false) or #(GetEntityCoords(a.veh) - GetEntityCoords(me)) > 250.0 then
             break
@@ -166,7 +166,7 @@ CreateThread(function()
         Wait(1000)
         local me = PlayerPedId()
         local own = GetVehiclePedIsIn(me, false)
-        if not Config.Staged.enabled or not LocalPlayer.state.c3rDuty or own == 0 or GetPedInVehicleSeat(own, -1) ~= me
+        if not Config.Staged.enabled or not OnPatrol() or own == 0 or GetPedInVehicleSeat(own, -1) ~= me
             or Stop or Targeting() or active then
             if next_at < GetGameTimer() + 15000 then next_at = GetGameTimer() + 15000 end -- a little breathing room after
         elseif GetGameTimer() >= next_at then

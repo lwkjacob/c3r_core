@@ -192,6 +192,8 @@ local function set_warrant(id, text)
     TriggerEvent('c3r:record', (Db.getPerson(id)))
 end
 
+function SetWarrant(id, text) CreateThread(function() set_warrant(id, text) end) end -- (callouts.lua: c:warrant)
+
 local function set_bolo(v, text)
     if not Db.setBolo(v.id, text) then return end
     v.bolo, v.bolo_reason = text ~= nil, text
@@ -302,7 +304,7 @@ local function face_text(l)
 end
 
 -- Dress the ped as they were: the server's ped natives run on whichever game owns it.
-local function dress(ped, text)
+function Dress(ped, text)
     local c, p = {}, {}
     local cs, ps = tostring(text):match('^([^|]*)|(.*)$')
     for n in (cs or ''):gmatch('-?%d+') do c[#c + 1] = tonumber(n) end
@@ -328,7 +330,7 @@ local function meet(src, net, o, sent)
     local model = GetEntityModel(ped)
     local f = Db.face(o.person.id)
     local me = officer_id(src)
-    if f and f.model == model and f.look and DoesEntityExist(ped) then dress(ped, f.look) end
+    if f and f.model == model and f.look and DoesEntityExist(ped) then Dress(ped, f.look) end
     if f then
         o.met = 'us'
         for _, id in ipairs(f.met) do if id == me then o.met = 'you' end end
@@ -425,8 +427,9 @@ local function start_foot(src, p)
         say(s, Dialogue.answer(shout[2], o), o)
     end
     local car = ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0 -- (in a car, only one nobody's at the wheel of: the back of a patrol car)
+    local them = ped ~= 0 and Callouts.person(p.net) -- (a callout's `reach`: talked to from further off)
     if ped == 0 or IsPedAPlayer(ped) or (car ~= 0 and GetPedInVehicleSeat(car, -1) ~= 0)
-        or dist(src, ped) > (order and Config.PaRange or TALK_RANGE) then return end
+        or dist(src, ped) > (order and Config.PaRange or (them and them.spec.reach) or TALK_RANGE) then return end
     local key = 'ped:' .. p.net
     -- already someone's: another unit talking to them on foot, or one of the people on their stop: join it
     local theirs = (ByVehicle[key] and Stops[ByVehicle[key]]) or stop_of(p.net)
@@ -436,7 +439,7 @@ local function start_foot(src, p)
     if co then -- someone in a callout: who they are and what they know is the call's (and carries on between officers)
         if co.fighting then
             Callouts.hail(co, src) -- (told to drop it: the call decides)
-            if co.fighting and not order then refuse(src, co.task and co.task.name == 'brawl' and "They're not listening." or "They're shooting at you.") end
+            if co.fighting and not order then refuse(src, co.task and co.task.name == 'shoot' and "They're shooting at you." or "They're not listening.") end
             return
         end
         local o = co.o
@@ -489,6 +492,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     local function no(why) log('stop by %d refused: %s', src, why) end
     if not IsOnDuty(src) then return no('off duty') end
     opts = type(opts) == 'table' and opts or {}
+    if ServiceOf(src) ~= 'police' and not (opts.foot or opts.parked) then return no('not police') end -- (a medic talks to people, no more)
     local who = opts.foot and type(people) == 'table' and people[1]
     -- (the PA with a gun on someone else: whoever they were talking to on foot is left, and it's this person now)
     if type(who) == 'table' and SHOUTS[who.pa] and Stops[src] and Stops[src].foot and not Stops[src].occ[who.net] then
@@ -610,6 +614,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     -- who's driving isn't known until they're identified (ID or name): see identify()
     if empty then
         TriggerEvent('c3r:vehicleContact', src, vehicle) -- nobody to stop: a car looked at
+        Callouts.plate(plate, src)
     elseif not co then -- (the call's: it's on the call's incident)
         Stats.add(src, 'stops')
         TriggerEvent(s.pursuit and 'c3r:pursuitStarted' or 'c3r:stopStarted', src, nil, vehicle)
@@ -1003,9 +1008,13 @@ RegisterNetEvent('c3r:stop:act', function(action, arg, target, pa)
     if not o and not CAR_ACTS[action] then return end -- an empty car: only what's done to the car
     local ent = entity(CAR_ACTS[action] and s.veh_net or o.net)
     local range = (pa or FELONY_ONLY[action]) and SHOUTED[action] and Config.PaRange or TALK_RANGE
+    local them = o and Callouts.person(o.net)
+    local far = them and them.spec.reach -- (a callout's `reach`: questions carry, the rest needs an officer beside them; 2 m: the menu's slack)
+    if far and (action == 'greet' or action == 'ask') then range = math.max(range, far + 2.0) end
     if radio_tow then range = Config.CancelDistance end -- a tow asked for over the radio
     if ent == 0 or dist(src, ent) > range then
         if radio_tow then TriggerClientEvent('c3r:stop:towRefused', src) end
+        if far and ent ~= 0 then refuse(src, 'You need to be beside them for that.') end
         return
     end
     -- someone out of the car is moved by the acting officer's game (handed over first); in the car, they go with the car
@@ -1039,7 +1048,8 @@ RegisterNetEvent('c3r:stop:pursuit', function(state, net, on_foot)
         return finish(src, 'fled')
     end
     if state ~= 'caught' then return end
-    if (s.pursuit or (o and o.ran)) and not s.won_one then
+    local gave_in = o and o.gave_up and not s.pursuit -- (a callout had them give up while being talked to: nobody chased them)
+    if (s.pursuit or (o and o.ran and not gave_in)) and not s.won_one then
         s.won_one = true
         Stats.add((s.main or s).src, 'pursuits_won')
     end
@@ -1049,7 +1059,8 @@ RegisterNetEvent('c3r:stop:pursuit', function(state, net, on_foot)
         note(s, 'Pursuit ended')
     end
     if o then
-        o.out_srv, o.ran, o.gave_up, o.facts.ran = true, true, true, 'yes' -- (gave up on foot, out of the car; they know they ran)
+        o.out_srv, o.ran, o.gave_up = true, true, true -- (gave up on foot, out of the car)
+        if not gave_in then o.facts.ran = 'yes' end -- (they know they ran)
         say(s, Dialogue.answer('surrender', o), o)
         note(s, ('%s gave up'):format(label(o)))
     end
@@ -1077,7 +1088,7 @@ local BEHAVIOUR = { drunk = { 'weave' }, drugs = { 'weave', 'speed' }, stolen = 
 -- people = { { seat, net, male } } as their game saw them; info = { make, model, color }
 RegisterNetEvent('c3r:staged:pick', function(veh_net, people, info)
     local src = source
-    if not Config.Staged.enabled or not IsOnDuty(src) or Stops[src] then return end
+    if not Config.Staged.enabled or ServiceOf(src) ~= 'police' or Stops[src] then return end
     if os.time() - (StagedAt[src] or 0) < math.floor(Config.Staged.every[1] * .8) then return end -- (a game asking too often)
     local veh = entity(veh_net)
     if veh == 0 or ByVehicle[veh_net] or Staged[veh_net] or dist(src, veh) > 200.0 then return end
@@ -1221,6 +1232,7 @@ RegisterNetEvent('c3r:tow:loaded', function(net)
     local src = source
     local ent = entity(net)
     if not IsOnDuty(src) or ent == 0 or GetEntityType(ent) ~= 2 or dist(src, ent) > Config.CancelDistance then return end
+    if Stops[src] and Stops[src].veh_net == net then return end -- (a stop's own car: that says so when it ends)
     local v = Db.findVehicle(str(GetVehicleNumberPlateText(ent), 8))
     if not (v and v.bolo) then return end
     set_bolo(v, nil)
@@ -1307,6 +1319,7 @@ function LookupPlate(src, plate, cb, quiet, secret)
     CreateThread(function()
         plate = plate_key(plate)
         if plate == '' then return cb(nil) end
+        if not secret then Callouts.plate(plate, src) end -- (an officer looking it up, not an ALPR in passing)
         local v = Db.findVehicle(plate) -- on file already: it answers with that, whatever the car turns out to be
         next_lookup = next_lookup + 1
         local id = next_lookup

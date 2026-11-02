@@ -7,7 +7,7 @@ Config.OpenCommand = 'mdt'
 Config.DefaultStyle = 'modern' -- 'modern', 'command', 'enterprise' or 'classic'; each officer can switch theirs in the CAD's settings
 
 -- c3r services allowed to open the MDT (checked on the player's game).
-Config.AllowedServices = { 'police' }
+Config.AllowedServices = { 'police', 'ambulance' }
 
 -- Optional ACE needed to use the MDT at all (nil = anyone on duty in an allowed service).
 Config.AcePermission = nil
