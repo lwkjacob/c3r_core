@@ -98,7 +98,7 @@ end)
 RegisterNetEvent('c3r:callout:board', function(list) board = type(list) == 'table' and list or {} end)
 
 RegisterNetEvent('c3r:callout:offer', function(r)
-    if call then return end
+    if call or LocalPlayer.state.c3rNoPopup then return end -- (MDT only: lwk_mdt's settings, and it's on the board there)
     local ms = ((Config.Callouts or {}).offer_window or 30) * 1000
     offer = r
     offer.until_t = GetGameTimer() + ms

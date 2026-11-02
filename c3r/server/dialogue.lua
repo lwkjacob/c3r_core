@@ -35,14 +35,30 @@ Dialogue.CATEGORIES = {
     { id = 'contraband', label = 'Contraband',            desc = 'Drugs, weapons, open containers, consent to search.' },
     { id = 'record',     label = 'Record',                desc = 'Arrests, probation, warrants.' },
     { id = 'passenger',  label = 'About the driver',      desc = 'How they know the driver, and what the driver has been doing.', who = 'passenger' },
+    { id = 'tell',       label = 'Tell them',             desc = "What's happening, and why." }, -- (the wheel's own item, not under Questions)
 }
+
+-- What the officer can tell them: only what they've had the chance to find out (the licence and papers come with
+-- identifying them).
+local function lic_bad(o) local p = o.identified return p and p.dl and p.dl ~= 'Valid' end
+local function reg_bad(o) return o.identified and o.vehicle and o.vehicle.reg_valid == false end
+local function ins_bad(o) return o.identified and o.vehicle and o.vehicle.ins_valid == false end
+local function wanted(o) return o.identified and o.identified.warrant end
+local function stolen(o) return o.vehicle and o.vehicle.stolen end
+local function cuffed(o) return o.cuffed end
 
 -- foot: how it's asked of someone on foot. who: only the driver or only a passenger is asked it. needs: facts they've given that open it
 -- (true = any answer; a list = any of these). hide: facts that close it again. press: not remembered,
--- so asking again gets a fresh answer. stress: nerves and attitude show in the answer.
+-- so asking again gets a fresh answer. stress: nerves and attitude show in the answer. Told, not asked (cat 'tell'):
+-- said: what's said, when the menu's label is short for it. note: goes on the stop's report. tow: said, and the tow is
+-- called, this being the reason on the report. calls: a unit called as it's said.
 Dialogue.QUESTIONS = {
     -- the stop
     { id = 'why',        cat = 'stop', label = 'Do you know why I stopped you?' },
+    { id = 'why_fast',   cat = 'stop', label = 'Do you know how fast you were going?', who = 'driver', needs = { why_asked = true } },
+    { id = 'why_reason', cat = 'stop', label = 'Is there a reason you were driving like that?', who = 'driver', needs = { why_asked = true }, stress = true },
+    { id = 'why_before', cat = 'stop', label = 'Have you been pulled over before?', who = 'driver', needs = { why_asked = true } },
+    { id = 'fault',      cat = 'stop', label = 'Did you know {fault}?', who = 'driver', needs = { fault = true } },
     { id = 'where',      cat = 'stop', label = 'Where are you headed?' },
     { id = 'dest_where', cat = 'stop', label = 'Whereabouts is that?', needs = { dest = true } },
     { id = 'from',       cat = 'stop', label = 'Where are you coming from?' },
@@ -119,6 +135,31 @@ Dialogue.QUESTIONS = {
     { id = 'pdrink',     cat = 'passenger', label = 'Has the driver been drinking?', who = 'passenger' },
     { id = 'pdriving',   cat = 'passenger', label = 'How was the driver driving?', who = 'passenger' },
     { id = 'pcar',       cat = 'passenger', label = 'Whose car is this?', who = 'passenger' },
+    -- told to them
+    { id = 'tell_arrest', cat = 'tell', label = "You're under arrest{arrest}.", when = cuffed, press = true },
+    { id = 'tell_rights', cat = 'tell', label = 'Read them their rights', when = cuffed, press = true, note = 'Rights read to %s',
+      said = 'You have the right to remain silent. Anything you say can be used against you. You have the right to a lawyer.' },
+    { id = 'tow_stolen',  cat = 'tell', label = "This vehicle is reported stolen. I'm having it towed.", who = 'driver', when = stolen,
+      press = true, tow = 'recovered stolen vehicle' },
+    { id = 'tow_arrest',  cat = 'tell', label = "You're under arrest, so your vehicle is being towed.", who = 'driver', when = cuffed,
+      press = true, tow = 'driver arrested' },
+    { id = 'tow_impaired', cat = 'tell', label = "You're in no state to drive, so I'm having your vehicle towed.", who = 'driver',
+      needs = { impaired = true }, press = true, tow = 'driver impaired' },
+    { id = 'tow_lic',     cat = 'tell', label = "I'm towing your vehicle because {lic}.", who = 'driver', when = lic_bad, press = true,
+      tow = 'invalid licence' },
+    { id = 'tow_reg',     cat = 'tell', label = "I'm towing your vehicle. The registration has expired.", who = 'driver', when = reg_bad,
+      press = true, tow = 'expired registration' },
+    { id = 'tow_ins',     cat = 'tell', label = "I'm towing your vehicle. It has no insurance.", who = 'driver', when = ins_bad,
+      press = true, tow = 'no insurance' },
+    { id = 'tow_any',     cat = 'tell', label = "I'm having your vehicle towed.", who = 'driver', press = true, tow = 'officer discretion' },
+    { id = 'tell_lic',    cat = 'tell', label = "You can't drive this vehicle because {lic}.", who = 'driver', when = lic_bad, press = true },
+    { id = 'tell_reg',    cat = 'tell', label = 'Your registration has expired. Get it renewed.', who = 'driver', when = reg_bad, press = true },
+    { id = 'tell_ins',    cat = 'tell', label = 'You have no insurance on this vehicle.', who = 'driver', when = ins_bad, press = true },
+    { id = 'tell_warrant', cat = 'tell', label = "There's a warrant out for your arrest.", when = wanted, press = true },
+    { id = 'tell_fault',  cat = 'tell', label = 'Just so you know, {fault}. Get it fixed.', who = 'driver', needs = { fault = true }, press = true },
+    { id = 'tell_ride',   cat = 'tell', label = "I'm calling you a taxi.", press = true, calls = 'taxi',
+      when = function(o, ctx) return ctx.no_ride and not o.cuffed end },
+    { id = 'tell_wait',   cat = 'tell', label = "Sit tight. I'll be right back.", foot = "Stay here. I'll be right back.", press = true },
 }
 
 local DEF = {}
@@ -181,6 +222,40 @@ local LINES = {
             nervous = { 'No, sorry. Did I do something?', 'Am I in trouble?' },
             stolen = { "No. Can I go? I'm kind of in a hurry.", "I didn't do anything." },
         },
+    },
+    why_fast = {
+        default = { 'The limit, I think? I was keeping up with everyone.', "I wasn't really watching, sorry.", 'Was I over?' },
+        drunk = { "Fast? I was going... the normal amount.", 'Not fast. I was being careful.' },
+        stolen = { "I don't know this car very well.", "No. I'm in a bit of a hurry." },
+        drugs = { 'No. Is that why you stopped me?', "I don't know. Fine, I think." },
+        warrant = { "Not that fast. Can we get this over with?", 'No idea.' },
+        rude = { "You tell me. You're the one with the radar.", "Why don't you tell me?" },
+    },
+    why_reason = {
+        default = { "No, I'm sorry. I didn't realise.", "I've got a lot on my mind today.", "I'm late, that's all." },
+        drunk = { "I'm just tired. Long day.", "That was the road. It's a bad road." },
+        stolen = { "I just want to get where I'm going.", "I don't know what you mean." },
+        drugs = { "Like what? I'm fine.", "I'm fine. I was concentrating." },
+        warrant = { "No reason. Are we done?", "I just want to get home." },
+        suspended = { "...No. I'm just heading home.", "I'm being careful. That's all." },
+        rude = { 'Like what?', "I was driving fine. This is a joke." },
+    },
+    why_before = {
+        default = { 'Not for years.', 'Once, a while back. A speeding ticket.', 'No, this is my first time.' },
+        drunk = { "...No. Why does that matter?", "Not tonight." },
+        stolen = { 'No. Never.', "Why, what's it say?" },
+        drugs = { 'A while ago. Nothing came of it.', 'No.' },
+        warrant = { "You've got the computer. You tell me.", "A few times. Who hasn't?" },
+        suspended = { "...Yes. That's a long story.", "Yes. I know how this goes." },
+        rude = { 'More often than I deserve.', 'Is that a real question?' },
+    },
+    fault = {
+        default = { "Really? I had no idea. Sorry.", "Oh no. How long has it been like that?", "I thought something felt off. I'll get it fixed." },
+        drunk = { "Did I? Is that all this is?", "Oh. Right. That." },
+        stolen = { "It isn't... I haven't had it long.", "I'll get it seen to. Can I go?" },
+        drugs = { "Is that all? I'll sort it.", "Okay. Sure. I'll fix it." },
+        warrant = { "Fine. I'll fix it. We done?", "Is that why you stopped me?" },
+        rude = { "You pulled me over for THAT?", "Seriously? That's what you're doing with your day?" },
     },
     where = {
         default = { { 'Just heading home.', set = { dest = 'home' } }, { 'Going to work.', set = { dest = 'work' } },
@@ -654,6 +729,40 @@ local LINES = {
     fel_back = { default = { 'Okay, okay...', "I'm walking! I'm walking!", 'Like this?' } },
     fel_kneel = { default = { 'Okay! Okay!', "I'm down! I'm down!", "Please don't shoot." }, rude = { 'This is ridiculous.' } },
 }
+
+-- Told they're losing the car. Any reason gets these; the reasons that land differently add their own.
+local TOW = {
+    default = { 'Towed? How am I supposed to get home?', 'Okay. Where does it end up?', 'Can I at least get my things out of it?' },
+    nervous = { 'Oh no. Is there anything else you can do?', 'How much is that going to cost me?' },
+    rude = { "You've got to be kidding me.", 'This is a joke.', "Who's paying for that?" },
+    chatty = { "Well, there goes my day. Is there a number I can call?", 'Great. Just great. Where do I pick it up?' },
+}
+LINES.tow_any, LINES.tow_reg, LINES.tow_ins = TOW, TOW, TOW
+LINES.tow_lic = setmetatable({
+    suspended = { 'I know. I was only going down the road.', "I knew this would happen.", 'Please. I need that car for work.' },
+    unlicensed = { "It's not even my fault, I was only moving it.", 'I just needed to get home.' },
+}, { __index = TOW })
+LINES.tow_impaired = setmetatable({
+    drunk = { "I'm fine to drive, I swear.", 'Come on, I only had a couple.' },
+    drugs = { "I'm fine. That test is wrong.", 'Come on, it was hours ago.' },
+}, { __index = TOW })
+LINES.tow_stolen = { default = { "Stolen? I didn't know that, I swear.", "That can't be right." },
+                     stolen = { '...', "It's not what it looks like.", 'I was only borrowing it.' } }
+LINES.tow_arrest = { default = { 'Whatever.', 'Can someone get my things out of it?' }, rude = { 'Of course it is.' } }
+LINES.tell_lic = { default = { 'What? Since when?', "That can't be right." }, rude = { "That's ridiculous." },
+                   suspended = { "I know. I'm sorry.", 'I know. I was only going down the road.' },
+                   unlicensed = { 'I know.', 'I was just going home.' } }
+LINES.tell_reg = { default = { "I thought I'd renewed that. Sorry.", "I'll get it sorted." }, rude = { 'Yeah, yeah.' } }
+LINES.tell_ins = { default = { "I didn't realise it had lapsed.", "I'll get it sorted, officer." }, rude = { 'Yeah, yeah.' } }
+LINES.tell_fault = { default = { "Oh, I didn't know. I'll get it fixed.", "Thanks. I'll take it in." }, rude = { 'Okay. Is that all?' } }
+LINES.tell_warrant = { default = { 'What? For what?', "That's got to be a mistake." },
+                       warrant = { '...Yeah. I figured.', 'Come on, man...', 'I can explain that.' } }
+LINES.tell_wait = { default = { 'Okay.', 'Sure.', 'Alright.' }, nervous = { 'Okay. Is something wrong?' },
+                    rude = { 'How long is this going to take?', 'Hurry up, then.' } }
+LINES.tell_ride = { default = { 'Thank you.', 'Thanks, officer. I appreciate it.' }, rude = { 'Fine.' } }
+LINES.tell_arrest = { default = { 'This is a mistake.', 'Can I call someone?' }, nervous = { "Please, I didn't mean it." },
+                      rude = { 'I want a lawyer.' }, warrant = { '...Yeah. Okay.', 'Come on, man...' } }
+LINES.tell_rights = { default = { 'I understand.', 'Yes.', 'Okay.' }, rude = { 'I want a lawyer.', "I'm not saying anything." } }
 Dialogue.LINES = LINES
 
 -- Questions whose answer depends on more than the secret: they choose their own line set.
@@ -725,6 +834,7 @@ local function context(o, ctx)
     local s, out = ctx.stop, { passengers = 0 }
     if not s then return out end
     out.still = s.foot or s.parked -- not pulled over: walked up to on foot, or sat in a parked car
+    out.no_ride = s.towed or (s.driver and s.driver.cuffed)
     for _, x in pairs(s.occ or {}) do
         if x.role == 'passenger' then
             out.passengers = out.passengers + 1
@@ -741,6 +851,18 @@ local function context(o, ctx)
     return out
 end
 
+local DL_TEXT = { Suspended = 'your licence is suspended', Revoked = 'your licence is revoked', Expired = 'your licence has expired',
+                  None = "you don't have a licence" }
+
+-- What they're under arrest for, as far as the officer knows: the first that fits, or nothing said.
+local function arrest_for(o)
+    local p, v, f, driver = o.identified or {}, o.vehicle or {}, o.facts or {}, o.role == 'driver'
+    return p.warrant and ' on an outstanding warrant' or (driver and v.stolen) and ' for possession of a stolen vehicle'
+        or (driver and f.impaired) and ' for driving under the influence'
+        or (driver and p.dl == 'None') and ' for driving without a licence'
+        or (driver and p.dl and p.dl ~= 'Valid') and (' for driving on a %s licence'):format(p.dl:lower()) or ''
+end
+
 local function vars_for(o, ctx)
     local p, t, f = o.person or {}, o.truth, o.facts
     local who = t.id == 'alias' and t.alias or p -- the false name, every time
@@ -750,8 +872,9 @@ local function vars_for(o, ctx)
     return {
         first = who.first, last = who.last, dob = who.dob, age = year and (os.date('*t').year - year) or '',
         street = (p.address or ''):gsub('^%d+%s+', ''), owner = owner, owner_first = owner:match('^(%S+)') or owner,
-        dest = f.dest, from = f.from, amount = f.amount, when = f.when, drug = drug, found = f.found,
+        dest = f.dest, from = f.from, amount = f.amount, when = f.when, drug = drug, found = f.found, fault = f.fault,
         driver_first = ctx.driver_first or 'the driver', driver_dest = ctx.driver_dest, p_dest = ctx.p_dest,
+        lic = DL_TEXT[(o.identified or {}).dl], arrest = arrest_for(o),
     }
 end
 
@@ -824,7 +947,7 @@ end
 function Dialogue.label(q, o, ctx)
     local def = def_of(q, o)
     o.facts = o.facts or {}
-    return def and fill(o.role == 'pedestrian' and def.foot or def.label, vars_for(o, context(o, ctx))) or q
+    return def and fill(def.said or (o.role == 'pedestrian' and def.foot) or def.label, vars_for(o, context(o, ctx))) or q
 end
 
 function Dialogue.can_ask(q, o, ctx)
@@ -847,7 +970,8 @@ function Dialogue.available(o, ctx)
     for _, def in ipairs(Dialogue.QUESTIONS) do
         if open(def, o, ctx) then
             out[#out + 1] = { id = def.id, cat = def.cat, label = fill(o.role == 'pedestrian' and def.foot or def.label, vars),
-                              asked = (o.asked or {})[def.id] == true, follow = def.needs ~= nil or def.when ~= nil }
+                              asked = (o.asked or {})[def.id] == true,
+                              follow = def.cat ~= 'tell' and (def.needs ~= nil or def.when ~= nil) }
         end
     end
     return out

@@ -211,12 +211,34 @@ function grid(cols, rows, empty) {
 }
 
 // Click selects a row; double-click or Enter opens it, like the desktop CAD.
+// Small sounds, made here (no files): a query coming back, a report saved or signed.
+const sfx = (() => {
+    let ctx;
+    const tone = (hz, at, len, vol) => {
+        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + at;
+        o.frequency.value = hz;
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.connect(g).connect(ctx.destination);
+        o.start(t);
+        o.stop(t + len);
+    };
+    const play = (f) => { try { f(); } catch { /* no audio: nothing lost */ } };
+    return {
+        ran: () => play(() => { tone(880, 0, 0.07, 0.05); tone(1175, 0.08, 0.09, 0.05); }),
+        saved: () => play(() => tone(660, 0, 0.1, 0.05)),
+        signed: () => play(() => { tone(660, 0, 0.08, 0.05); tone(880, 0.09, 0.08, 0.05); tone(1320, 0.18, 0.14, 0.05); }),
+    };
+})();
+
 function wire(el) {
     el.querySelectorAll('tbody tr[tabindex]').forEach((tr) => {
         tr.onclick = () => { el.querySelectorAll('tr.sel').forEach((x) => x.classList.remove('sel')); tr.classList.add('sel'); };
         if (!tr.dataset.open) return;
-        tr.ondblclick = () => openItem(tr.dataset.open);
-        tr.onkeydown = (e) => e.key === 'Enter' && openItem(tr.dataset.open);
+        const go = () => (tr.dataset.open.startsWith('join:') ? joinCall(tr.dataset.open.slice(5)) : openItem(tr.dataset.open));
+        tr.ondblclick = go;
+        tr.onkeydown = (e) => e.key === 'Enter' && go();
     });
 }
 
@@ -250,6 +272,20 @@ function callRows(list) {
     });
 }
 
+// c3r's calls: double-click one to attach to it, whoever's on it, popup or not.
+function c3rRows(list) {
+    return arr(list).filter((c) => !c.joined).map((c) => ({ open: `join:${c.id}`, cells: [['C' + c.id, 'cy'], [String(c.name || '').toUpperCase(), 'cy'],
+        [c.street || ''], [''], [c.priority ?? ''], [c.units ? `${c.units} ON` : 'OPEN', 'ye'], [''], ['Double-click to attach']] }));
+}
+
+async function joinCall(id) {
+    const r = await req('joinCall', { id });
+    if (r.error) return toast(r.error);
+    toast('Attached to the call.');
+    await refresh();
+    rerender();
+}
+
 const CALL_COLS = [['Call#', '58px'], ['Nature', '22%'], ['Location', ''], ['Zone', '12%'], ['P', '26px'], ['Status', '62px'], ['Time', '58px'], ['Units', '12%']];
 
 // ─── home: all calls + all units ─────────────────────────────────────────────
@@ -264,7 +300,7 @@ function renderBoard(token) {
     if (stale(token) || !$('#calls')) return;
     const keep = (id) => $(`#${id} tr.sel`)?.dataset.open; // keep the selection across refreshes
     const selCall = keep('calls'), selUnit = keep('units');
-    $('#calls').innerHTML = grid(CALL_COLS, callRows(init.calls), 'No active calls.');
+    $('#calls').innerHTML = grid(CALL_COLS, [...c3rRows(init.c3r), ...callRows(init.calls)], 'No active calls.');
     $('#units').innerHTML = grid([['Unit', '13%'], ['Status', '62px'], ['Time', '58px'], ['Call#', '58px'], ['Zone', '12%'], ['Location', '22%'], ['Description', '']],
         arr(init.units).map((u) => {
             const [loc, zone] = splitLoc(u.location);
@@ -346,6 +382,7 @@ async function runQuery(token, q) {
     if (!q.trim()) return ($('#results').innerHTML = '');
     const res = await req('search', { q });
     if (stale(token) || $('#q')?.value !== q) return;
+    sfx.ran();
     const vehicles = arr(res.vehicles), people = arr(res.people);
     $('#results').innerHTML = `<div class="sect">Vehicles (${vehicles.length}) <small>double-click to open</small></div>
         <div class="pane">${grid([['Plate', '90px'], ['Year', '52px'], ['Color', '12%'], ['Make', '14%'], ['Model', '14%'], ['Owner', ''], ['Flags', '22%']],
@@ -601,6 +638,7 @@ async function reportScreen(token, id, presetForm) {
         const res = await req('save', { id: s.id, form, charges: chosen(), narrative: narr.value, auto, sign });
         if (res.error) return toast(res.error);
         delete unsaved[s.id];
+        (sign ? sfx.signed : sfx.saved)();
         toast(sign ? `Incident #${s.id} signed.` : `Incident #${s.id} saved.`);
         await refresh();
         rerender();
@@ -956,6 +994,7 @@ function openSettings() {
     if (CIV || !$('#signon').hidden) return;
     styleBefore = STYLES.find((x) => document.body.classList.contains(x)) || 'classic';
     $('#setcs').value = init.prefs?.callsign || '';
+    $('#setpop').checked = init.prefs?.popups !== false;
     document.querySelectorAll('input[name=style]').forEach((r) => (r.checked = r.value === styleBefore));
     $('#seterr').textContent = '';
     $('#veil').hidden = false;
@@ -973,7 +1012,7 @@ $('#gear').onclick = openSettings;
 $('#setcancel').onclick = () => closeSettings();
 $('#setsave').onclick = async () => {
     const style = document.querySelector('input[name=style]:checked')?.value || 'modern';
-    const r = await req('settings', { callsign: $('#setcs').value, style });
+    const r = await req('settings', { callsign: $('#setcs').value, style, popups: $('#setpop').checked });
     if (!r || r.error) { $('#seterr').textContent = r?.error || 'No answer from the server.'; return; }
     applyStyle(r.prefs?.style || style);
     closeSettings(true);

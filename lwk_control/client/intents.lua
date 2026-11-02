@@ -39,7 +39,7 @@ function LikelyIntents()
         add({ 'plate_check', 'name_check', 'request_tow', 'request_police', 'request_ambulance',
               'hold_traffic', 'release_traffic', 'pursuit_backup', 'request_cover', 'complete_callout' })
     end
-    if State.pursuit then add({ 'pursuit_backup', 'air_support', 'cancel_backup', 'panic', 'plate_check' }) end
+    if State.pursuit then add({ 'cancel_pursuit', 'pursuit_backup', 'air_support', 'cancel_backup', 'panic', 'plate_check' }) end
     if GetGameTimer() < State.offer_until or Pd('isOfferedCallout') then add({ 'accept_callout' }) end
     if Pd('isOnCallout') then
         add({ 'complete_callout', 'where_call', 'status_10-97', 'request_ambulance', 'request_coroner',
@@ -266,6 +266,13 @@ AddIntent({
     end,
 })
 
+-- The same, typed: dispatch answers as it does on the radio.
+RegisterCommand('togglecalls', function()
+    if not LocalPlayer.state.c3rDuty then return end
+    State.calls_held = not State.calls_held
+    TriggerServerEvent('lwk_control:setOffers', not State.calls_held)
+end, false)
+
 -- ─── checks ───────────────────────────────────────────────────────────────────
 
 function RunPlateCheck(plate)
@@ -323,6 +330,16 @@ AddIntent({
     say = { 'backup', 'back up', 'additional units', 'air support', 'air unit', 'helicopter', 'chopper' },
     run = function()
         local ok, reason = Pd('cancelPursuitBackup')
+        if not ok then return Reply('unable', '~r~Unable: ' .. reason_text(reason)) end
+        Reply('cancelled')
+    end,
+})
+
+AddIntent({ -- "cancel the pursuit", "call off the chase": not chasing them any more (the same as /cancelpursuit)
+    id = 'cancel_pursuit', verb = 'cancel', confirm = true, label = 'call off the pursuit',
+    say = { 'the pursuit', 'the chase' },
+    run = function()
+        local ok, reason = Pd('cancelPursuit')
         if not ok then return Reply('unable', '~r~Unable: ' .. reason_text(reason)) end
         Reply('cancelled')
     end,

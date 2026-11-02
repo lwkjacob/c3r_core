@@ -188,6 +188,10 @@ local function request_stop(veh, opts)
     end)
 end
 
+-- Siren scripts (LVC, Lux) take the horn and siren keys for themselves: once disabled, a press only shows up as a disabled one.
+local function just_pressed(key) return IsControlJustPressed(0, key) or IsDisabledControlJustPressed(0, key) end
+local HORN, SIREN_KEYS = 86, { 19, 80 } -- (their siren on/off, and held siren)
+
 CreateThread(function()
     local next_scan, siren_was = 0, false
     while true do
@@ -202,9 +206,11 @@ CreateThread(function()
                 stop_targeting('They got too far away.')
             else
                 ring(c.x, c.y, c.z - 0.25, 3.6, 210) -- lifted onto the car
-                -- the signal: lights or siren switched on, or a tap of the horn
+                -- the signal: lights switched on, a tap of the horn, or with the lights already on, the siren
                 local siren = IsVehicleSirenOn(own)
-                if not asking and ((siren and not siren_was) or IsControlJustPressed(0, 86)) then request_stop(locked) end
+                local signal = (siren and not siren_was) or just_pressed(HORN)
+                for _, key in ipairs(SIREN_KEYS) do signal = signal or (siren and just_pressed(key)) end
+                if not asking and signal then request_stop(locked) end
                 siren_was = siren
             end
             Wait(0)
@@ -216,8 +222,9 @@ CreateThread(function()
                 local car = car_under(own, p)
                 if car then
                     locked, siren_was = car, IsVehicleSirenOn(own)
-                    Prompt('target', 'alert', 'Vehicle locked',
-                        'Turn on your lights or siren, or tap the horn, to signal the driver to pull over.')
+                    Prompt('target', 'alert', 'Vehicle locked', siren_was
+                        and 'Your lights are on: use the siren or tap the horn to signal the driver to pull over.'
+                        or 'Turn on your lights or siren, or tap the horn, to signal the driver to pull over.')
                 end
             end
             Wait(0)
@@ -265,8 +272,10 @@ function RequestContact(ped, pa)
     if not DoesEntityExist(ped) or (not pa and (Stop or asking)) then return end
     local veh = GetVehiclePedIsIn(ped, false)
     if veh ~= 0 then
-        if GetPedInVehicleSeat(veh, -1) == 0 or IsPedAPlayer(GetPedInVehicleSeat(veh, -1)) or GetEntitySpeed(veh) > 1.0 then return end
-        return request_stop(veh, { parked = true, contact = ped })
+        local driver = GetPedInVehicleSeat(veh, -1)
+        if GetEntitySpeed(veh) > 1.0 or (driver ~= 0 and IsPedAPlayer(driver)) then return end
+        if driver ~= 0 then return request_stop(veh, { parked = true, contact = ped }) end
+        -- (nobody at the wheel, like the back of a patrol car: no stop of the car, just them, where they sit)
     end
     asking = true
     CreateThread(function()
@@ -657,6 +666,8 @@ local function pull_over(s)
     s.stopped = true
 end
 
+local shoot_and_run -- further down, with what the people in the car do
+
 -- While stopped: stay stopped, wind the windows down and look round when the officer walks up, and call
 -- the stop off when it can't go on.
 local function watch(s)
@@ -707,6 +718,10 @@ local function watch(s)
             if s.stopped and car then SetVehicleUndriveable(s.veh, true) end
         end
         if not s.assist and s.ped and s.stopped and not s.mode and IsPedInVehicle(s.ped, s.veh, false) then
+            if s.hint.gun and not s.fired and not s.felony and d < 7.0 and not IsPedInAnyVehicle(me, false) then
+                s.fired = true
+                CreateThread(function() shoot_and_run(s) end)
+            end
             if GetEntitySpeed(s.veh) > 1.5 then hold(s) end
             if not windows and d < 6.0 and not IsPedInAnyVehicle(me, false) then
                 for _, o in pairs(s.occ) do
@@ -731,7 +746,7 @@ exports('getStop', function()
     return { veh_net = s.veh_net, ped_net = s.ped_net, stopped = s.stopped == true, mode = s.mode, people = people }
 end)
 
-local pursuit, body -- the chase and their body language, further down with what the people in the car do
+local pursuit, body, lead -- further down with what the people in the car do
 
 -- Only chatting: someone on foot, or in a parked car, walked up to; nobody in cuffs or being walked. Walking off,
 -- or going to talk to someone else, ends it (menu.lua).
@@ -775,8 +790,9 @@ local function start_foot(people, hint, categories)
     local p = type(people) == 'table' and people[1]
     local ped = p and NetToPed(p.net) or 0
     if not DoesEntityExist(ped) then return TriggerServerEvent('c3r:stop:act', 'cancel') end
-    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = true, callout = p.callout, cuffed = p.cuffed,
-                away = hint.assist or nil }
+    local car = GetVehiclePedIsIn(ped, false)
+    local o = { net = p.net, ped = ped, role = 'pedestrian', look = p.look, out = car == 0, callout = p.callout, cuffed = p.cuffed,
+                seated = car ~= 0 and car or nil, away = hint.assist or nil }
     local s = { foot = true, veh = 0, ped = ped, ped_net = p.net, hint = hint, categories = categories or {},
                 occ = { [p.net] = o }, stopped = true, assist = hint.assist }
     Stop = s
@@ -816,12 +832,14 @@ RegisterNetEvent('c3r:stop:started', function(veh_net, people, hint, categories)
         s.stopped = true
         return Assisting(s)
     end
+    local ahead = Config.Pullover.default == 'front'
     if not s.parked then
         Prompt('stop', 'info', 'Traffic stop',
-            ('The driver is pulling over. Tap %s to change what they do.'):format(KeyName('+c3r_mode', 'U')), 9000)
+            (ahead and 'The driver is going ahead of you. Stop your car and they stop in front of you. Tap %s to change what they do.'
+                or 'The driver is pulling over. Tap %s to change what they do.'):format(KeyName('+c3r_mode', 'U')), 9000)
     end
     CreateThread(function()
-        if s.hint.flee then pursuit(s) elseif s.parked then park(s) else pull_over(s) end
+        if s.hint.flee then pursuit(s) elseif s.parked then park(s) elseif ahead then lead(s) else pull_over(s) end
     end)
     CreateThread(function() watch(s) end)
     CreateThread(function() body(s) end)
@@ -1114,14 +1132,16 @@ end
 
 function TASKS.unseat(s, o, mine)
     local car = o.seated
-    o.seated, Custody[o.net] = nil, nil
+    o.seated, o.out, Custody[o.net] = nil, true, nil
     if car and IsPedInVehicle(o.ped, car, false) then
         TaskLeaveVehicle(o.ped, car, 16)
         wait_until(3000, function() return not IsPedInAnyVehicle(o.ped, false) end)
     end
-    if current(s, o, mine) then
+    if current(s, o, mine) and o.cuffed then
         o.anchor = GetEntityCoords(o.ped)
         cuffed_idle(o.ped)
+    else
+        settle(s, o, mine)
     end
 end
 
@@ -1416,6 +1436,41 @@ local function run_task(name, net, arg)
 end
 RegisterNetEvent('c3r:stop:task', run_task)
 
+-- The officer's at the window, and they've got a gun: a few shots, then off, and the server starts the chase.
+shoot_and_run = function(s)
+    if Stop ~= s or not (control(s.ped) and control(s.veh)) or not IsPedInVehicle(s.ped, s.veh, false) then return end
+    local me, gun = PlayerPedId(), GetHashKey('WEAPON_PISTOL')
+    GiveWeaponToPed(s.ped, gun, 40, false, true)
+    SetCurrentPedWeapon(s.ped, gun, true)
+    TaskDriveBy(s.ped, me, 0, 0.0, 0.0, 0.0, 30.0, 35, true, GetHashKey('FIRING_PATTERN_BURST_FIRE_DRIVEBY')) -- UNVERIFIED firing pattern
+    Wait(3500)
+    if not DoesEntityExist(s.ped) or IsEntityDead(s.ped) then return end
+    SetCurrentPedWeapon(s.ped, GetHashKey('WEAPON_UNARMED'), true) -- (it's in the car now: a search finds it)
+    RemoveWeaponFromPed(s.ped, gun)
+    if Stop == s and IsPedInVehicle(s.ped, s.veh, false) then TriggerServerEvent('c3r:stop:act', 'shots', nil, s.ped_net, true) end
+end
+
+-- /cancelpursuit, or dispatch told so: not chasing them any more. They got away: the warrant or BOLO goes on the record.
+function CancelPursuit()
+    local s = Stop
+    if not s then return false, 'no_pursuit' end
+    local running
+    for net, o in pairs(s.occ) do
+        if o.fleeing then
+            running, o.fleeing, o.escaped, s.lost_on_foot = net, false, true, true
+        end
+    end
+    if not s.pursuit and not running then return false, 'no_pursuit' end
+    Prompt('stop', 'info', 'Pursuit called off', 'They got away.', 5000)
+    TriggerServerEvent('c3r:stop:pursuit', 'lost', running or s.ped_net, running ~= nil)
+    pcall(function() exports.c3r:cancelPursuitBackup() end)
+    return true
+end
+exports('cancelPursuit', CancelPursuit)
+RegisterCommand('cancelpursuit', function()
+    if not CancelPursuit() then Prompt('stop', 'info', 'No pursuit', 'You are not chasing anyone.', 4000) end
+end, false)
+
 -- Pulled over? No: flat out, through the lights, until they're boxed in, wrecked or stuck. Then they give
 -- up, or bail out and run (the server's call). Too far behind for 10 s and they got away.
 pursuit = function(s)
@@ -1577,7 +1632,22 @@ local function steer(s)
     if DoesEntityExist(s.veh) then SetEntityMaxSpeed(s.veh, 500.0) end
 end
 
-local function set_mode(s, id)
+-- Config.Modes.gap, plus however much longer than a car they are. (A semi's trailer only counts when it's ahead of
+-- the officer: that's when it ends up between the two.)
+local CAR_LENGTH = 6.0
+local function follow_gap(s, ahead)
+    local function length(v)
+        local low, high = GetModelDimensions(GetEntityModel(v))
+        return high.y - low.y
+    end
+    local long = length(s.veh)
+    local has, trailer = GetVehicleTrailerVehicle(s.veh)
+    if ahead and has then long = long + length(trailer) end
+    return Config.Modes.gap + math.max(0.0, long - CAR_LENGTH)
+end
+
+-- auto: the car's being led for the officer (lead), not by a choice from the mode key.
+local function set_mode(s, id, auto)
     if id == 'cancel' then return TriggerServerEvent('c3r:stop:act', 'cancel') end
     CreateThread(function()
         if not (control(s.veh) and control(s.ped)) then return Notify('~b~C~w~3~r~R~s~ Unable: no control of the car.') end
@@ -1588,24 +1658,54 @@ local function set_mode(s, id)
         if (id == 'front' or id == 'behind') and own == 0 then
             return Prompt('mode', 'info', 'Get in your car', 'They follow your vehicle, so you need to be in it.', 4000)
         end
-        s.manual, s.stopped = true, false -- the automatic pull-over stops steering them from here on
+        s.manual, s.stopped, s.auto = true, false, auto -- the automatic pull-over stops steering them from here on
         s.mode = id ~= 'halt' and id or nil
         s.kept = id == 'halt' -- (the officer told them to stay: driving off doesn't bring them along, see below)
         SetVehicleUndriveable(s.veh, false)
         ClearPedTasks(s.ped)
         if id == 'front' then
             SetEntityMaxSpeed(s.veh, 500.0)
-            TaskVehicleEscort(s.ped, s.veh, own, 0, Config.Modes.speed, Config.Pullover.bend_style, Config.Modes.gap, 0, 20.0)
+            TaskVehicleEscort(s.ped, s.veh, own, 0, Config.Modes.speed, Config.Pullover.bend_style, follow_gap(s, true), 0, 20.0)
         elseif id == 'behind' then
             SetEntityMaxSpeed(s.veh, 500.0)
-            TaskVehicleFollow(s.ped, s.veh, own, Config.Modes.speed, Config.Pullover.bend_style, math.floor(Config.Modes.gap))
+            TaskVehicleFollow(s.ped, s.veh, own, Config.Modes.speed, Config.Pullover.bend_style, math.floor(follow_gap(s)))
         elseif id == 'steer' then
             CreateThread(function() steer(s) end)
         else
             halt(s)
         end
-        Prompt('stop', 'info', MODE_PROMPT[id], ('Tap %s to change mode.'):format(mode_key()), id == 'halt' and 5000 or nil)
+        if not auto then Prompt('stop', 'info', MODE_PROMPT[id], ('Tap %s to change mode.'):format(mode_key()), id == 'halt' and 5000 or nil) end
     end)
+end
+
+-- Led for the officer (not by a mode they chose): the car stops, or they get out, and they stop there too, in front of it.
+local function until_stopped(s)
+    local still
+    while Stop == s and s.auto do
+        local own = GetVehiclePedIsIn(PlayerPedId(), false)
+        if own == 0 or GetEntitySpeed(own) < 1.0 then
+            still = still or GetGameTimer()
+            if GetGameTimer() - still > 2000 then
+                s.auto, s.manual, s.mode = nil, false, nil
+                return halt(s)
+            end
+        else
+            still = nil
+        end
+        Wait(250)
+    end
+end
+
+-- On the lights: they go ahead of the officer's car, and stop where they are when it stops, or the officer gets out. Any
+-- choice from the mode key takes over from this.
+lead = function(s)
+    if not claim(s) or gone(s) then return end
+    Wait(s.hint.slow and 2500 or 800) -- noticing the lights takes a moment (longer when drunk)
+    if gone(s) then return end
+    if GetVehiclePedIsIn(PlayerPedId(), false) == 0 then return pull_over(s) end
+    s.auto = true
+    set_mode(s, 'front', true)
+    until_stopped(s)
 end
 
 local function close_picker()
@@ -1890,7 +1990,9 @@ local function lead_on(s)
         if o.out or o.cuffed or o.fleeing or not DoesEntityExist(o.ped) or not IsPedInVehicle(o.ped, s.veh, false) then return end
     end
     s.leading, s.waited = true, nil
-    set_mode(s, 'front')
+    s.auto = true
+    set_mode(s, 'front', true)
+    CreateThread(function() until_stopped(s) end)
     SetTimeout(3000, function() s.leading = nil end)
 end
 
@@ -1905,7 +2007,7 @@ CreateThread(function()
         if s and was_in and not now_in then
             Prompt('stop', 'info', 'Traffic stop', ('Walk up and press %s to talk to them. Hold %s at their car for the vehicle.')
                 :format(KeyName('+c3r_interact', 'E'), KeyName('+c3r_radial', 'G')), 7000)
-            if s.manual and not s.stopped and IsPedInVehicle(s.ped, s.veh, false) then
+            if s.manual and not s.auto and not s.stopped and IsPedInVehicle(s.ped, s.veh, false) then
                 CreateThread(function()
                     if control(s.veh) and control(s.ped) then
                         ClearPedTasks(s.ped)
@@ -2222,8 +2324,59 @@ RegisterNetEvent('c3r:stop:tow', function()
     CreateThread(function() TowCar(s.veh, s) end)
 end)
 
+-- Something the officer told someone comes with a call for a unit (a taxi): through dispatch, as ever.
+RegisterNetEvent('c3r:stop:call', function(kind) CallBackup(kind) end)
+
 -- A failed tow of the stop's car: it can be towed again.
 RegisterNetEvent('c3r:tow:retry', function(net)
     local s = Stop
     if s and s.towed and DoesEntityExist(s.veh) and NetworkGetNetworkIdFromEntity(s.veh) == net then s.towed = nil end
 end)
+
+-- ─── force delete ─────────────────────────────────────────────────────────────
+-- /fdp, /fdv: when something's stuck. On duty, nearest within 8 m, or what your gun's on; never a player or their car.
+
+local function nearest_in(pool, keep)
+    local at, best, best_d = GetEntityCoords(PlayerPedId()), nil, 8.0
+    for _, e in ipairs(GetGamePool(pool)) do
+        local d = #(GetEntityCoords(e) - at)
+        if d < best_d and keep(e) then best, best_d = e, d end
+    end
+    return best
+end
+
+-- Off any stop first, then gone: the server's job when it's networked (it can reach what this game doesn't own).
+local function force_delete(ent)
+    if not LocalPlayer.state.c3rDuty or not DoesEntityExist(ent) then return end
+    if Stop then
+        local mine = ent == Stop.veh
+        for _, o in pairs(Stop.occ) do mine = mine or o.ped == ent end
+        if mine then TriggerServerEvent('c3r:stop:act', 'cancel') end
+    end
+    if NetworkGetEntityIsNetworked(ent) then return TriggerServerEvent('c3r:force', NetworkGetNetworkIdFromEntity(ent)) end
+    SetEntityAsMissionEntity(ent, true, true)
+    DeleteEntity(ent)
+end
+
+RegisterCommand('fdp', function()
+    local me = PlayerPedId()
+    local ped = AimedPed() or nearest_in('CPed', function(p) return p ~= me and not IsPedAPlayer(p) end)
+    if not ped then return Prompt('stop', 'info', 'Nobody close', 'Nobody within 8 m to remove.', 3000) end
+    force_delete(ped)
+end, false)
+
+RegisterCommand('fdv', function()
+    local veh = nearest_in('CVehicle', function(v)
+        for seat = -1, GetVehicleMaxNumberOfPassengers(v) - 1 do
+            local p = GetPedInVehicleSeat(v, seat)
+            if p ~= 0 and IsPedAPlayer(p) then return false end
+        end
+        return true
+    end)
+    if not veh then return Prompt('stop', 'info', 'No vehicle close', 'No empty or AI vehicle within 8 m.', 3000) end
+    for seat = -1, GetVehicleMaxNumberOfPassengers(veh) - 1 do
+        local p = GetPedInVehicleSeat(veh, seat)
+        if p ~= 0 then force_delete(p) end
+    end
+    force_delete(veh)
+end, false)

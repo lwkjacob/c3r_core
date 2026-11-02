@@ -6,6 +6,7 @@ Config.Staged = {
     enabled = true,
     every = { 180, 300 },  -- s between violators
     lasts = 90,            -- s it keeps it up (pull it over before then)
+    fault = 0.35,          -- how often it's a car fault instead: a light out, a stuck blinker, a flat tyre
     -- what they're up to (relative weights, any numbers; a car already on file keeps its own story)
     secrets = { drunk = 4, stolen = 2, drugs = 2, warrant = 2, suspended = 2, unlicensed = 1, expired = 1, clean = 1 },
 }

@@ -1425,6 +1425,21 @@ end)
 
 -- ─── the contract (docs/contract.md) ──────────────────────────────────────────
 
+-- The open calls, for the MDT's board. -> { { id, name, street, priority, units, joined (src is on it) } }
+exports('openCalls', function(src)
+    local list = {}
+    for _, inc in pairs(Open) do
+        local r = record(inc)
+        list[#list + 1] = { id = r.id, name = r.name, street = r.street, priority = r.priority, units = count(inc.responders),
+                            joined = inc.responders[src] ~= nil }
+    end
+    table.sort(list, function(a, b) return a.id < b.id end)
+    return list
+end)
+
+-- Onto a call from the MDT. -> true | nil, reason
+exports('joinCall', function(src, id) return Callouts.respond(src, id) end)
+
 exports('setCalloutOffers', function(src, on)
     src = tonumber(src)
     if not src then return nil, 'no_player' end

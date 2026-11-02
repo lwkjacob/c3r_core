@@ -18,6 +18,8 @@ local Stops = {}     -- [officer src] = stop
 local ByVehicle = {} -- [vehicle net id] = officer src, so two officers can't stop the same car
 local Recent = {}    -- [plate] = { driver = generated, passengers = { [seat] = generated }, at }
 local Staged = {}    -- [vehicle net id] = officer src whose game is driving it as a staged violator
+local Faults = {}    -- [plate] = what's wrong with a staged car, in the officer's words
+local GUN_SECRETS = { warrant = true, stolen = true, drugs = true }
 
 local TALK_RANGE = 8.0 -- m, officer to the person, for anything said face to face
 local RECENT_SECONDS = 1800 -- a car stopped again within this keeps the same people
@@ -422,7 +424,9 @@ local function start_foot(src, p)
         say(s, shout[1], 'officer')
         say(s, Dialogue.answer(shout[2], o), o)
     end
-    if ped == 0 or IsPedAPlayer(ped) or GetVehiclePedIsIn(ped, false) ~= 0 or dist(src, ped) > (order and Config.PaRange or TALK_RANGE) then return end
+    local car = ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0 -- (in a car, only one nobody's at the wheel of: the back of a patrol car)
+    if ped == 0 or IsPedAPlayer(ped) or (car ~= 0 and GetPedInVehicleSeat(car, -1) ~= 0)
+        or dist(src, ped) > (order and Config.PaRange or TALK_RANGE) then return end
     local key = 'ped:' .. p.net
     -- already someone's: another unit talking to them on foot, or one of the people on their stop: join it
     local theirs = (ByVehicle[key] and Stops[ByVehicle[key]]) or stop_of(p.net)
@@ -561,7 +565,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     gen.at = os.time()
     if not empty then Recent[plate] = gen end
     for p, r in pairs(Recent) do
-        if os.time() - r.at > RECENT_SECONDS then Recent[p] = nil end
+        if os.time() - r.at > RECENT_SECONDS then Recent[p], Faults[p] = nil, nil end
     end
 
     local vehicle = gen.driver.vehicle
@@ -598,8 +602,11 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
         s.car_items[#s.car_items + 1] = { name = 'Ignition damaged, hot-wired', owner = s.driver or absent }
     end
     Stops[src] = s
+    if not co and Faults[plate] and s.driver then s.driver.facts.fault = Faults[plate] end
     -- something to hide: they may run instead of pulling over
     s.pursuit = not parked and ((co and co.spec.runs == true) or (not co and chance(Config.Flee.car, gen.driver.truth.secret))) or nil
+    -- not running, but with something to hide: as the officer walks up, they shoot and go
+    s.gun = not parked and not empty and not co and not s.pursuit and GUN_SECRETS[gen.driver.truth.secret] and math.random() < (Config.Flee.gun or 0) or nil
     -- who's driving isn't known until they're identified (ID or name): see identify()
     if empty then
         TriggerEvent('c3r:vehicleContact', src, vehicle) -- nobody to stop: a car looked at
@@ -611,7 +618,7 @@ RegisterNetEvent('c3r:stop:start', function(veh_net, people, info, opts)
     end
     -- only what changes how they drive: the truth itself stays on the server
     TriggerClientEvent('c3r:stop:started', src, veh_net, list, { slow = gen.driver.truth.secret == 'drunk',
-        flee = s.pursuit, bail = s.pursuit and math.random() < (co and co.spec.bail or Config.Flee.bail),
+        flee = s.pursuit, gun = s.gun, bail = s.pursuit and math.random() < (co and co.spec.bail or Config.Flee.bail),
         parked = parked or nil, empty = empty or nil,
         contact = parked and math.type(opts.contact) == 'integer' and s.occ[opts.contact] and opts.contact or nil },
         co and { Dialogue.CALL, table.unpack(Dialogue.CATEGORIES) } or Dialogue.CATEGORIES)
@@ -644,7 +651,12 @@ function ACT.ask(s, o, q)
     if not q or not Dialogue.can_ask(q, o, { stop = s }) then return end -- not asked yet, or a follow-up not opened
     say(s, Dialogue.label(q, o, { stop = s }), 'officer')
     say(s, Dialogue.answer(q, o, { stop = s }), o)
+    if q == 'why' then o.facts.why_asked = 'yes' end
     if q == 'name' then identify(s, o, given_identity(o)) end
+    local def = Dialogue.DEF[q] or {}
+    if def.note then note(s, def.note:format(label(o))) end
+    if def.calls then TriggerClientEvent('c3r:stop:call', s.src, def.calls) end
+    if def.tow and not s.towed then s.tow_why = def.tow end
 end
 
 -- The driver hands over licence and registration; a passenger, just their ID.
@@ -682,6 +694,7 @@ function ACT.breath(s, o)
     say(s, Dialogue.answer('breath', o), o)
     local bac = tonumber(o.truth.bac) or math.random(0, 2) / 100
     local over = bac >= Config.Tests.bac_limit
+    if over then o.facts.impaired = 'yes' end
     result(s, 'Breathalyzer', ('%.3f BAC%s'):format(bac, over and ' · over the limit' or ''), over)
     note(s, ('Breathalyzer, %s: %.3f BAC%s'):format(label(o), bac, over and ' (over the limit)' or ''))
 end
@@ -698,6 +711,7 @@ function ACT.drugs(s, o)
         end
         found = found or o.swab or 'THC' -- (swab: a callout says what's really in them)
     end
+    if found then o.facts.impaired = 'yes' end
     result(s, 'Drug swab', found and ('Positive · ' .. found) or 'Negative', found ~= nil)
     note(s, ('Drug swab, %s: %s'):format(label(o), found and ('positive for ' .. found) or 'negative'))
 end
@@ -713,6 +727,18 @@ local function order(officer_line, answer, task)
 end
 
 local GUILTY = { drunk = true, drugs = true, warrant = true, stolen = true }
+
+-- As the officer walked up, they fired on them. Now they're off.
+function ACT.shots(s, o)
+    local d = s.driver
+    if not s.gun or o ~= d or s.pursuit or s.felony or o.cuffed or o.out_srv then return end
+    s.gun, s.pursuit = nil, true
+    d.facts.ran = 'yes'
+    s.car_items[#s.car_items + 1] = { name = 'Pistol, recently fired', owner = d }
+    note(s, 'Driver fired on the officer and fled')
+    TriggerEvent('c3r:pursuitStarted', s.src, d.identified, s.vehicle)
+    TriggerClientEvent('c3r:stop:fleeCar', s.src, math.random() < Config.Flee.bail)
+end
 
 -- Someone with a reason to run, once per stop: told to get out or turning to be cuffed, they bolt.
 local function runs(s, o, odds)
@@ -880,7 +906,7 @@ end
 local seat = custody('Watch your head.', 'seat', 'seat')
 local sit = custody('Sit down on the ground for me.', 'sit', 'sit')
 function ACT.seat(s, o) o.escorted, o.seated_by = nil, o.cuffed and s.src or nil seat(s, o) end
-local unseat = custody('Step out for me.', 'unseat', 'unseat')
+local unseat = order('Step out for me.', 'unseat', 'unseat')
 function ACT.unseat(s, o) o.seated_by = nil unseat(s, o) end
 function ACT.sit(s, o) o.escorted = nil sit(s, o) end
 ACT.getup = custody('Alright, on your feet.', 'getup', 'getup')
@@ -937,7 +963,7 @@ function ACT.tow(s)
     if s.towed then return end
     s.towed = true
     local v, d = s.vehicle or {}, s.driver
-    local why = (v.stolen or (d and d.truth.secret == 'stolen')) and 'recovered stolen vehicle'
+    local why = s.tow_why or (v.stolen or (d and d.truth.secret == 'stolen')) and 'recovered stolen vehicle'
         or (d and d.cuffed) and 'driver arrested'
         or v.ins_valid == false and 'no insurance' or v.reg_valid == false and 'expired registration'
         or (d and d.person and d.person.dl ~= 'Valid') and 'unlicensed driver' or 'officer discretion'
@@ -951,10 +977,10 @@ ACT.release = ending('release', "You're free to go. Drive safe.") -- (on foot, o
 local CAR_ACTS = { search_car = true, tow = true, felony = true } -- done at the car, not to a person
 -- Said, or written down: nobody is moved, so whoever's game has the person keeps them. Anything else moves them,
 -- and hands them to the acting officer's game first.
-local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true,
+local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true, shots = true,
                search_car = true, tow = true, felony = true }
 -- Shouted (the PA, or a felony stop's orders): heard from Config.PaRange. Everything else is said face to face.
-local SHOUTED = { exit = true, back = true, handsup = true, kneel = true, turn = true, stay = true, felony = true, fel_out = true, fel_back = true, fel_kneel = true }
+local SHOUTED = { exit = true, back = true, handsup = true, kneel = true, turn = true, stay = true, felony = true, shots = true, fel_out = true, fel_back = true, fel_kneel = true }
 local FELONY_ONLY = { felony = true, fel_out = true, fel_back = true, fel_kneel = true }
 
 -- target = the occupant's ped net id (the driver when missing)
@@ -1041,6 +1067,9 @@ end)
 -- Recent so pulling it over (or running its plate) finds the same person, and the game is told how to drive it.
 
 local StagedAt = {} -- [src] = os.time() of their last staged car
+local FAULT_KEYS = { 'tail', 'head', 'blinker', 'tyre' }
+local FAULT_TEXT = { tail = 'one of your tail lights is out', head = 'your headlights are out',
+                     blinker = 'your blinker has been on for miles', tyre = 'you are driving on a flat tyre' }
 local BEHAVIOUR = { drunk = { 'weave' }, drugs = { 'weave', 'speed' }, stolen = { 'speed' }, warrant = { 'speed' },
                     suspended = { 'lights', 'speed' }, unlicensed = { 'lights', 'speed' }, expired = { 'lights' },
                     clean = { 'speed' }, nervous = { 'lights' } }
@@ -1083,8 +1112,26 @@ RegisterNetEvent('c3r:staged:pick', function(veh_net, people, info)
     Staged[veh_net] = src
     SetTimeout((Config.Staged.lasts + 30) * 1000, function() if Staged[veh_net] == src then Staged[veh_net] = nil end end)
     local ways = BEHAVIOUR[gen.truth.secret] or { 'speed' }
-    TriggerClientEvent('c3r:staged:drive', src, veh_net, ways[math.random(#ways)])
+    local fault = math.random() < (Config.Staged.fault or 0) and FAULT_KEYS[math.random(#FAULT_KEYS)] or nil
+    if fault then Faults[plate] = FAULT_TEXT[fault] end -- (it stays broken: pulled over later, it's still what they were stopped for)
+    TriggerClientEvent('c3r:staged:drive', src, veh_net, fault and 'fault' or ways[math.random(#ways)], fault)
     log('staged for %d: %s (%s)', src, plate, gen.truth.secret)
+end)
+
+-- /fdp, /fdv (client/stop.lua): something stuck, gone. On duty, within reach, never a player or their car.
+RegisterNetEvent('c3r:force', function(net)
+    local src = source
+    local ent = math.type(net) == 'integer' and NetworkGetEntityFromNetworkId(net) or 0
+    if not IsOnDuty(src) or ent == 0 or dist(src, ent) > 45.0 then return end -- (a gun's reach: Config.PaRange, and a little)
+    if GetEntityType(ent) == 1 and IsPedAPlayer(ent) then return end
+    if GetEntityType(ent) == 2 then
+        for seat = -1, 6 do
+            local ped = GetPedInVehicleSeat(ent, seat)
+            if ped ~= 0 and IsPedAPlayer(ped) then return end
+        end
+    end
+    print(('[c3r] %s force deleted %s'):format(GetPlayerName(src) or src, GetEntityType(ent) == 2 and 'a vehicle' or 'a ped'))
+    DeleteEntity(ent)
 end)
 
 -- ─── backup (client/backup.lua) ──────────────────────────────────────────────

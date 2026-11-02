@@ -92,10 +92,23 @@ local function release(a)
     end
 end
 
+-- Something wrong with the car, plain to see from behind it. Damage names UNVERIFIED by eye: SET_VEHICLE_DAMAGE's offsets are
+-- from the car's middle, and a small hit at a corner breaks the light there.
+local FAULTS = {
+    tail = function(veh)
+        local low, high = GetModelDimensions(GetEntityModel(veh))
+        SetVehicleDamage(veh, high.x * 0.8, low.y, 0.3, 150.0, 0.4, true)
+    end,
+    head = function(veh) SetVehicleLights(veh, 1) end,
+    blinker = function(veh) SetVehicleIndicatorLights(veh, 1, true) end,
+    tyre = function(veh) SetVehicleTyreBurst(veh, 0, false, 1000.0) end,
+}
+
 local STYLES = { -- speed (m/s), driving style
     weave = { 16.0, 786603 },   -- ordinary driving, with the swerves on top
     speed = { 38.0, 786468 },   -- flat out, round the traffic, through the lights
     lights = { 20.0, 786468 },  -- not fast, but no stopping at the lights
+    fault = { 13.0, 786603 },   -- ordinary, unhurried: they don't know
 }
 
 local function drive(a)
@@ -106,6 +119,7 @@ local function drive(a)
     SetNetworkIdCanMigrate(PedToNet(a.ped), false)
     SetBlockingOfNonTemporaryEvents(a.ped, true)
     local st = STYLES[a.how] or STYLES.speed
+    if FAULTS[a.fault] then FAULTS[a.fault](a.veh) end
     TaskVehicleDriveWander(a.ped, a.veh, st[1], st[2])
     local next_swerve = GetGameTimer() + 2000
     while true do
@@ -129,13 +143,13 @@ local function drive(a)
     if active == a then active = nil end
 end
 
-RegisterNetEvent('c3r:staged:drive', function(veh_net, how)
+RegisterNetEvent('c3r:staged:drive', function(veh_net, how, fault)
     if active then return end
     local veh = NetToVeh(veh_net)
     if not DoesEntityExist(veh) then return end
     local ped = GetPedInVehicleSeat(veh, -1)
     if ped == 0 or IsPedAPlayer(ped) then return end
-    active = { veh = veh, ped = ped, net = veh_net, how = how, ends = GetGameTimer() + Config.Staged.lasts * 1000 }
+    active = { veh = veh, ped = ped, net = veh_net, how = how, fault = fault, ends = GetGameTimer() + Config.Staged.lasts * 1000 }
     CreateThread(function() drive(active) end)
 end)
 

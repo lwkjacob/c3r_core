@@ -1489,6 +1489,8 @@
               desc: s.role === 'driver' ? 'Their licence and registration.' : 'Their identification.' },
             { label: 'Questions', icon: 'talk', to: 'cats', badge: s.questions.filter(fresh).length || '', badgeNew: true,
               desc: 'Ask them something. What they say opens follow-ups.' },
+            s.questions.some((q) => q.cat === 'tell')
+                ? { label: 'Tell them', icon: 'file', to: 'q:tell:0', desc: "What's happening and why: a tow, an arrest, their papers." } : null,
             { label: 'Tests', icon: 'test', to: 'tests', desc: 'Breathalyzer, drug swab, field sobriety.' },
             { label: 'Search', icon: 'search', action: 'frisk', off: getOut, desc: 'Pat them down for weapons and contraband.' },
             cuffed ? { label: 'Custody', icon: 'cuffs', to: 'custody', desc: 'Escort them, seat them in your car, or uncuff them.' }
@@ -1517,7 +1519,8 @@
               desc: 'Eyes, walk-and-turn, one-leg stand.' },
         ] };
         if (at === 'orders') return { title: 'Orders', items: [
-            s.foot ? null
+            seated ? { label: 'Get out', icon: 'out', action: 'unseat', desc: 'Order them out of the vehicle.' }
+                : s.foot ? null
                 : out ? { label: 'Back in vehicle', icon: 'in', action: 'back', desc: 'Send them back to their seat.' }
                 : { label: 'Get out', icon: 'out', action: 'exit', desc: 'Order them out of the vehicle.' },
             s.following ? { label: 'Stay here', icon: 'hand', action: 'stay', desc: 'Stop them following you.' }
@@ -1541,7 +1544,7 @@
         ] };
         if (at === 'cats') return { title: 'Questions', items: s.categories
             .map((c) => ({ c, qs: s.questions.filter((q) => q.cat === c.id) }))
-            .filter((x) => x.qs.length) // nothing to ask this person here (a driver-only topic, say)
+            .filter((x) => x.qs.length && x.c.id !== 'tell') // nothing to ask this person here (a driver-only topic, say)
             .map(({ c, qs }) => ({ label: c.label, icon: CAT_ICONS[c.id] || 'talk', to: `q:${c.id}:0`, desc: c.desc,
                                   badge: qs.filter(fresh).length || '', badgeNew: true })) };
         const [, cat, page] = at.split(':');
@@ -1551,7 +1554,7 @@
             label: q.label, icon: q.asked ? 'asked' : 'ask', action: 'ask', arg: q.id, small: true,
             note: fresh(q) ? 'Follow-up' : q.asked ? 'Asked' : '', noteNew: fresh(q),
         }));
-        if (qs.length > from + PAGE) items.push({ label: 'More questions', icon: 'more', to: `q:${cat}:${Number(page) + 1}` });
+        if (qs.length > from + PAGE) items.push({ label: 'More', icon: 'more', to: `q:${cat}:${Number(page) + 1}` });
         return { title: c.label, items };
     }
 

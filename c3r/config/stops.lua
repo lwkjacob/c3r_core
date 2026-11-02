@@ -28,9 +28,10 @@ Config.Pullover = {
 Config.CancelDistance = 150.0 -- m: drive this far from the stop and it's cancelled
 
 -- The mode key's driving modes.
+Config.Pullover.default = 'front' -- on the lights: 'front' they go ahead of you and stop when you stop; 'kerb' they pull over by themselves
 Config.Modes = {
     speed = 12.0,       -- m/s (~27 mph) top speed while following in front / behind
-    gap = 4.0,          -- m they keep from your car while following
+    gap = 4.0,          -- m they keep from your car while following (more for anything longer than a car)
     steer_speed = 8.0,  -- m/s (~18 mph) top speed while you steer them with the arrow keys
 }
 
@@ -42,6 +43,7 @@ Config.Flee = {
     car = { warrant = 0.3, stolen = 0.4, drugs = 0.1, drunk = 0.08, suspended = 0.08, unlicensed = 0.05 }, -- run instead of pulling over
     foot = { warrant = 0.25, stolen = 0.25, drugs = 0.1 }, -- run when ordered out, or when you go to cuff them
     bail = 0.5,               -- a car chase that ends: they run for it on foot instead of giving up
+    gun = 0.10,               -- something to hide (warrant, stolen, drugs): as you walk up, they shoot and drive off
     refuse = 0.35,            -- rude, or with something to hide: refuse the first order to get out
     lose_distance = 250.0,    -- m: further than this for 10 s and they got away
     catch_distance = 2.5,     -- m: on foot, this close and they give up

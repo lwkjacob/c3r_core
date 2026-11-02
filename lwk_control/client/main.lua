@@ -421,9 +421,35 @@ end
 local talk_held = false -- "talk to subject" key (lwk_npcai); shares the one mic, so only one key at a time
 local pa_held = false   -- the PA key: the same mic again
 
+-- Holding the radio or PA key, your mic's live in pma-voice too, so players near you hear what you say. The PA carries
+-- further. (If pma-voice isn't running, nothing here does anything.) UNVERIFIED in game: SET_CONTROL_NORMAL standing in for
+-- the push-to-talk key.
+local voice_held, voice_far = false, false
+local function pma_on() return (Config.PmaVoice or {}).enabled ~= false and GetResourceState('pma-voice') == 'started' end
+local function voice_down(range)
+    if not pma_on() or voice_held then return end
+    voice_held = true
+    voice_far = range ~= nil
+    if range then pcall(function() exports['pma-voice']:overrideProximityRange(range + 0.0, true) end) end
+    CreateThread(function()
+        while voice_held do
+            SetControlNormal(0, 249, 1.0) -- INPUT_PUSH_TO_TALK
+            Wait(0)
+        end
+    end)
+end
+local function voice_up()
+    if not voice_held then return end
+    voice_held = false
+    if voice_far then pcall(function() exports['pma-voice']:clearProximityOverride() end) end
+    voice_far = false
+end
+AddEventHandler('onResourceStop', function(res) if res == GetCurrentResourceName() then voice_up() end end)
+
 RegisterCommand('+lwk_control_ptt', function()
     if IsPauseMenuActive() or talk_held or pa_held then return end
     ptt_held = true
+    voice_down()
     expire_mode()
     SendNUIMessage({ type = 'pttDown' })
     radio_anim_start()
@@ -432,6 +458,7 @@ end, false)
 RegisterCommand('-lwk_control_ptt', function()
     if not ptt_held then return end
     ptt_held = false
+    voice_up()
     SendNUIMessage({ type = 'pttUp' })
     radio_anim_stop()
 end, false)
@@ -442,11 +469,13 @@ RegisterKeyMapping('+lwk_control_ptt', 'Push to talk (lwk_control)', 'keyboard',
 RegisterCommand('+lwk_control_pa', function()
     if IsPauseMenuActive() or ptt_held or talk_held or pa_held then return end
     pa_held = true
+    voice_down((Config.PmaVoice or {}).pa_range)
     SendNUIMessage({ type = 'paDown' })
 end, false)
 RegisterCommand('-lwk_control_pa', function()
     if not pa_held then return end
     pa_held = false
+    voice_up()
     SendNUIMessage({ type = 'pttUp' })
 end, false)
 RegisterKeyMapping('+lwk_control_pa', 'PA: speak through the loudspeaker (lwk_control)', 'keyboard', Config.PaKey or 'n')

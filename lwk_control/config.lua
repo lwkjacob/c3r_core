@@ -14,6 +14,7 @@ Config.PreRollMs   = 300
 Config.MicProcessing = true
 
 Config.PttKey = 'h'
+Config.PmaVoice = { enabled = true, pa_range = 40.0 } -- talking to dispatch or on the PA also talks in pma-voice, so players nearby hear you (pa_range: m your voice carries on the PA)
 Config.PaKey = 'n' -- hold to speak through the PA (c3r stops: "pull over", "driver, step out", a felony stop's orders)
 
 -- Hand-to-shoulder radio animation while push-to-talk is held (other players see it).

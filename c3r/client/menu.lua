@@ -13,11 +13,12 @@ local browsing = nil -- { list = people, i = selected } while picking who to tal
 function PickingPerson() return browsing ~= nil end
 
 local NEAR_PERSON = 2.0 -- m: at their window, or beside them once out
+local NEAR_SEAT = 3.0   -- m: someone sat in a car (it's their seat that's measured, maybe across the car)
 local SEAT_NAMES = { [-1] = 'Driver', [0] = 'Front passenger', [1] = 'Rear passenger', [2] = 'Rear passenger' }
 local STAYS_OPEN = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true } -- talk: keep the menu up
 local HEAD = 31086
 
-local function who(o) return o.role == 'pedestrian' and 'Person' or SEAT_NAMES[o.seat] or 'Passenger' end
+local function who(o) return (o.role == 'pedestrian' or o.role == nil) and 'Person' or SEAT_NAMES[o.seat] or 'Passenger' end
 
 -- Everyone from the stop who's still there and alive, nearest to the officer first.
 local function people(s)
@@ -35,7 +36,9 @@ local function in_reach(s)
     if not s.stopped or IsPedInAnyVehicle(me, false) then return false end
     local pos = GetEntityCoords(me)
     for _, o in pairs(s.occ) do
-        if DoesEntityExist(o.ped) and #(pos - GetEntityCoords(o.ped)) < NEAR_PERSON then return true end
+        if DoesEntityExist(o.ped) and #(pos - GetEntityCoords(o.ped)) < (IsPedInAnyVehicle(o.ped, false) and NEAR_SEAT or NEAR_PERSON) then
+            return true
+        end
     end
     return false
 end
@@ -104,23 +107,33 @@ function OpenMenuFor(net)
     if o and not open then open_menu(s, o) end
 end
 
--- Someone to walk up to when there's no stop on: a person on foot, or sitting in a car that's standing still.
--- s: a stop on now, whose own people don't count (they're talked to through it).
-local function nearest_contact(s)
+-- Someone to walk up to, nearest first: a person on foot, or sitting in a car that's standing still and no player is
+-- driving (the back of a parked patrol car too). Two side by side, the officer picks (the same as a driver and passenger).
+-- s: a stop on now, whose own people don't count (they're talked to through it). -> { { ped } }
+local function contacts(s)
     local me = PlayerPedId()
-    if IsPedInAnyVehicle(me, false) or not LocalPlayer.state.c3rDuty then return nil end
+    if IsPedInAnyVehicle(me, false) or not LocalPlayer.state.c3rDuty then return {} end
     local mine = {}
     for _, o in pairs(s and s.occ or {}) do mine[o.ped] = true end
-    local pos, best, best_d = GetEntityCoords(me), nil, NEAR_PERSON
+    local pos, out = GetEntityCoords(me), {}
     for _, ped in ipairs(GetGamePool('CPed')) do
         local d = ped ~= me and not mine[ped] and #(GetEntityCoords(ped) - pos) -- (distance first: the rest only for someone close)
-        if d and d < best_d and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped) and not IsBackup(ped)
+        if d and d < NEAR_SEAT and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped) and not IsBackup(ped)
             and not IsDowned(ped) then
             local veh = GetVehiclePedIsIn(ped, false)
-            if veh == 0 or (GetEntitySpeed(veh) < 1.0 and GetPedInVehicleSeat(veh, -1) ~= 0) then best, best_d = ped, d end
+            local driver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) or 0
+            if (veh == 0 and d < NEAR_PERSON) or (veh ~= 0 and GetEntitySpeed(veh) < 1.0 and (driver == 0 or not IsPedAPlayer(driver))) then
+                out[#out + 1] = { ped = ped, d = d }
+            end
         end
     end
-    return best
+    table.sort(out, function(a, b) return a.d < b.d end)
+    return out
+end
+
+local function nearest_contact(s)
+    local first = contacts(s)[1]
+    return first and first.ped
 end
 
 -- What each person can be asked, as it stands: answers open follow-ups (the server's dialogue tree).
@@ -139,8 +152,10 @@ RegisterCommand('+c3r_interact', function()
     local down = LocalPlayer.state.c3rDuty and DownedNear()
     if down then return OpenMedical(down) end -- someone down beside you: first aid (client/medical.lua)
     if not s then -- anyone at all: they become the stop
-        local ped = nearest_contact()
-        if ped then RequestContact(ped) end
+        if browsing then browsing = nil return end -- the key again: never mind
+        local list = contacts()
+        if #list == 1 then RequestContact(list[1].ped)
+        elseif #list > 1 then browsing = { list = list, i = 1, free = true } end
         return
     end
     -- someone else, while only chatting to someone (on foot, or in a parked car): that one's done with, and
@@ -176,6 +191,7 @@ CreateThread(function()
             down = LocalPlayer.state.c3rDuty and DownedNear() or nil
             contact = free and nearest_contact(s) or nil
         end
+        if browsing and browsing.free and (s or not contact) then browsing = nil end -- (a stop started, or walked off from them)
         if not open and not down_open and ((s and in_reach(s)) or (free and contact) or down) then
             if browsing then
                 for _, c in ipairs({ 174, 175, 176, 177, 191, 201 }) do DisableControlAction(0, c, true) end
@@ -185,7 +201,12 @@ CreateThread(function()
                 local o = browsing.list[browsing.i]
                 if IsDisabledControlJustPressed(0, 191) or IsDisabledControlJustPressed(0, 201)
                     or IsDisabledControlJustPressed(0, 176) then
-                    open_menu(s, o)
+                    if browsing.free then
+                        browsing = nil
+                        RequestContact(o.ped)
+                    elseif s then
+                        open_menu(s, o)
+                    end
                 elseif IsDisabledControlJustPressed(0, 177) then
                     browsing = nil
                 elseif DoesEntityExist(o.ped) then

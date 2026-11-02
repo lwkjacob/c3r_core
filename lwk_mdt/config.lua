@@ -22,6 +22,7 @@ Config.CivFlags = { 'ACTIVE WARRANT', 'WANTED PERSON', 'ARMED AND DANGEROUS', 'G
 
 -- 911 calls from the portal: area circle radius (m), seconds between one player's calls, and minutes a
 -- call waits for a unit before it drops off the board.
+Config.CalloutPopup = true -- c3r's callout popup: false, calls only show in the MDT. Each officer can change it in Settings.
 Config.Call911Radius = 180.0
 Config.Call911Cooldown = 60
 Config.Call911ExpireMinutes = 15

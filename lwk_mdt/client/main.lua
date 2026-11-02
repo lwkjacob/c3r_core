@@ -290,3 +290,5 @@ CreateThread(register_intents)
 AddEventHandler('onClientResourceStart', function(res)
     if res == 'lwk_control' then register_intents() end
 end)
+
+TriggerServerEvent('lwk_mdt:hello')

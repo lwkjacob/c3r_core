@@ -605,12 +605,22 @@ end
 
 local function prefs(src)
     local p = Meta['prefs:' .. license(src)] or {}
-    return { callsign = p.callsign or '', style = STYLES[p.style] and p.style or Config.DefaultStyle or 'modern' }
+    local popups = p.popups
+    if popups == nil then popups = Config.CalloutPopup ~= false end
+    return { callsign = p.callsign or '', style = STYLES[p.style] and p.style or Config.DefaultStyle or 'modern', popups = popups }
+end
+
+-- c3r's calls, for the board (nothing if it isn't running).
+local function c3r_calls(src)
+    if GetResourceState('c3r') ~= 'started' then return {} end
+    local ok, list = pcall(function() return exports.c3r:openCalls(src) end)
+    return ok and list or {}
 end
 
 function H.init(src)
     local me = license(src)
     local inc = current(src)
+    Player(src).state:set('c3rNoPopup', not prefs(src).popups, true) -- (read by c3r's game)
     return {
         forms = (function() -- ordered list: a Lua map reaches the page in random key order
             local out = {}
@@ -620,6 +630,7 @@ function H.init(src)
         current = inc and inc_summary(inc) or nil,
         drafts = sorted_reports(function(i) return i.author == me and i.status == 'draft' end),
         calls = sorted_reports(function(i) return i.status == 'open' or i.status == 'pending' end), -- live calls only
+        c3r = c3r_calls(src),
         admin = admin(src),
         units = units_board(), now = os.time(),
         signed = signed_on(src) ~= nil, prefs = prefs(src),
@@ -634,12 +645,19 @@ function H.signOn(src, a)
     local p = Meta['prefs:' .. license(src)] or {}
     p.callsign = cs
     if STYLES[a.style] then p.style = a.style end
+    if type(a.popups) == 'boolean' then p.popups = a.popups end
     set_meta('prefs:' .. license(src), p)
     Callsign[src] = cs
     Player(src).state:set('lwkMdtCallsign', cs, true) -- lwk_control reads it from here
     return { ok = true, prefs = prefs(src) }
 end
 H.settings = H.signOn
+
+-- Joined: the callout popup setting counts from the start, MDT opened or not.
+RegisterNetEvent('lwk_mdt:hello', function()
+    local src = source
+    Player(src).state:set('c3rNoPopup', not prefs(src).popups, true)
+end)
 
 function H.charges() return Config.Charges end -- fetched once by the page (210 entries)
 
@@ -1090,6 +1108,14 @@ function H.waypoint(src, a)
     local inc = Incidents[tonumber(a.id) or -1]
     if not inc or not inc.coords then return { error = 'No location on this call.' } end
     TriggerClientEvent('lwk_mdt:waypoint', src, inc.coords.x, inc.coords.y)
+    return { ok = true }
+end
+
+-- Onto a c3r call from the board, whoever's on it, popup or not.
+function H.joinCall(src, a)
+    if GetResourceState('c3r') ~= 'started' then return { error = 'Calls are not available.' } end
+    local ok, done, why = pcall(function() return exports.c3r:joinCall(src, tonumber(a.id)) end)
+    if not ok or not done then return { error = why == 'already_on_call' and 'You are already on a call.' or 'Unable to attach to that call.' } end
     return { ok = true }
 end
 
