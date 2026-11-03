@@ -309,6 +309,7 @@ Units can always leave a call with **X** or by clearing with dispatch. The last 
 | `c:fare(person)` | They're waiting for a ride: a taxi called to the scene takes them, and `service` fires with `taxi`. |
 | `c:task(person, 'aim', other)` | Their `weapon` out, pointed at another person on the call. Use it from `build` on. |
 | `c:task(person, 'hold', other?)` | Their `weapon` out, waiting, on `other` if you name someone on the call. Nobody can talk to them until `surrender`; pressing E or the PA fires `hail`. `armed.lua`'s `inside` story is the example, `shooter.lua`'s `grudge` for `other`. |
+| `c:task(person, 'spray', point)` | Their `weapon` out, a 3 s burst towards that point, aimed high over it: shooting that's seen and heard, not aimed at anyone. Call it again for the next burst. Nobody can talk to them until `surrender`; E or the PA fires `hail`. `shooter.lua`'s `active` is the example. |
 | `c:patient(person)` | Someone unhurt who'll go with paramedics: an ambulance called to the scene takes them, and `aid` fires. `crisis.lua` is the example. |
 | `c:bang('WEAPON_PISTOL', 'point', shots?)` | A real shot straight up from that point, sound and all, on the nearest unit's game. `WEAPON_FIREWORK` for a firework. Nobody's hurt. |
 | `c:clear(clue, keep?)` | The clue's dealt with: its prop goes (stays, with `keep`), and it can't be inspected, dragged or burst tyres any more. |

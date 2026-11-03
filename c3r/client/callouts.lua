@@ -62,7 +62,7 @@ CreateThread(function()
     local HEAD = 31086 -- SKEL_Head
     while true do
         local drew = false
-        if call and pointed[1] then
+        if call and pointed[1] and not (EmsScreen and EmsScreen()) then -- (not over a medic's treatment screen)
             local me = GetEntityCoords(PlayerPedId())
             for _, p in ipairs(pointed) do
                 local ent = NetworkDoesNetworkIdExist(p.net) and NetToEnt(p.net) or 0
@@ -384,6 +384,7 @@ local function brawl(ped, args)
     end
 end
 
+local SPRAY_UP = 6.0 -- m over the point a 'spray' is aimed at
 local function run(ped, name, args, sc, weapon)
     if name == 'go' and args then -- (walking there round buildings and cars, not through them)
         SetCurrentPedWeapon(ped, GetHashKey('WEAPON_UNARMED'), true)
@@ -402,6 +403,11 @@ local function run(ped, name, args, sc, weapon)
         draw(ped, weapon)
         local target = args and their_ped_soon(args.net)
         if target then TaskAimGunAtEntity(ped, target, -1, false) else TaskStandStill(ped, -1) end
+    elseif name == 'spray' and args then -- (a 3 s burst, aimed SPRAY_UP m over the point: heard and seen, over everyone's heads)
+        ClearPedTasks(ped)
+        draw(ped, weapon)
+        if weapon then SetPedInfiniteAmmo(ped, true, GetHashKey(weapon)) end
+        TaskShootAtCoord(ped, args.x, args.y, args.z + SPRAY_UP, 3000, GetHashKey('FIRING_PATTERN_FULL_AUTO')) -- (pattern name UNVERIFIED)
     elseif name == 'shoot' then
         shoot(ped, args, weapon)
     elseif name == 'brawl' and args then
@@ -698,7 +704,7 @@ local CLUE_RANGE = 30.0
 CreateThread(function()
     while true do
         local drew = false
-        if call and clues[1] then
+        if call and clues[1] and not (EmsScreen and EmsScreen()) then
             local me = GetEntityCoords(PlayerPedId())
             for _, cl in ipairs(clues) do
                 local car = cl.on and (cl.range or 0) > 2 -- (on a person: their own arrow, if they're the objective)

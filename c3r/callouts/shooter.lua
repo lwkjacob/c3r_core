@@ -4,6 +4,7 @@
     The biggest call in the game. The report is the same every time, and the card is too: the witness, security, the wounded,
     the people hiding, and finding the shooter (everyone's card). What's really going on is one of four stories:
       lone    one gunman with a rifle, moving post to post as units close in
+      active  still firing on full auto as units pull up, and people keep going down until someone's on him
       pair    two gunmen, never together: the second opens up once the first is stopped
       fled    he's stopped, left the rifle and sat in his car: go now, or it's a chase, or he's away
       grudge  he came for one person and has a gun on them: talk him down, a gun on him for too long can set him off
@@ -44,7 +45,7 @@ local HURT = { 'hurt1', 'hurt2', 'hurt3', 'hurt4' }
 local HIDE = { 'hide1', 'hide2' }
 local CROWD = { 'crowd1', 'crowd2', 'crowd3' }
 local OBJ = { shooter = 'stop', shooter2 = 'second' } -- (what each one's objective is)
-local RIFLE, SHOTGUN = 'WEAPON_CARBINERIFLE', 'WEAPON_PUMPSHOTGUN'
+local RIFLE, SHOTGUN, AUTO = 'WEAPON_CARBINERIFLE', 'WEAPON_PUMPSHOTGUN', 'WEAPON_ASSAULTRIFLE'
 local LOOK, WORK = 'a_m_y_skater_01', 's_m_y_construct_01' -- (hood up; a yellow work vest)
 local COWER = { 'amb@code_human_cower@male@base', 'base' } -- UNVERIFIED that it reads as hiding (the name's in DurtyFree's dump)
 local CLOSE = 45.0 -- m: he's been reached
@@ -143,7 +144,8 @@ local function wire(c)
     c:on('tick', function()
         if not c:get('built') then return end
         clock = clock + 1
-        if not ran and c:near(nil, 120.0) then
+        -- (pinned down where he's still firing: they only run once he turns on the officers)
+        if not ran and (c:get('pinned') and c:get('engaged') or (not c:get('pinned') and c:near(nil, 120.0))) then
             ran = true
             for _, key in ipairs(CROWD) do
                 if c:who(key) and not spoken[key] then spoken[key] = true c:task(key, 'flee') end
@@ -155,10 +157,12 @@ local function wire(c)
                 c:reveal('medics')
             end
         end
-        if not (MORE[more] and clock >= MORE[more]) then return end
+        local times = c:get('more') or MORE
+        if not (times[more] and clock >= times[more]) then return end
         more = more + 1
         if not c:get('rampage') or c:get('engaged') then return end
-        for _, key in ipairs({ 'hide1', 'hide2', 'crowd1', 'crowd2', 'crowd3' }) do
+        local pool = c:get('pinned') and { 'crowd1', 'crowd2', 'crowd3', 'hide1', 'hide2' } or { 'hide1', 'hide2', 'crowd1', 'crowd2', 'crowd3' }
+        for _, key in ipairs(pool) do
             if c:who(key) and not spoken[key] and not c:talking(key) and (c:health(key) or 0) > 100 then
                 saw_to(key)
                 c:collapse(key)
@@ -199,7 +203,7 @@ end
      telling him to drop it). Then he fights from post to post (one every 30 s). He gives up if he's hurt, after 60-150 s with
      units near, or half the time when told to.
      opts = { gun, quiet (not yet: nothing until wake(), or until a unit's right on him), still (one volley, then he waits for
-     the story), on (a person: he holds his gun on them), talked (a line: telling him to drop it always works), after (when he's
+     the story), spray (a point: bursts at it every 4-6 s, not into the air), on (a person: he holds his gun on them), talked (a line: telling him to drop it always works), after (when he's
      stopped, however) }. -> engage(), give_up(line), wake() ]]
 local function gunman(c, key, posts, opts)
     opts = opts or {}
@@ -264,6 +268,9 @@ local function gunman(c, key, posts, opts)
                 if volley_at == 0 then volley_at = 1 c:bang(opts.gun or RIFLE, route[1], 3) end
             elseif c:near(key, quiet and 30.0 or CLOSE) then
                 engage()
+            elseif not quiet and clock >= volley_at and opts.spray then
+                volley_at = clock + math.random(4, 6)
+                c:task(key, 'spray', opts.spray)
             elseif not quiet and clock >= volley_at then
                 volley_at = clock + math.random(15, 25)
                 c:bang(opts.gun or RIFLE, route[1], 3)
@@ -532,6 +539,32 @@ Callout({
             crowd3 = vector4(210.0, -900.0, 30.7, 0.0),
             car = vector4(222.0, -803.0, 30.6, 250.0),
         } },
+        { street = 'Richman St', at = vector3(-1698.97, 212.91, 62.39), streets = { start = 'Picture Perfect Drive', hurt1 = 'Picture Perfect Drive', hurt2 = 'Picture Perfect Drive', hurt3 = 'Picture Perfect Drive', hurt4 = 'Picture Perfect Drive', post3 = 'North Rockford Dr', target = 'North Rockford Dr' }, points = {
+            witness = vector4(-1698.97, 212.91, 62.39, 205.2),
+            guard = vector4(-1722.01, 206.85, 63.96, 113.5),
+            start = vector4(-1733.78, 153.58, 64.37, 346.0),
+            hurt1 = vector4(-1734.76, 162.66, 64.37, 339.9),
+            hurt2 = vector4(-1728.34, 165.38, 64.37, 283.2),
+            hurt3 = vector4(-1724.65, 166.81, 64.37, 301.2),
+            hurt4 = vector4(-1721.15, 165.38, 64.37, 189.9),
+            post1 = vector4(-1789.24, 174.20, 64.41, 266.7),
+            post2 = vector4(-1795.73, 152.87, 68.77, 270.7),
+            post3 = vector4(-1777.37, 124.41, 68.78, 285.2),
+            target = vector4(-1775.20, 121.48, 68.78, 219.9),
+        } },
+        { street = 'Autopia Pkwy', at = vector3(-253.71, -1844.19, 28.54), streets = { post1 = 'Davis Ave' }, points = {
+            witness = vector4(-253.71, -1844.19, 28.54, 324.9),
+            guard = vector4(-247.61, -1894.63, 27.76, 148.6),
+            start = vector4(-256.03, -1893.84, 27.76, 79.9),
+            hurt1 = vector4(-261.56, -1892.21, 27.76, 57.6),
+            hurt2 = vector4(-265.55, -1892.47, 27.76, 175.3),
+            hurt3 = vector4(-262.39, -1898.36, 27.76, 215.7),
+            hurt4 = vector4(-259.31, -1902.73, 27.76, 191.9),
+            post1 = vector4(-285.92, -1915.50, 29.95, 309.4),
+            post2 = vector4(-262.53, -1934.92, 29.95, 14.1),
+            post3 = vector4(-235.53, -1983.45, 29.95, 207.8),
+            target = vector4(-235.05, -1988.95, 29.95, 165.8),
+        } },
     },
 
     stories = {
@@ -560,6 +593,41 @@ Callout({
                 bleeding(c)
                 gunman(c, 'shooter', { 'post1', 'post2', 'post3' }, { gun = RIFLE })
                 resolve(c, { 'shooter' }, function(out, t) return report(c, out, t, 'Active shooter') end)
+            end,
+        },
+
+        -- ── Still firing. ───────────────────────────────────────────────────────────────────────────────────────
+        active = {
+            weight = 3,
+            setup = function(c)
+                c:set('rampage', true)
+                c:set('pinned', true)
+                c:set('more', { 10, 22, 34, 46 })
+                people(c, {
+                    c_what = { "He's still shooting! Can you not hear it? He's firing at anyone who moves!" },
+                    c_see = { "One man. Hood up. A rifle, the kind that doesn't stop." },
+                    c_way = { { "He's right there! Listen! Follow the noise!", set = { c_way = 'pointed' } } },
+                    c_many = { "One. One's enough." },
+                }, {
+                    c_start = { "Out in the open, back there. People are lying down out there, they can't get out." },
+                    c_see = { "A hood and a rifle. He just walked in and started." },
+                    c_know = { "No. I've never seen him before." },
+                    c_car = { "No. He was just there." },
+                    c_inside = { "There are people out there pinned down. They won't move while he's firing." },
+                }, { prop = 'prop_sgun_casing', scatter = { model = 'prop_sgun_casing', count = 10, radius = 3.0 },
+                     text = 'Casings everywhere, more than anyone could count, all the same make. One gun, fired until it was empty, and again.' })
+                shooter(c, 'shooter', { at = 'post1', gun = AUTO, items = { 'Automatic rifle', 'Spare magazines' } }, {
+                    c_alone = { "Just me." },
+                })
+                card(c)
+                wire(c)
+                bleeding(c)
+                c:on('build', function()
+                    c:dispatch('All units: callers say he is still firing. Shooting is ongoing.')
+                    for _, key in ipairs(CROWD) do c:task(key, 'surrender') end -- (pinned down, hands over their heads)
+                end)
+                gunman(c, 'shooter', { 'post1', 'post2', 'post3' }, { gun = AUTO, spray = 'start' })
+                resolve(c, { 'shooter' }, function(out, t) return report(c, out, t, 'Active shooter, still firing as units arrived') end)
             end,
         },
 

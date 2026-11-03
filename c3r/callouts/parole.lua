@@ -356,6 +356,24 @@ Callout({
             away = vector4(923.90, -481.56, 60.70, 208.6),
             away_car = vector4(934.49, -492.57, 59.84, 156.6),
         } },
+        { street = 'Roy Lowenstein Blvd', at = vector3(417.74, -1720.11, 29.19), streets = { away = 'Macdonald St', away_car = 'Macdonald St' }, points = {
+            agent = vector4(417.74, -1720.11, 29.19, 74.1),
+            other = vector4(430.15, -1725.21, 29.60, 61.3),
+            client = vector4(443.56, -1731.82, 29.23, 235.9),
+            yard = vector4(428.75, -1728.24, 29.54, 157.8),
+            car = vector4(421.54, -1711.91, 28.74, 321.7),
+            away = vector4(382.35, -1774.59, 29.29, 12.2),
+            away_car = vector4(394.18, -1775.95, 28.74, 232.2),
+        } },
+        { street = 'Joshua Rd', at = vector3(384.71, 2952.26, 41.05), points = {
+            agent = vector4(384.71, 2952.26, 41.05, 102.9),
+            other = vector4(412.18, 2965.15, 41.89, 65.5),
+            client = vector4(415.14, 2958.25, 40.88, 97.0),
+            yard = vector4(417.79, 2972.02, 40.97, 105.7),
+            car = vector4(408.46, 2969.64, 40.56, 121.2),
+            away = vector4(276.34, 2837.48, 43.51, 264.7),
+            away_car = vector4(273.33, 2839.48, 43.09, 209.7),
+        } },
     },
 
     stories = {

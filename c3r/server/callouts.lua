@@ -352,7 +352,7 @@ function C:say(key, text)
 end
 
 -- What they do now: 'scene' (back to what they were doing), 'go' (args = point), 'flee', 'surrender', 'wander',
--- 'aim' (args = a person: weapon out, on them), 'brawl' (args = a person: fists, on them; a taser fires 'stunned'), 'hold' (weapon out, waiting; args = a person: on them), 'shoot' (args = a point to fire from, or
+-- 'aim' (args = a person: weapon out, on them), 'brawl' (args = a person: fists, on them; a taser fires 'stunned'), 'hold' (weapon out, waiting; args = a person: on them), 'spray' (args = a point: a burst over it), 'shoot' (args = a point to fire from, or
 -- nil: wherever they stand), 'drive' (args = { car = a vehicle key, to? = a point, fast? }: into their car and off there, flat
 -- out with fast, 'parked' fires once they're out of it; with no point they just keep going; -> false if it can't happen). Someone holding or shooting can't be talked to, and 'hail'
 -- fires instead; 'surrender' ends it. While an officer is talking to them, only flee and surrender go through (the stop
@@ -378,7 +378,7 @@ function C:task(key, name, args)
         args = self.inc.loc.points and self.inc.loc.points[args] or nil
     end
     p.task = name ~= 'scene' and { name = name, args = args } or nil
-    p.fighting = (name == 'shoot' or name == 'hold' or name == 'brawl') or nil
+    p.fighting = (name == 'shoot' or name == 'hold' or name == 'brawl' or name == 'spray') or nil
     if not p.net then return end
     if p.in_contact and name == 'shoot' then EndContact(p.in_contact) end -- (they've turned on the officer: the talking's over)
     if p.in_contact then

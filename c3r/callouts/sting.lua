@@ -437,6 +437,20 @@ Callout({
             car = vector4(-226.94, 6402.68, 30.90, 303.9),
             exit = vector4(-354.40, 6263.55, 31.28, 137.0),
         } },
+        { street = 'Invention Ct', at = vector3(-980.60, -1113.60, 2.15), points = {
+            staging = vector4(-980.60, -1113.60, 2.15, 23.1),
+            uc = vector4(-982.60, -1113.11, 2.15, 19.2),
+            deal = vector4(-1042.64, -1148.68, 2.16, 5.7),
+            car = vector4(-1072.84, -1149.52, 1.84, 209.8),
+            exit = vector4(-1111.00, -1182.28, 1.83, 120.4),
+        } },
+        { street = 'Carson Ave', at = vector3(341.58, -1883.77, 25.84), streets = { car = 'Jamestown St', exit = 'Jamestown St' }, points = {
+            staging = vector4(341.58, -1883.77, 25.84, 127.3),
+            uc = vector4(344.57, -1880.92, 26.14, 339.2),
+            deal = vector4(373.86, -1984.18, 24.14, 194.4),
+            car = vector4(348.97, -1966.37, 24.11, 317.0),
+            exit = vector4(269.44, -2001.81, 19.39, 242.2),
+        } },
     },
 
     stories = {

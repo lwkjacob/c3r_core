@@ -232,12 +232,12 @@ Callout({
     },
     -- Add more with /c3rplace stripclub in game (it writes them here). This one is a rough placeholder at the Vanilla Unicorn
     locations = {
-        { street = 'Strawberry Ave', at = vector3(128.50, -1298.00, 29.20), points = {
-            security = vector4(128.50, -1298.00, 29.20, 30.0),
-            customer = vector4(122.50, -1290.50, 29.30, 210.0),
-            dancer = vector4(96.20, -1293.00, 29.30, 120.0),
-            book = vector4(127.00, -1300.00, 29.20, 30.0),
-            car = vector4(133.00, -1278.00, 29.30, 180.0),
+        { street = 'Strawberry Ave', at = vector3(127.55, -1299.73, 29.23), points = {
+            security = vector4(127.55, -1299.73, 29.23, 210.4),
+            customer = vector4(138.36, -1301.14, 29.20, 183.7),
+            dancer = vector4(117.10, -1294.64, 29.27, 316.2),
+            book = vector4(129.53, -1287.60, 29.28, 321.3),
+            car = vector4(153.71, -1311.16, 28.78, 243.7),
         } },
     },
 
