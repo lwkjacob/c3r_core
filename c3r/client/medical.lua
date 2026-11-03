@@ -278,7 +278,7 @@ CreateThread(function()
                 Patients[ped] = nil
             elseif NetworkHasControlOfEntity(ped) then
                 if pt.stable and GetEntityHealth(ped) < pt.stable then SetEntityHealth(ped, pt.stable) end
-                if pt.down and not IsEntityPlayingAnim(ped, ANIM.lying[1], ANIM.lying[2], 3) then lie(ped) end
+                if pt.down and not pt.gurney and not IsEntityPlayingAnim(ped, ANIM.lying[1], ANIM.lying[2], 3) then lie(ped) end -- (on a medic's gurney: theirs)
             end
         end
         watch_lives()

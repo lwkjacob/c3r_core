@@ -32,11 +32,13 @@ server_scripts {
     'server/main.lua',
     'server/stops.lua',
     'server/callouts.lua',
+    'server/ems_body.lua',
     'server/ems.lua',
     'server/stats.lua',
     'server/presence.lua',
     'callouts/*.lua', -- the calls (server only: the truth never reaches a game)
     'callouts/ems/*.lua', -- medics' calls
+    'server/config_labels.lua',
     'server/config_edit.lua',
 }
 
@@ -54,5 +56,8 @@ client_scripts {
     'client/callouts.lua',
     'client/presence.lua',
 }
+
+-- stream/: c3r_gurney (the ambulance stretcher, c3r/models/build_gurney.py), and the custom@ animations
+data_file 'DLC_ITYP_REQUEST' 'stream/c3r_gurney.ytyp'
 
 files { 'nui/index.html', 'nui/img/code3response.png', 'nui/voice/*.ogg' }

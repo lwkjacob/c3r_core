@@ -191,7 +191,7 @@ CreateThread(function()
     while true do
         local s = Stop
         local free = not s or (Casual(s) and not in_reach(s, NEAR_PERSON)) -- E would start talking to someone new
-        local down_open = MedicalOpen()
+        local down_open = MedicalOpen() or (EmsScreen and EmsScreen())
         if not open and GetGameTimer() >= scan_at then -- anyone nearby (a few times a second is plenty)
             scan_at = GetGameTimer() + 400
             down = LocalPlayer.state.c3rDuty and DownedNear() or nil

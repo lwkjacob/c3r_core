@@ -19,6 +19,7 @@ local scr, opening = nil, false -- the treatment screen: { ped, net, cam }
 local Stable = {} -- [net] = true: ready for the stretcher
 
 local PUSH = { 'anim@heists@box_carry@', 'idle' } -- UNVERIFIED
+local SUPINE = { 'anim@gangops@morgue@table@', 'body_search' } -- flat on their back, as on a table (in the game's anim list)
 
 local function on_ems() return LocalPlayer.state.c3rService == 'ambulance' end
 
@@ -203,9 +204,30 @@ local function take_stretcher()
     local long_y = max.y - min.y >= max.x - min.x
     fit = { turn = long_y and 0.0 or 90.0, top = max.z, len = long_y and max.y - min.y or max.x - min.x, bottom = min.z }
     SetEntityCollision(stretcher, false, false)
-    AttachEntityToEntity(stretcher, PlayerPedId(), 0, 0.0, fit.len / 2 + 0.55, -1.0 - fit.bottom, 0.0, 0.0, fit.turn,
-        false, false, false, false, 2, true)
+    FreezeEntityPosition(stretcher, true)
     return true
+end
+
+local function ground(at)
+    local ok, z = GetGroundZFor_3dCoord(at.x, at.y, at.z + 1.5, false)
+    return ok and z or at.z - 1.0
+end
+
+-- In front of the medic, its near end at their hands, both ends on the ground: it tilts with the slope. Every frame.
+local function roll_stretcher()
+    local me = PlayerPedId()
+    local near = GetOffsetFromEntityInWorldCoords(me, 0.0, 0.55, 0.0)
+    local far = GetOffsetFromEntityInWorldCoords(me, 0.0, 0.55 + fit.len, 0.0)
+    local zn, zf = ground(near), ground(far)
+    local mid = (near + far) / 2
+    local tilt = math.deg(math.atan(zf - zn, fit.len))
+    SetEntityCoordsNoOffset(stretcher, mid.x, mid.y, (zn + zf) / 2 - fit.bottom, false, false, false)
+    -- (the model's long way: along its y, it tilts about x; along its x, about y)
+    if fit.turn == 0.0 then
+        SetEntityRotation(stretcher, tilt, 0.0, GetEntityHeading(me), 2, true)
+    else
+        SetEntityRotation(stretcher, 0.0, -tilt, GetEntityHeading(me) + fit.turn, 2, true)
+    end
 end
 
 local function put_stretcher_away()
@@ -215,13 +237,41 @@ local function put_stretcher_away()
     back_doors(false)
 end
 
+local function attach_lying(ped, x, y, z, yaw)
+    AttachEntityToEntity(ped, stretcher, 0, x, y, z, 0.0, 0.0, yaw, false, false, false, false, 2, true)
+end
+
+-- Where their body is, in the stretcher's own terms: head, hips, back.
+local function body_on(ped)
+    local function at(b)
+        local w = GetPedBoneCoords(ped, b, 0.0, 0.0, 0.0)
+        return GetOffsetFromEntityGivenWorldCoords(stretcher, w.x, w.y, w.z)
+    end
+    return at(31086), at(11816), at(24817)
+end
+
+-- The lying animation carries the body well away from the ped's own origin (about a metre down, and to one side), so
+-- a fixed offset leaves them under the stretcher. Put them on, see where the body went, then turn them head to the
+-- head end (the model's long way, +) and move them until their back is lie_height above the mattress, in the middle.
 local function lie_on_stretcher(ped)
     FreezeEntityPosition(ped, false)
     ClearPedTasksImmediately(ped)
     SetBlockingOfNonTemporaryEvents(ped, true)
-    AttachEntityToEntity(ped, stretcher, 0, 0.0, 0.0, fit.top + E.lie_height, 0.0, 0.0, fit.turn + E.lie_turn,
-        false, false, false, false, 2, true)
-    LiePed(ped)
+    local x, y, z, yaw = 0.0, 0.0, fit.top + 1.0, fit.turn + E.lie_turn
+    attach_lying(ped, x, y, z, yaw)
+    Patients[ped] = Patients[ped] or {}
+    Patients[ped].down, Patients[ped].gurney = true, true -- (client/medical.lua stops laying them on their side)
+    if LoadDict(SUPINE[1]) then TaskPlayAnim(ped, SUPINE[1], SUPINE[2], 8.0, -8.0, -1, 1, 0.0, false, false, false) end
+    Wait(500) -- (the pose is on)
+    local head, hips = body_on(ped)
+    local want = fit.turn == 0.0 and 90.0 or 0.0 -- (the long way: its y, or its x)
+    yaw = yaw + want - math.deg(math.atan(head.y - hips.y, head.x - hips.x))
+    attach_lying(ped, x, y, z, yaw)
+    Wait(50)
+    local back
+    head, hips, back = body_on(ped)
+    local mid = (head + hips) / 2
+    attach_lying(ped, x - mid.x, y - mid.y, z + fit.top + E.lie_height - back.z, yaw)
 end
 
 local function lift(t)
@@ -348,6 +398,12 @@ CreateThread(function()
         if stretcher or hospital then
             if stretcher then
                 local me = PlayerPedId()
+                if DoesEntityExist(stretcher) then roll_stretcher() end
+                local p = lying and lying.ped
+                if p and DoesEntityExist(p) and NetworkHasControlOfEntity(p) and HasAnimDictLoaded(SUPINE[1])
+                    and not IsEntityPlayingAnim(p, SUPINE[1], SUPINE[2], 3) then -- (kept on their back)
+                    TaskPlayAnim(p, SUPINE[1], SUPINE[2], 8.0, -8.0, -1, 1, 0.0, false, false, false)
+                end
                 for _, c in ipairs({ 21, 22, 23, 24, 25, 44, 140, 141, 142 }) do DisableControlAction(0, c, true) end -- (a walk: no sprint, jump, car or fists)
                 if not IsEntityPlayingAnim(me, PUSH[1], PUSH[2], 3) and HasAnimDictLoaded(PUSH[1]) then
                     TaskPlayAnim(me, PUSH[1], PUSH[2], 4.0, -4.0, -1, 49, 0.0, false, false, false)
@@ -369,11 +425,11 @@ end)
 -- ─── the treatment screen ─────────────────────────────────────────────────────
 
 local PARTS = {
-    { 'head', 'Head', 31086 }, { 'neck', 'Neck', 39317 }, { 'thorax', 'Thorax', 24818 }, { 'abdomen', 'Abdomen', 23553 },
+    { 'head', 'Head', 31086 }, { 'neck', 'Neck', 39317 }, { 'thorax', 'Thorax', 24817 }, { 'abdomen', 'Abdomen', 23553 },
     { 'larm', 'Left Arm', 61163 }, { 'rarm', 'Right Arm', 28252 }, { 'lhand', 'Left Hand', 18905 }, { 'rhand', 'Right Hand', 57005 },
     { 'lleg', 'Left Leg', 63931 }, { 'rleg', 'Right Leg', 36864 }, { 'lfoot', 'Left Foot', 14201 }, { 'rfoot', 'Right Foot', 52301 },
 }
-local HIT = { [58271] = 'lleg', [51826] = 'rleg', [45509] = 'larm', [40269] = 'rarm', [11816] = 'abdomen', [24816] = 'abdomen', [24817] = 'thorax' }
+local HIT = { [58271] = 'lleg', [51826] = 'rleg', [45509] = 'larm', [40269] = 'rarm', [11816] = 'abdomen', [24816] = 'abdomen', [24818] = 'thorax' }
 for _, p in ipairs(PARTS) do HIT[p[3]] = p[1] end
 
 local function hit_part(ped)
@@ -382,6 +438,21 @@ local function hit_part(ped)
 end
 
 local function bone(ped, id) return GetPedBoneCoords(ped, id, 0.0, 0.0, 0.0) end
+
+-- Where a part's marker goes: its bone. The spine runs down their back, so from above the chest and belly are a little
+-- in front of it: toward their hands, across the body (on their back, hands at their sides, that's no way at all).
+local function spot(ped, p)
+    local at = bone(ped, p[3])
+    if p[1] ~= 'thorax' and p[1] ~= 'abdomen' then return at end
+    local axis = bone(ped, 31086) - bone(ped, 11816)
+    axis = vector3(axis.x, axis.y, 0.0)
+    axis = axis / math.max(#axis, 0.01)
+    local hands = (bone(ped, 18905) + bone(ped, 57005)) / 2 - at
+    local flat = vector3(hands.x, hands.y, 0.0)
+    local front = flat - axis * (flat.x * axis.x + flat.y * axis.y)
+    if #front < 0.05 then return at end
+    return at + front / #front * math.min(#front, 0.14)
+end
 
 -- The bag goes down by their side, to the right of the view.
 local function set_bag_down(ped)
@@ -421,6 +492,9 @@ local function net_of(ped)
     return NetworkGetEntityIsNetworked(ped) and PedToNet(ped) or nil
 end
 
+-- The treatment screen is up (client/callouts.lua leaves its arrows off, client/menu.lua its hint).
+function EmsScreen() return scr ~= nil or opening end
+
 -- client/menu.lua's E beside someone down.
 function EmsTreat(ped)
     if scr or opening then return end
@@ -442,7 +516,7 @@ function EmsTreat(ped)
         Wait(450) -- (the camera's there: what's on screen can be worked out now)
         local parts = {}
         for _, p in ipairs(PARTS) do
-            local s = project(bone(ped, p[3]))
+            local s = project(spot(ped, p))
             if s then parts[#parts + 1] = { id = p[1], label = p[2], x = s.x, y = s.y } end
         end
         scr, opening = { ped = ped, net = net, cam = cam }, false
@@ -474,7 +548,7 @@ end
 RegisterNetEvent('c3r:ems:view', function(net, view, result)
     if view.stable then Stable[net] = true else Stable[net] = nil end
     if not (scr and scr.net == net) then return end
-    if result and result.kind == 'revive' then
+    if result and result.kind == 'rosc' and IsEntityDead(scr.ped) then -- (found dead, and brought back)
         local ped = scr.ped
         CreateThread(function() if ControlPed(ped) then RevivePed(ped) end end)
     end

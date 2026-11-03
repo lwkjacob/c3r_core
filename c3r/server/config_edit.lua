@@ -1,9 +1,9 @@
 --[[
     c3r — server: /c3rconfig, the in-game config editor. Admins only: the command.c3rconfig ace
-    (add_ace group.admin command.c3rconfig allow). It lists every value written in the config/ files and writes
-    a change back over just that value, so the comments and the layout stay as they were. Lists (the stations,
-    a unit's crew...) can be added to, copying their last entry, and taken from. A change is live at once for
-    everyone; a key or a command name only after a restart of c3r.
+    (add_ace group.admin command.c3rconfig allow). It lists every value written in the config/ files, under the
+    names in server/config_labels.lua, and writes a change back over just that value, so the comments and the layout
+    stay as they were. Lists (the stations, a unit's crew...) can be added to, copying their last entry, and taken
+    from. A change is live at once for everyone; a key or a command name only after a restart of c3r.
 ]]
 
 local RES = GetCurrentResourceName()
@@ -77,21 +77,13 @@ local function path_name(keys)
 end
 
 -- Every plain value (number, string, true / false / nil) the file sets on Config, however deep in a table:
--- { keys, path, kind, value, s, e (where its text is), line, note (its line's comment), about (the comment above) },
+-- { keys, path, kind, value, s, e (where its text is), line, note (its line's comment) },
 -- and every list (a table with only unnamed entries): { keys, path, multi (one entry a line), items = { { s, e,
 -- comma = where the comma after it ends, own_line = alone on its line(s) } } }.
 local function parse(src)
     local tk, notes = tokens(src)
     local entries, lists, p = {}, {}, 1
     local function op(i, v) return tk[i] and tk[i].t == 'op' and tk[i].v == v end
-    local function about(line) -- the comment lines straight above a statement
-        local out = {}
-        for l = line - 1, 1, -1 do
-            if not (notes[l] and notes[l].alone) then break end
-            table.insert(out, 1, notes[l].text)
-        end
-        return out[1] and table.concat(out, '\n') or nil
-    end
     local function skip() -- something that isn't a plain value: up to the next , ; or closing bracket, or the next statement
         local depth, from = 0, tk[p] and tk[p].line
         while tk[p] do
@@ -107,7 +99,7 @@ local function parse(src)
         end
     end
     local value
-    local function tbl(keys, ab)
+    local function tbl(keys)
         local open, items, named = tk[p], {}, false
         p = p + 1
         local idx = 0
@@ -126,7 +118,7 @@ local function parse(src)
             for i, k in ipairs(keys) do child[i] = k end
             child[#child + 1] = key
             local first = p
-            value(child, ab)
+            value(child)
             local comma = (op(p, ',') or op(p, ';')) and tk[p] or nil
             if key == idx and p > first then
                 local after = tk[comma and p + 1 or p]
@@ -140,8 +132,8 @@ local function parse(src)
         end
         p = p + 1
     end
-    value = function(keys, ab)
-        if op(p, '{') then return tbl(keys, ab) end
+    value = function(keys)
+        if op(p, '{') then return tbl(keys) end
         local first = p
         if op(p, '-') and tk[p + 1] and tk[p + 1].t == 'num' then p = p + 1 end
         local t, nx = tk[p], tk[p + 1]
@@ -155,7 +147,7 @@ local function parse(src)
         end
         local note = notes[t.line]
         entries[#entries + 1] = { keys = keys, path = path_name(keys), kind = type(v), value = v, s = tk[first].s, e = t.e,
-                                  line = t.line, note = note and not note.alone and note.text or nil, about = ab }
+                                  line = t.line, note = note and not note.alone and note.text or nil }
         p = p + 1
     end
     while tk[p] do
@@ -168,7 +160,7 @@ local function parse(src)
             end
             if keys[1] and op(q, '=') and not op(q + 1, '=') then
                 p = q + 1
-                value(keys, about(t.line))
+                value(keys)
             else
                 p = p + 1
             end
@@ -248,19 +240,77 @@ local changed = {} -- [file .. path] = { keys, value }: what's been changed sinc
 
 local function allowed(src) return src > 0 and IsPlayerAceAllowed(src, 'command.c3rconfig') end
 
-local function open(src, msg)
-    local list = {}
-    for _, f in ipairs(config_files()) do
-        local entries, lists = {}, {}
-        local all, all_lists = parse(LoadResourceFile(RES, f) or '')
-        for _, e in ipairs(all) do
-            entries[#entries + 1] = { path = e.path, kind = e.kind, value = e.value, note = e.note, about = e.about }
-        end
-        for _, l in ipairs(all_lists) do lists[#lists + 1] = { path = l.path, count = #l.items } end
-        list[#list + 1] = { file = f, entries = entries, lists = lists }
-    end
-    TriggerClientEvent('c3r:config:open', src, list, msg)
+-- The parts a row of the menu joins into one.
+local PARTS = { pos = { '.x', '.y', '.z' }, range = { '[1]', '[2]' }, rgb = { '[1]', '[2]', '[3]' } }
+
+-- One row of the menu: def (from config_labels.lua) filled in for the values es, a list's entry knowing which it is.
+local function row_of(def, es, caps, adv, lists)
+    local name = def.names and def.names[caps[1]] or caps[1] or ''
+    local function fill(s) return s and (s:gsub('{name}', name):gsub('{n}', caps[#caps] or '')) end
+    local e, entries = es[1], {}
+    for i, v in ipairs(es) do entries[i] = { file = v.file, path = v.path, kind = v.kind, value = v.value } end
+    local list = e.path:match('^(.*)%[%d+%]')
+    local count = list and def.as ~= 'range' and def.as ~= 'rgb' and not ConfigMenu.fixed[list] and lists[e.file .. ':' .. list]
+    return { label = fill(def[2]), help = def.help, as = def.as, unit = def.unit, opts = def.opts,
+             blank = def.blank, neg = def.neg, adv = adv or def.adv, add = fill(def.add), entries = entries, item = e.path:match('^(.*%[%d+%])'),
+             list = count and { file = e.file, path = list, index = tonumber(e.path:match('%[(%d+)%][^%[]*$')), count = count } or nil }
 end
+
+-- Each list entry's rows together: a station's position under its name, not after all the names.
+local function place(rows, row)
+    for i = #rows, 1, -1 do
+        if row.item and rows[i].item == row.item then return table.insert(rows, i + 1, row) end
+    end
+    rows[#rows + 1] = row
+end
+
+-- { { name, sections = { { title, help, rows } } } }: every value in the files, in the tabs of config_labels.lua.
+local function menu()
+    local all, by, lists, used = {}, {}, {}, {}
+    for _, f in ipairs(config_files()) do
+        local es, ls = parse(LoadResourceFile(RES, f) or '')
+        for _, e in ipairs(es) do
+            e.file = f
+            all[#all + 1] = e
+            by[f .. ':' .. e.path] = e
+        end
+        for _, l in ipairs(ls) do lists[f .. ':' .. l.path] = #l.items end
+    end
+    local tabs = {}
+    for _, tab in ipairs(ConfigMenu) do
+        local sections = {}
+        for _, sec in ipairs(tab.sections) do
+            local rows = {}
+            for _, def in ipairs(sec.rows) do
+                local parts = PARTS[def.as] or { '' }
+                local pat = '^' .. (def[1] .. parts[1]):gsub('[%.%[%]]', '%%%0'):gsub('%*', '([%%w_]+)') .. '$'
+                for _, e in ipairs(all) do
+                    local caps = { e.path:match(pat) }
+                    if caps[1] and not used[e] then
+                        local es = {}
+                        for i, part in ipairs(parts) do
+                            es[i] = by[e.file .. ':' .. e.path:sub(1, #e.path - #parts[1]) .. part]
+                            if es[i] then used[es[i]] = true end
+                        end
+                        if #es == #parts then place(rows, row_of(def, es, caps, sec.adv, lists)) end
+                    end
+                end
+            end
+            if rows[1] then sections[#sections + 1] = { title = sec.title, help = sec.help, rows = rows } end
+        end
+        tabs[#tabs + 1] = { name = tab.name, sections = sections }
+    end
+    local other = {}
+    for _, e in ipairs(all) do
+        if not used[e] then other[#other + 1] = row_of({ nil, e.path, help = e.note, neg = true, blank = 'nil' }, { e }, {}, false, lists) end
+    end
+    if other[1] then
+        tabs[#tabs + 1] = { name = 'Other', sections = { { title = 'Added by hand', help = 'Set in the config files, with no name in this menu yet.', rows = other } } }
+    end
+    return tabs
+end
+
+local function open(src, msg) TriggerClientEvent('c3r:config:open', src, menu(), msg) end
 
 RegisterCommand('c3rconfig', function(src)
     if allowed(src) then open(src) end
@@ -315,7 +365,7 @@ RegisterNetEvent('c3r:config:list', function(file, path, action, index)
     changed[prefix] = { keys = list.keys, value = v }
     TriggerClientEvent('c3r:config:set', -1, { { keys = list.keys, value = v } })
     print(('[c3r] %s %s %s with /c3rconfig'):format(GetPlayerName(src) or src, action == 'add' and 'added to' or 'took from', path))
-    open(src, action == 'add' and ('Added to %s: a copy of its last entry, to edit.'):format(path) or ('Taken from %s.'):format(path))
+    open(src, action == 'add' and 'Added: a copy of the last one, to edit.' or 'Removed.')
 end)
 
 -- A player joining after a change: their game loaded the files as they were when c3r started.

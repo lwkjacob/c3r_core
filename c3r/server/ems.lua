@@ -1,131 +1,47 @@
 --[[
-    c3r — server: the Ambulance role's patients. What's wrong with someone, what fixes it and how long they've got lives
-    here, as a callout's truth does; the medic's game (client/ems.lua) shows it and asks.
-
-    A patient has injuries on body parts, each fixed by its steps in order, and a stability from 100 to 0. Only serious
-    injuries left open drain it. At 0 their heart stops, and CPR then the defib bring them back; left alone in arrest,
-    they die. Someone found dead has the same two steps, and they only sometimes work (Config.Ems.revive). A wrong tool
-    says so and costs a moment, nothing more: it's guided.
+    c3r — server: the Ambulance role's patients and the medic's bag. What's wrong with someone, and how it's going, is
+    their body (server/ems_body.lua), held here per ped as a callout's truth is; the medic's game (client/ems.lua) shows
+    only what's been found, and asks.
 ]]
 
 Ems = {}
 
-local KINDS = {
-    bleed = { text = 'Heavy bleeding.', steps = { 'tourniquet' }, serious = true },
-    wound = { text = 'Blood coming through the clothes.', next = 'A deep wound. Dress it.', steps = { 'shears', 'dressing' }, serious = true },
-    fracture = { text = 'Swollen and out of line: probably broken.', steps = { 'splint' } },
-    airway = { text = 'Noisy, gurgling breaths: the airway is blocked.', steps = { 'airway' }, serious = true },
-    breathing = { text = 'Short of breath. Listen to the chest.', next = 'Crackles on both sides. Give oxygen.', steps = { 'stethoscope', 'oxygen' }, serious = true },
-    overdose = { text = 'Pinpoint pupils, barely breathing.', steps = { 'narcan' }, serious = true },
-    sugar = { text = 'Pale, sweating and confused: low blood sugar.', steps = { 'glucose' }, serious = true },
-    pulse = { text = 'No pulse.', next = 'Rhythm on the monitor. Shock them.', steps = { 'cpr', 'defib' }, serious = true },
-}
+-- A call's injuries in the first form (callouts/ems/, { part, kind }): the body's conditions.
+local OLD = { bleed = 'hemorrhage', wound = 'hemorrhage', fracture = 'fracture', airway = 'airway', breathing = 'respiratory',
+              overdose = 'opioid', sugar = 'hypoglycemia' }
 local LIMBS = { larm = true, rarm = true, lhand = true, rhand = true, lleg = true, rleg = true, lfoot = true, rfoot = true }
 
-local Patients = {} -- [net id] = patient
+local Patients = {} -- [net id] = a body (Body.new), plus medic, started, stabilised, say
 local Stock = {}    -- [src] = { [tool] = count }: what's left in their bag
 
--- list = { { part, kind } }. vitals: a line the screen always shows ('Clutching their chest').
-function Ems.new(list, vitals)
-    local p = { injuries = {}, stability = 100, vitals = vitals }
-    for _, i in ipairs(list or {}) do
-        if not KINDS[i[2]] then error('no injury kind "' .. tostring(i[2]) .. '"', 0) end
-        p.injuries[#p.injuries + 1] = { part = i[1], kind = i[2], step = 1 }
+-- list: conditions ({ kind, part } | kind), or the first form ({ part, kind }). say: a line the screen always shows.
+function Ems.new(list, say, dead)
+    local conds, pain = {}, false
+    for _, c in ipairs(list or {}) do
+        if type(c) == 'table' and OLD[c[2]] then
+            conds[#conds + 1] = { OLD[c[2]], c[1] }
+            pain = pain or c[2] == 'fracture' or c[2] == 'bleed' or c[2] == 'wound'
+        else
+            conds[#conds + 1] = c
+        end
     end
-    return p
+    if pain then conds[#conds + 1] = 'pain' end
+    local b = Body.new(conds, { dead = dead })
+    b.say = say
+    return b
 end
 
 -- Someone with no callout behind them: what got them is what's wrong with them.
-function Ems.guess(part)
-    if LIMBS[part] then return Ems.new({ { part, 'bleed' } }) end
-    if part == 'head' or part == 'neck' or part == 'thorax' or part == 'abdomen' then return Ems.new({ { part, 'wound' } }) end
-    return Ems.new({ { 'thorax', 'breathing' } })
+function Ems.guess(part, dead)
+    if LIMBS[part] then return Ems.new({ { 'hemorrhage', part }, 'pain' }, nil, dead) end
+    if part == 'head' then return Ems.new({ 'head' }, nil, dead) end
+    return Ems.new({ { 'hemorrhage', (part == 'neck' or part == 'thorax') and part or 'abdomen' }, 'pain' }, nil, dead)
 end
 
-local function open_on(p, part)
-    for _, i in ipairs(p.injuries) do
-        if i.part == part and not i.done then return i end
-    end
-end
-
-function Ems.stable(p)
-    if p.dead then return false end
-    for _, i in ipairs(p.injuries) do
-        if not i.done and KINDS[i.kind].serious then return false end
-    end
-    return true
-end
-
--- Their heart's stopped, or was already.
-local function no_pulse(p)
-    for _, i in ipairs(p.injuries) do
-        if i.kind == 'pulse' then i.step, i.done = 1, nil return end
-    end
-    p.injuries[#p.injuries + 1] = { part = 'thorax', kind = 'pulse', step = 1 }
-end
-
-function Ems.found_dead(p)
-    p.dead, p.arrest = true, nil
-    no_pulse(p)
-end
-
--- -> 'wrong' | 'nothing' (no problem there) | 'step' (more to do) | 'done' | 'back' (a pulse) | 'revive' | 'no_response'
-function Ems.use(p, part, tool, revive)
-    local i = open_on(p, part)
-    if not i then return 'nothing' end
-    local kind = KINDS[i.kind]
-    if kind.steps[i.step] ~= tool then return 'wrong' end
-    if i.step < #kind.steps then
-        i.step = i.step + 1
-        return 'step'
-    end
-    i.done = true
-    if i.kind ~= 'pulse' then return 'done' end
-    if p.dead then
-        if math.random() >= (revive or 0) then
-            p.tries = (p.tries or 0) + 1
-            no_pulse(p)
-            return 'no_response'
-        end
-        p.dead, p.stability = nil, 30
-        return 'revive'
-    end
-    p.arrest, p.stability = nil, 30
-    return 'back'
-end
-
--- dt seconds pass. minutes: to arrest from 100, with something serious left open. arrest_s: how long arrest lasts.
--- -> 'arrest' | 'dead' | nil
-function Ems.tick(p, dt, minutes, arrest_s)
-    if p.dead or Ems.stable(p) then return nil end
-    if p.arrest then
-        p.arrest = p.arrest - dt
-        if p.arrest > 0 then return nil end
-        Ems.found_dead(p)
-        return 'dead'
-    end
-    p.stability = math.max(0, p.stability - dt * 100 / (minutes * 60))
-    if p.stability > 0 then return nil end
-    p.arrest = arrest_s
-    no_pulse(p)
-    return 'arrest'
-end
-
--- What the screen shows.
-function Ems.view(p, stock)
-    local list = {}
-    for _, i in ipairs(p.injuries) do
-        if not i.done then
-            local kind = KINDS[i.kind]
-            list[#list + 1] = { part = i.part, text = i.step > 1 and kind.next or kind.text, tool = kind.steps[i.step] }
-        end
-    end
-    return { injuries = list, stability = math.ceil(p.stability), arrest = p.arrest ~= nil, dead = p.dead == true,
-             stable = Ems.stable(p), vitals = p.vitals, stock = stock }
-end
+function Ems.stable(b) return Body.stable(b) end
 
 -- A callout's patient (spec.injuries), before anyone's touched them.
-function Ems.admit(net, list, vitals) Patients[net] = Ems.new(list, vitals) end
+function Ems.admit(net, list, say) Patients[net] = Ems.new(list, say) end
 function Ems.patient(net) return Patients[net] end
 
 -- ─── a medical call's card and ending (callouts/ems/) ───────────────────
@@ -174,8 +90,10 @@ local function beside(src, net)
     return #(GetEntityCoords(GetPlayerPed(src)) - GetEntityCoords(ent)) <= 8.0 and ent or nil
 end
 
-local function send(src, net, p, result)
-    TriggerClientEvent('c3r:ems:view', src, net, Ems.view(p, Stock[src] or fill_bag(src)), result)
+local function send(src, net, b, result)
+    local view = Body.view(b)
+    view.stock, view.say, view.hint = Stock[src] or fill_bag(src), b.say, Body.hint(b)
+    TriggerClientEvent('c3r:ems:view', src, net, view, result)
 end
 
 RegisterNetEvent('c3r:ems:start', function(net, part, dead)
@@ -183,29 +101,31 @@ RegisterNetEvent('c3r:ems:start', function(net, part, dead)
     if not beside(src, net) then return end
     local p = Patients[net]
     if not p then
-        p = Ems.guess(type(part) == 'string' and part or nil)
+        p = Ems.guess(type(part) == 'string' and part or nil, dead == true)
+        Patients[net] = p
+    elseif dead == true and not p.arrest and not p.dead then
+        p = Ems.new({}, p.say, true) -- (a call's patient who died before anyone got there)
         Patients[net] = p
     end
-    if dead == true and not p.dead then Ems.found_dead(p) end
     p.medic, p.started = src, p.started or os.time()
     send(src, net, p)
 end)
 
-local REPLY = {
-    wrong = "That won't help here.", nothing = 'Nothing to treat there.', step = 'Done.', done = 'Treated.',
-    back = "A pulse! They're back.", revive = "A pulse! They're back.", no_response = 'No response. Start CPR again.',
-}
+local SPENT = { done = true, harm = true, rosc = true, no_rosc = true } -- (what uses one up)
+local ASSESS = { hands = true, look = true, ask = true, pulse = true, stethoscope = true, penlight = true, glucometer = true, shears = true }
 RegisterNetEvent('c3r:ems:use', function(net, part, tool)
     local src = source
     local p = beside(src, net) and Patients[net]
-    if not p or type(part) ~= 'string' or type(tool) ~= 'string' then return end
+    if not p or (part ~= nil and type(part) ~= 'string') or type(tool) ~= 'string' then return end
     local stock = Stock[src] or fill_bag(src)
     if not stock[tool] then return end
     if stock[tool] == 0 then return send(src, net, p, { kind = 'empty', text = 'None left. Restock at the ambulance.', ms = 0 }) end
-    local how = Ems.use(p, part, tool, cfg().revive)
-    local worked = how ~= 'wrong' and how ~= 'nothing'
-    if worked and stock[tool] > 0 then stock[tool] = stock[tool] - 1 end
-    send(src, net, p, { kind = how, text = REPLY[how], ms = worked and cfg().use_ms or cfg().wrong_ms })
+    local how, text = Body.act(p, tool, part)
+    if SPENT[how] and stock[tool] > 0 then stock[tool] = stock[tool] - 1 end
+    local ms = (how == 'wrong' or how == 'nothing' or how == 'not_shockable') and cfg().wrong_ms
+        or ASSESS[tool] and cfg().assess_ms or cfg().use_ms
+    -- (a harmful dose looks like any other: the monitor is what tells them)
+    send(src, net, p, { kind = how == 'harm' and tool ~= 'opa' and 'done' or how, text = text, ms = ms })
     if Ems.stable(p) and not p.stabilised then
         p.stabilised = true
         Callouts.aid(src, net, 'stabilised')
@@ -223,7 +143,7 @@ RegisterNetEvent('c3r:ems:restock', function() if ServiceOf(source) == 'ambulanc
 RegisterNetEvent('c3r:ems:pronounce', function(net)
     local src = source
     local p = beside(src, net) and Patients[net]
-    if not p or not p.dead then return end
+    if not p or not (p.dead or p.arrest) then return end -- (no pulse, and they've called it)
     Callouts.aid(src, net, 'pronounced')
     Patients[net] = nil
 end)
@@ -242,7 +162,7 @@ RegisterNetEvent('c3r:ems:deliver', function(net)
     local mins = math.max(1, math.floor((os.time() - (p.started or os.time())) / 60 + 0.5))
     local fast, fair = cfg().grade[1], cfg().grade[2]
     local fixed = 0
-    for _, i in ipairs(p.injuries) do if i.done then fixed = fixed + 1 end end
+    for _, c in ipairs(p.cond) do if c.found then fixed = fixed + 1 end end
     Callouts.aid(src, net, 'delivered')
     Patients[net] = nil
     TriggerClientEvent('c3r:ems:handover', src, { minutes = mins, treated = fixed,
@@ -263,13 +183,16 @@ function Ems.tick_all()
         if not ent or ent == 0 or not DoesEntityExist(ent) then
             Patients[net] = nil
         elseif p.started then
-            local was = p.stability
-            local what = Ems.tick(p, 1, cfg().arrest_minutes, cfg().arrest_seconds)
+            local what = Body.tick(p, 1, p.held)
             if what == 'dead' then
                 local owner = NetworkGetEntityOwner(ent)
                 if owner and owner > 0 then TriggerClientEvent('c3r:ems:kill', owner, net) end
             end
-            if p.medic and (what or math.ceil(was) ~= math.ceil(p.stability) or p.arrest) then send(p.medic, net, p) end
+            if p.medic then send(p.medic, net, p) end -- (the monitor moves every second)
+            if p.medic and not p.stabilised and Body.stable(p) then
+                p.stabilised = true
+                Callouts.aid(p.medic, net, 'stabilised')
+            end
         end
     end
 end

@@ -87,11 +87,11 @@ local function close_cfg()
     NoPause()
 end
 
-RegisterNetEvent('c3r:config:open', function(files, msg)
+RegisterNetEvent('c3r:config:open', function(tabs, msg)
     if IsNuiFocused() and not cfg_open then return end -- another menu is up
     cfg_open = true
     SetNuiFocus(true, true)
-    SendNUIMessage({ type = 'config', open = true, files = files, msg = msg })
+    SendNUIMessage({ type = 'config', open = true, tabs = tabs, msg = msg })
 end)
 RegisterNUICallback('configSave', function(d, cb)
     cb({})

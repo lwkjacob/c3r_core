@@ -325,9 +325,10 @@
         #cfg .box { position: relative; width: min(860px, 92vw); height: min(760px, 88vh); display: flex; flex-direction: column;
                     background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 50px rgba(0, 0, 0, .5); }
         #cfg header { display: flex; align-items: center; gap: 14px; padding: 16px 20px 0; }
-        #cfg h1 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; }
+        #cfg h1 { flex: none; margin: 0; white-space: nowrap; font-size: 13px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; }
         #cfg h1 b { color: #4f8cff; } #cfg h1 i { font-style: normal; color: #fff; } #cfg h1 u { text-decoration: none; color: var(--alert); }
         #cfg .find { margin-left: auto; width: 220px; }
+        #cfg .adv { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
         #cfg nav { display: flex; gap: 4px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); }
         #cfg nav button { padding: 8px 14px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted);
                           cursor: pointer; text-transform: capitalize; }
@@ -335,14 +336,22 @@
         #cfg nav button .n { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #1d1405; font-size: 11px; font-weight: 700; }
         #cfg .list { flex: 1; overflow-y: auto; padding: 4px 20px 20px; }
         #cfg .group { margin-top: 18px; }
-        #cfg .group h2 { margin: 0 0 2px; font: 600 13px/1.4 ui-monospace, Consolas, monospace; color: var(--accent); }
+        #cfg .group h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: var(--accent); }
         #cfg .about { margin: 0 0 6px; color: var(--muted); font-size: 12px; white-space: pre-line; }
         #cfg .row { display: grid; grid-template-columns: minmax(160px, 1fr) 300px minmax(28px, auto); gap: 4px 12px; align-items: center;
                     padding: 7px 10px; border-radius: var(--r); }
         #cfg .row:nth-child(even) { background: rgba(255, 255, 255, .025); }
         #cfg .row.dirty { background: rgba(240, 176, 64, .1); }
-        #cfg .row .key { font: 13px/1.3 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
-        #cfg .row .note { grid-column: 1 / 3; color: var(--dim); font-size: 12px; }
+        #cfg .row .key { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+        #cfg .row .note { grid-column: 1 / 3; color: var(--muted); font-size: 12px; }
+        /* a value with its unit; numbers that go together; a colour's swatch; a key to press */
+        #cfg .val { display: flex; align-items: center; gap: 8px; }
+        #cfg .val input[type=text], #cfg .val input[type=number], #cfg .val select { flex: 1; min-width: 0; }
+        #cfg .val .unit { flex: none; color: var(--muted); font-size: 12px; }
+        #cfg .val .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); }
+        #cfg .val .cap { min-width: 90px; padding: 6px 12px; border-radius: var(--r); border: 1px solid var(--line); background: var(--raised);
+                         color: var(--text); font-size: 13px; cursor: pointer; }
+        #cfg .val .cap:hover, #cfg .val .cap.wait { border-color: var(--accent); color: var(--accent); }
         /* a position: x, y, z in one box, and "Set here" */
         #cfg .vec { display: flex; gap: 6px; }
         #cfg .vec input { flex: 1; min-width: 0; }
@@ -360,7 +369,8 @@
         #cfg .add:hover { color: var(--accent); border-color: var(--accent); }
         #cfg input[type=text], #cfg input[type=number] { width: 100%; padding: 6px 9px; border-radius: var(--r); border: 1px solid var(--line);
                     background: var(--sunk); color: var(--text); font: 13px ui-monospace, Consolas, monospace; }
-        #cfg input:focus { outline: none; border-color: var(--accent); }
+        #cfg select { padding: 6px 9px; border-radius: var(--r); border: 1px solid var(--line); background: var(--sunk); color: var(--text); font-size: 13px; }
+        #cfg input:focus, #cfg select:focus { outline: none; border-color: var(--accent); }
         #cfg input.bad { border-color: var(--alert); }
         /* true / false: a switch, off grey, on in the accent */
         #cfg input[type=checkbox] { -webkit-appearance: none; appearance: none; position: relative; width: 38px; height: 22px; margin: 0;
@@ -422,47 +432,73 @@
         #co-confirm button:hover, #co-confirm button:focus-visible { background: rgba(255, 255, 255, .24); outline: none; }
         #co-confirm button.leave { border-color: var(--red); background: rgba(255, 125, 112, .25); }
 
-        /* ── the treatment screen: an overhead view of the patient, a marker on each body part, the bag's tools below ── */
+        /* ── the treatment screen: an overhead view of the patient, a marker on each body part, what's been found on the
+           left, the vitals on the right, the bag's tools in tabs below ── */
         #ems { position: fixed; inset: 0; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .2s; }
         #ems.open { opacity: 1; visibility: visible; pointer-events: auto; }
         #ems-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
         #ems-lines line { stroke: rgba(255, 255, 255, .55); stroke-width: 1; }
         #ems-lines line.hurt { stroke: var(--red); }
+        #ems-lines line.sel { stroke: #fff; stroke-width: 2.5; }
         .ems-dot { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; border-radius: 50%; cursor: pointer;
                    background: radial-gradient(circle, #6aa9ff 0 34%, rgba(16, 22, 34, .9) 38%); border: 1.5px solid #6aa9ff; }
         .ems-dot.hurt { background: radial-gradient(circle, var(--red) 0 34%, rgba(34, 16, 16, .9) 38%); border-color: var(--red); animation: ems-pulse 1.1s ease-in-out infinite; }
+        .ems-dot.done { background: radial-gradient(circle, var(--green) 0 34%, rgba(16, 34, 24, .9) 38%); border-color: var(--green); }
+        .ems-dot.sel { width: 26px; height: 26px; margin: -13px 0 0 -13px; border-width: 3px; border-color: #fff; }
         @keyframes ems-pulse { 50% { box-shadow: 0 0 0 7px rgba(255, 125, 112, .28); } }
         .ems-tag { position: absolute; transform: translate(0, -50%); padding: 6px 12px; border: 1px solid transparent; border-radius: 7px; cursor: pointer;
                    background: rgba(14, 18, 30, .92); color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; }
         .ems-tag.left { transform: translate(-100%, -50%); }
         .ems-tag.hurt { color: var(--red); }
-        .ems-tag:hover, .ems-tag.sel { border-color: var(--red); }
+        .ems-tag.done { color: var(--green); }
+        .ems-tag:hover { border-color: rgba(255, 255, 255, .6); }
+        .ems-tag.sel { background: #fff; color: #10141f; border-color: #fff; box-shadow: 0 0 0 3px rgba(106, 169, 255, .55); }
+        .ems-tag.sel.hurt { background: var(--red); color: #fff; border-color: var(--red); box-shadow: 0 0 0 3px rgba(255, 125, 112, .4); }
         .ems-tag.bag { color: #8fc0ff; }
-        #ems-state { position: absolute; top: 28px; left: 50%; width: 460px; transform: translateX(-50%); padding: 12px 18px; text-align: center; }
-        #ems-state .bar { height: 6px; margin: 2px 0 9px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; }
-        #ems-state .bar i { display: block; height: 100%; width: 100%; background: var(--green); transition: width .4s, background .3s; }
-        #ems-state .bar i.low { background: var(--accent); }
-        #ems-state .bar i.crit { background: var(--red); }
-        #ems-state .vitals { color: rgba(255, 255, 255, .72); font-size: 12.5px; margin-bottom: 3px; }
-        #ems-state .say { font-size: 15px; font-weight: 600; min-height: 21px; }
+        #ems-state { position: absolute; top: 28px; left: 50%; width: 480px; transform: translateX(-50%); padding: 12px 18px; text-align: center; }
+        #ems-state .says { color: rgba(255, 255, 255, .72); font-size: 12.5px; min-height: 15px; }
+        #ems-state .part { color: #8fc0ff; font-size: 11.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; min-height: 15px; margin-top: 3px; }
+        #ems-state .say { font-size: 15px; font-weight: 600; min-height: 21px; margin-top: 2px; }
         #ems-state .say.alert { color: var(--red); }
         #ems-state .say.ok { color: var(--green); }
-        #ems-tools { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 10px; border-radius: 12px;
-                     background: rgba(14, 18, 30, .94); }
-        .ems-tool { position: relative; width: 86px; height: 96px; padding: 22px 4px 4px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; background: rgba(255, 255, 255, .05);
+        #ems-state .hint { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .15); color: #ffd27a; font-size: 13px; display: none; }
+        #ems-state .hint.on { display: block; }
+        .ems-side { position: absolute; top: 28px; width: 270px; padding: 12px 14px; border-radius: 12px; background: rgba(14, 18, 30, .92); color: #fff; }
+        #ems-log { left: 28px; max-height: 46vh; overflow: auto; }
+        #ems-mon { right: 28px; }
+        .ems-side h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+        #ems-log .row { padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, .08); font-size: 12.5px; line-height: 1.35; }
+        #ems-log .row b { display: block; color: var(--red); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+        #ems-log .row.fixed b { color: var(--green); }
+        #ems-log .row.fixed span { color: rgba(255, 255, 255, .55); }
+        #ems-log .none { color: rgba(255, 255, 255, .55); font-size: 12.5px; }
+        #ems-mon .v { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-variant-numeric: tabular-nums; }
+        #ems-mon .v span { color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; }
+        #ems-mon .v b { font-size: 22px; }
+        #ems-mon .v.hr b { color: #6fe08a; } #ems-mon .v.sp b { color: #6ad8ff; } #ems-mon .v.co b { color: #ffd27a; }
+        #ems-mon .rhythm { margin-top: 6px; font-size: 13px; font-weight: 700; }
+        #ems-mon .alarm { margin-top: 6px; color: var(--red); font-size: 12px; font-weight: 700; letter-spacing: .06em; animation: pulse 1s infinite; }
+        #ems-mon .off { color: rgba(255, 255, 255, .55); font-size: 12.5px; }
+        #ems-btns { position: absolute; top: 28px; right: 318px; display: flex; flex-direction: column; gap: 8px; }
+        #ems-btns button { padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(14, 18, 30, .92); color: #ffd27a; border: 1px solid rgba(255, 210, 122, .6); }
+        #ems-pronounce { color: var(--red) !important; border-color: var(--red) !important; display: none; }
+        #ems-pronounce.on { display: block; }
+        #ems-kit { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 8px 10px 10px; border-radius: 12px; background: rgba(14, 18, 30, .94); }
+        #ems-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+        .ems-tab { padding: 5px 14px; border: 0; border-radius: 6px; cursor: pointer; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+        .ems-tab.on { background: rgba(255, 255, 255, .12); color: #fff; }
+        #ems-tools { display: flex; gap: 6px; }
+        .ems-tool { position: relative; width: 86px; height: 88px; padding: 22px 4px 4px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; background: rgba(255, 255, 255, .05);
                     display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; line-height: 1.15; text-align: center; color: #fff; }
         .ems-tool:hover:not([disabled]) { background: rgba(255, 255, 255, .12); }
         .ems-tool[disabled] { opacity: .4; cursor: default; }
-        .ems-tool.want { border-color: var(--green); box-shadow: 0 0 12px rgba(111, 224, 165, .35); }
-        .ems-tool svg { width: 30px; height: 30px; flex: none; }
+        .ems-tool svg { width: 28px; height: 28px; flex: none; }
         .ems-tool .k { position: absolute; top: 4px; left: 7px; color: var(--muted); font-size: 11px; }
         .ems-tool .n { position: absolute; top: 4px; right: 7px; color: var(--accent); font-size: 11px; font-weight: 700; }
-        #ems-work { position: absolute; bottom: 146px; left: 50%; width: 260px; height: 5px; margin-left: -130px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; visibility: hidden; }
+        #ems-work { position: absolute; bottom: 168px; left: 50%; width: 260px; height: 5px; margin-left: -130px; border-radius: 3px; background: rgba(255, 255, 255, .16); overflow: hidden; visibility: hidden; }
         #ems-work.on { visibility: visible; }
         #ems-work i { display: block; height: 100%; width: 0; background: #fff; }
         #ems-foot { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; color: #fff; font-size: 12px; text-shadow: var(--ink); }
-        #ems-pronounce { position: absolute; top: 28px; right: 28px; padding: 8px 14px; border: 1px solid var(--red); border-radius: 8px; background: rgba(34, 16, 16, .9); color: var(--red); cursor: pointer; font-weight: 600; display: none; }
-        #ems-pronounce.on { display: block; }
     </style>
 </head>
 <body>
@@ -510,7 +546,8 @@
     <div class="shade"></div>
     <div class="box" role="dialog" aria-label="c3r config">
         <header><h1><b>Code</b><i>3</i><u>Response</u> config</h1>
-            <input class="find" id="cfg-find" type="text" placeholder="Search settings" aria-label="Search settings"></header>
+            <input class="find" id="cfg-find" type="text" placeholder="Search all settings" aria-label="Search all settings">
+            <label class="adv"><input type="checkbox" id="cfg-adv">Advanced settings</label></header>
         <nav id="cfg-tabs"></nav>
         <div class="list" id="cfg-list"></div>
         <footer><span class="msg" id="cfg-msg"></span>
@@ -581,11 +618,13 @@
 <section id="ems" aria-hidden="true">
     <svg id="ems-lines" aria-hidden="true"></svg>
     <div id="ems-marks"></div>
-    <div id="ems-state" class="glass" role="status"><div class="vitals" id="ems-vitals"></div><div class="bar"><i id="ems-stab"></i></div><div class="say" id="ems-say"></div></div>
-    <button id="ems-pronounce" type="button">Pronounce dead</button>
+    <div id="ems-state" class="glass" role="status"><div class="says" id="ems-says"></div><div class="part" id="ems-part"></div><div class="say" id="ems-say"></div><div class="hint" id="ems-hint"></div></div>
+    <div id="ems-log" class="ems-side"><h3>Findings</h3><div id="ems-found"></div></div>
+    <div id="ems-mon" class="ems-side" aria-live="polite"><h3>Vitals</h3><div id="ems-vit"></div></div>
+    <div id="ems-btns"><button id="ems-hint-btn" type="button">Hint (H)</button><button id="ems-pronounce" type="button">Pronounce dead</button></div>
     <div id="ems-work"><i></i></div>
-    <div id="ems-tools" role="toolbar" aria-label="Medical bag"></div>
-    <div id="ems-foot"><span class="kbd">Esc</span>Step away</div>
+    <div id="ems-kit"><div id="ems-tabs" role="tablist"></div><div id="ems-tools" role="toolbar" aria-label="Medical bag"></div></div>
+    <div id="ems-foot"><span class="kbd">1-8</span>Tool <span class="kbd">Tab</span>Next pouch <span class="kbd">Esc</span>Step away</div>
 </section>
 
 <div id="idwrap" aria-live="polite">
@@ -1811,15 +1850,21 @@
         if (e.key === 'Escape' || e.key === $('duty-key').textContent) { e.preventDefault(); post('dutyClose'); }
     });
 
-    // ── the treatment screen (client/ems.lua): click a body part, then the tool. The red ones need treating, and the tool
-    // that helps lights up; the rules are the server's (server/ems.lua) ──
-    const ems = { open: false, part: null, view: null, tools: [], busy: false, say: null };
+    // ── the treatment screen (client/ems.lua): pick a body part, then a tool. Nothing shows until it's found by assessing;
+    // the truth, the vitals and the hint are the server's (server/ems_body.lua) ──
+    const ems = { open: false, part: null, view: null, tools: [], parts: {}, tab: 'assess', busy: false, say: null, hint: false };
     const EMS_LEFT = new Set(['head', 'abdomen', 'rarm', 'rhand', 'rleg', 'rfoot']); // (on the screen's left: they're on their back, head up)
-    const EMS_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-'];
-    const emsHurt = (id) => ((ems.view && ems.view.injuries) || []).find((i) => i.part === id);
+    const EMS_TABS = [['assess', 'Assess'], ['treat', 'Treat'], ['airway', 'Airway'], ['drugs', 'Drugs']];
+    const EMS_GOOD = new Set(['done', 'found', 'rosc']);
+    const EMS_BAD = new Set(['wrong', 'empty', 'not_shockable', 'no_rosc', 'harm']);
+    const RHYTHM = { sinus: 'Sinus rhythm', tachy: 'Sinus tachycardia', brady: 'Sinus bradycardia', vf: 'VF', vt: 'VT', asystole: 'Asystole', pea: 'PEA' };
+    const emsFound = (id) => ((ems.view && ems.view.found) || []).filter((f) => f.part === id);
+    const emsHurt = (id) => emsFound(id).some((f) => !f.fixed);
     function emsLayout(parts, bag) {
         const W = window.innerWidth, H = window.innerHeight, cx = parts.reduce((a, p) => a + p.x, 0) / (parts.length || 1) * W;
         const lines = [], marks = [];
+        ems.parts = {};
+        for (const p of parts) ems.parts[p.id] = p.label;
         for (const side of [true, false]) { // labels down each side, in body order, never on top of each other
             let y = 90;
             parts.filter((p) => EMS_LEFT.has(p.id) === side).sort((a, b) => a.y - b.y).forEach((p) => {
@@ -1834,67 +1879,85 @@
         $('ems-lines').innerHTML = lines.join('');
         $('ems-marks').innerHTML = marks.join('');
     }
+    const emsTab = () => ems.tools.filter((t) => (t.group || 'treat') === ems.tab);
+    function emsKit() {
+        $('ems-tabs').innerHTML = EMS_TABS.map(([id, label]) => `<button class="ems-tab${id === ems.tab ? ' on' : ''}" type="button" role="tab" data-tab="${id}">${label}</button>`).join('');
+        $('ems-tools').innerHTML = emsTab().map((t, i) => `<button class="ems-tool" type="button" data-t="${t.id}"><span class="k">${i < 8 ? i + 1 : ''}</span><span class="n"></span>${RAD_ICONS[t.icon] || RAD_ICONS.medic}<span>${t.label}</span></button>`).join('');
+    }
+    function emsVitals(v) {
+        const m = v.monitor;
+        if (!m) return `<div class="off">Monitor off.</div>${v.hand_hr ? `<div class="v hr"><span>PULSE (HAND)</span><b>${v.hand_hr}</b></div>` : ''}`;
+        const row = (cls, label, val) => `<div class="v ${cls}"><span>${label}</span><b>${val}</b></div>`;
+        return row('hr', 'HR', m.hr || '---') + row('', 'BP', m.sys ? `${m.sys}/${m.dia}` : '---') + row('sp', 'SPO2', m.spo2 ? `${m.spo2}%` : '---')
+            + row('', 'RESP', m.rr) + row('co', 'ETCO2', m.etco2) + `<div class="rhythm">${RHYTHM[m.rhythm] || ''}</div>`
+            + (m.alarms && m.alarms.length ? `<div class="alarm">${m.alarms.join(' · ')}</div>` : '');
+    }
     function emsDraw() {
-        const v = ems.view || { injuries: [], stock: {}, stability: 100 };
+        const v = ems.view || { found: [], stock: {} };
         document.querySelectorAll('#ems-marks [data-p], #ems-lines [data-p]').forEach((el) => {
-            el.classList.toggle('hurt', !!emsHurt(el.dataset.p));
+            const found = emsFound(el.dataset.p);
+            el.classList.toggle('hurt', found.some((f) => !f.fixed));
+            el.classList.toggle('done', found.length > 0 && found.every((f) => f.fixed));
             el.classList.toggle('sel', el.dataset.p === ems.part);
         });
-        const stab = $('ems-stab');
-        stab.style.width = `${v.dead ? 0 : v.stability}%`;
-        stab.className = v.stability < 30 ? 'crit' : v.stability < 60 ? 'low' : '';
-        $('ems-vitals').textContent = v.vitals || '';
-        const hurt = ems.part && emsHurt(ems.part);
+        $('ems-says').textContent = v.say || '';
+        $('ems-part').textContent = ems.part ? (ems.parts[ems.part] || '') : '';
         const say = $('ems-say');
         let text, kind = '';
         if (ems.say) { text = ems.say.text; kind = ems.say.kind; }
-        else if (v.dead) { text = 'No pulse. CPR, then the defib.'; kind = 'alert'; }
-        else if (v.arrest) { text = 'Cardiac arrest! CPR, then the defib.'; kind = 'alert'; }
-        else if (hurt) text = hurt.text;
+        else if (v.dead) { text = 'No signs of life.'; kind = 'alert'; }
+        else if (v.arrest) { text = 'No pulse!'; kind = 'alert'; }
+        else if (ems.part && emsHurt(ems.part)) text = emsFound(ems.part).filter((f) => !f.fixed).map((f) => f.text).join(' ');
         else if (v.stable) { text = 'Stable. Get the stretcher from the ambulance.'; kind = 'ok'; }
-        else text = 'Click a red marker to see what is wrong.';
+        else text = ems.part ? 'Pick a tool.' : 'Pick a body part, then a tool to assess it.';
         say.textContent = text;
         say.className = `say ${kind}`;
+        const hint = $('ems-hint');
+        hint.textContent = v.hint || '';
+        hint.classList.toggle('on', ems.hint && !!v.hint);
+        const found = v.found || [];
+        $('ems-found').innerHTML = found.length ? found.map((f) => `<div class="row${f.fixed ? ' fixed' : ''}"><b>${ems.parts[f.part] || f.part}${f.fixed ? ' · treated' : ''}</b><span>${f.text}</span></div>`).join('')
+            : '<div class="none">Nothing found yet.</div>';
+        $('ems-vit').innerHTML = emsVitals(v);
         document.querySelectorAll('.ems-tool').forEach((b) => {
             const left = (v.stock || {})[b.dataset.t];
-            b.classList.toggle('want', !!hurt && hurt.tool === b.dataset.t);
             b.disabled = ems.busy || left === 0;
             b.querySelector('.n').textContent = left > 0 ? `x${left}` : left === 0 ? 'Empty' : '';
         });
-        $('ems-pronounce').classList.toggle('on', !!v.dead);
+        $('ems-pronounce').classList.toggle('on', !!(v.dead || v.arrest));
     }
-    function emsUse(tool) {
-        if (ems.busy) return;
-        if (!ems.part) { ems.say = { text: 'Pick a body part first.', kind: '' }; return emsDraw(); }
+    function emsUse(id) {
+        const t = ems.tools.find((x) => x.id === id);
+        if (ems.busy || !t) return;
+        if (t.part && !ems.part) { ems.say = { text: 'Pick a body part first.', kind: '' }; return emsDraw(); }
         ems.busy = true; // (until the server answers: then for as long as the tool takes)
         ems.say = null;
         emsDraw();
-        post('emsUse', { part: ems.part, tool });
+        post('emsUse', { part: t.at || (t.part ? ems.part : null), tool: id });
     }
     function emsScreen(d) {
         const el = $('ems');
         if (d.open === false) {
-            Object.assign(ems, { open: false, part: null, view: null, busy: false, say: null });
+            Object.assign(ems, { open: false, part: null, view: null, busy: false, say: null, hint: false });
             el.classList.remove('open');
             el.setAttribute('aria-hidden', 'true');
             return;
         }
         if (d.open) {
-            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, tools: d.tools || [] });
+            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, hint: false, tab: 'assess', tools: d.tools || [] });
             emsLayout(d.parts || [], d.bag);
-            $('ems-tools').innerHTML = ems.tools.map((t, i) => `<button class="ems-tool" type="button" data-t="${t.id}"><span class="k">${EMS_KEYS[i] || ''}</span><span class="n"></span>${RAD_ICONS[t.icon] || RAD_ICONS.medic}<span>${t.label}</span></button>`).join('');
+            emsKit();
             el.classList.add('open');
             el.setAttribute('aria-hidden', 'false');
         }
         if (d.view) ems.view = d.view;
         if (d.result) {
-            const r = d.result, good = r.kind !== 'wrong' && r.kind !== 'nothing' && r.kind !== 'empty' && r.kind !== 'no_response';
+            const r = d.result;
             const finish = () => {
                 ems.busy = false;
-                ems.say = { text: r.text, kind: good ? 'ok' : 'alert' };
-                if (!ems.view || !emsHurt(ems.part)) ems.part = null;
+                ems.say = { text: r.text, kind: EMS_GOOD.has(r.kind) ? 'ok' : EMS_BAD.has(r.kind) ? 'alert' : '' };
                 emsDraw();
-                setTimeout(() => { if (ems.say && ems.say.text === r.text) { ems.say = null; emsDraw(); } }, 2200);
+                setTimeout(() => { if (ems.say && ems.say.text === r.text) { ems.say = null; emsDraw(); } }, 4000);
             };
             if (r.ms > 0) {
                 const work = $('ems-work'), bar = work.firstElementChild;
@@ -1910,23 +1973,46 @@
         if (!b) return;
         if (b.dataset.p) { ems.part = b.dataset.p; ems.say = null; emsDraw(); }
         else if (b.dataset.bag) post('emsClose');
+        else if (b.dataset.tab) { ems.tab = b.dataset.tab; emsKit(); emsDraw(); }
         else if (b.dataset.t) emsUse(b.dataset.t);
         else if (b.id === 'ems-pronounce') post('emsPronounce');
+        else if (b.id === 'ems-hint-btn') { ems.hint = !ems.hint; emsDraw(); }
     });
     window.addEventListener('keydown', (e) => {
         if (!ems.open || e.repeat) return;
         if (e.key === 'Escape') { e.preventDefault(); return post('emsClose'); }
-        const t = ems.tools[EMS_KEYS.indexOf(e.key)];
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const i = EMS_TABS.findIndex(([id]) => id === ems.tab);
+            ems.tab = EMS_TABS[(i + (e.shiftKey ? EMS_TABS.length - 1 : 1)) % EMS_TABS.length][0];
+            emsKit();
+            return emsDraw();
+        }
+        if (e.key === 'h' || e.key === 'H') { ems.hint = !ems.hint; return emsDraw(); }
+        const n = Number(e.key);
+        const t = n >= 1 && n <= 8 && emsTab()[n - 1];
         if (t) emsUse(t.id);
     });
 
-    // ── /c3rconfig: every value in c3r's config files, saved straight into them (server/config_edit.lua) ──
-    let cfg = null; // { files: [{ file, entries }], tab, dirty: Map(file:path -> { file, path, value }), leaving }
+    // ── /c3rconfig: every value in c3r's config files, saved straight into them (server/config_edit.lua, config_labels.lua) ──
+    let cfg = null; // { tabs: [{ name, sections: [{ title, help, rows }] }], tab, dirty: Map(file:path -> { file, path, value }), leaving }
     const CFG_NOTE = 'Saved into the config files and live at once. Keys and command names apply after restart c3r.';
+    const CFG_UNITS = { m: ['metres'], s: ['seconds'], pct: ['%', 100], ms: ['seconds', .001], mph: ['mph', 2.23694], min: ['minutes', 1 / 60] };
+    // FiveM's names for keys (docs.fivem.net: input mapper, keyboard), by the browser's; letters, digits and F keys are worked out
+    const CFG_KEYS = { ShiftLeft: 'LSHIFT', ShiftRight: 'RSHIFT', ControlLeft: 'LCONTROL', ControlRight: 'RCONTROL', AltLeft: 'LMENU', AltRight: 'RMENU',
+        Backspace: 'BACK', Enter: 'RETURN', Space: 'SPACE', Tab: 'TAB', CapsLock: 'CAPITAL', Insert: 'INSERT', Delete: 'DELETE', Home: 'HOME', End: 'END',
+        PageUp: 'PAGEUP', PageDown: 'PAGEDOWN', ArrowLeft: 'LEFT', ArrowUp: 'UP', ArrowRight: 'RIGHT', ArrowDown: 'DOWN', NumpadAdd: 'ADD',
+        NumpadSubtract: 'SUBTRACT', NumpadMultiply: 'MULTIPLY', NumpadDivide: 'DIVIDE', NumpadDecimal: 'DECIMAL', NumpadEnter: 'NUMPADENTER',
+        Semicolon: 'SEMICOLON', Equal: 'EQUALS', Comma: 'COMMA', Minus: 'MINUS', Period: 'PERIOD', Slash: 'SLASH', Backquote: 'GRAVE',
+        BracketLeft: 'LBRACKET', BracketRight: 'RBRACKET', Backslash: 'BACKSLASH', Quote: 'APOSTROPHE' };
+    const CFG_KEY_NAMES = { LSHIFT: 'Left Shift', RSHIFT: 'Right Shift', LCONTROL: 'Left Ctrl', RCONTROL: 'Right Ctrl', LMENU: 'Left Alt', RMENU: 'Right Alt',
+        BACK: 'Backspace', RETURN: 'Enter', CAPITAL: 'Caps Lock' };
+    const cfgKeyOf = (code) => CFG_KEYS[code] || code.match(/^Key([A-Z])$|^Digit(\d)$|^(F\d+)$/)?.slice(1).find(Boolean)
+        || code.match(/^Numpad\d$/)?.[0].toUpperCase();
     function config(d) {
         if (!d.open) { cfg = null; $('cfg').classList.remove('open'); $('cfg').setAttribute('aria-hidden', 'true'); return; }
-        const files = Array.isArray(d.files) ? d.files : [];
-        cfg = { files, tab: cfg ? Math.min(cfg.tab, files.length - 1) : 0, dirty: new Map(), leaving: false };
+        const tabs = Array.isArray(d.tabs) ? d.tabs : [];
+        cfg = { tabs, tab: cfg ? Math.min(cfg.tab, tabs.length - 1) : 0, dirty: new Map(), leaving: false };
         cfgMsg(d.msg || CFG_NOTE, !!d.msg && d.msg.startsWith('Not saved'));
         $('cfg').classList.add('open');
         $('cfg').setAttribute('aria-hidden', 'false');
@@ -1934,142 +2020,198 @@
     }
     const cfgMsg = (text, warn) => { $('cfg-msg').textContent = text; $('cfg-msg').classList.toggle('warn', !!warn); };
     const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const cfgId = (e) => `${e.file}:${e.path}`;
+    // a number as shown (35 for 0.35) and back: a value only changes if what's shown does
+    const cfgScale = (r) => CFG_UNITS[r.unit]?.[1];
+    const cfgOut = (r, v) => (cfgScale(r) ? +(v * cfgScale(r)).toFixed(2) : v);
+    const cfgIn = (r, e, x) => (!cfgScale(r) ? x : x === cfgOut(r, e.value) ? e.value : +(x / cfgScale(r)).toFixed(4));
+    const cfgOk = (r, x) => Number.isFinite(x) && (r.neg || x >= 0) && !(r.unit === 'pct' && x > 100) && !(r.as === 'rgb' && x > 255);
+    const cfgCur = (e) => (cfg.dirty.has(cfgId(e)) ? cfg.dirty.get(cfgId(e)).value : e.value);
+    // the row's new values, one for each of its entries, or null (not valid: nothing to save)
+    function cfgSet(row, r, vals) {
+        r.entries.forEach((e, i) => {
+            if (!vals || vals[i] === (e.value ?? (e.kind === 'boolean' ? false : ''))) cfg.dirty.delete(cfgId(e));
+            else cfg.dirty.set(cfgId(e), { file: e.file, path: e.path, value: vals[i] });
+        });
+        cfg.leaving = false;
+        row.classList.toggle('dirty', r.entries.some((e) => cfg.dirty.has(cfgId(e))));
+        cfgShowCounts();
+    }
     function cfgShow() {
-        const tabs = $('cfg-tabs'), list = $('cfg-list'), q = $('cfg-find').value.trim().toLowerCase();
-        tabs.replaceChildren(...cfg.files.map((f, i) => {
-            const b = el('button', i === cfg.tab ? 'on' : '', f.file.replace(/^config\/|\.lua$/g, ''));
-            const n = [...cfg.dirty.values()].filter((c) => c.file === f.file).length;
-            if (n) b.append(el('span', 'n', n));
+        const tabs = $('cfg-tabs'), list = $('cfg-list'), q = $('cfg-find').value.trim().toLowerCase(), adv = $('cfg-adv').checked;
+        tabs.replaceChildren(...cfg.tabs.map((t, i) => {
+            const b = el('button', i === cfg.tab && !q ? 'on' : '', t.name);
             b.type = 'button';
-            b.onclick = () => { cfg.tab = i; cfgShow(); list.scrollTop = 0; };
+            b.onclick = () => { $('cfg-find').value = ''; cfg.tab = i; cfgShow(); list.scrollTop = 0; };
             return b;
         }));
-        const f = cfg.files[cfg.tab];
+        cfgShowCounts();
         list.replaceChildren();
-        if (!f) return;
-        let group = null, top = null;
-        // which list entry a value belongs to (the innermost list), and where each list ends
-        const lists = (f.lists || []).slice().sort((a, b) => b.path.length - a.path.length);
-        const itemOf = (path) => {
-            for (const l of lists) {
-                const m = path.startsWith(l.path) && path.slice(l.path.length).match(/^\[(\d+)\]/);
-                if (m) return { l, i: Number(m[1]) };
-            }
-            return null;
-        };
-        const seen = new Set(), ends = new Map(), all = f.entries;
-        for (let k = 0; k < all.length; k++) {
-            const e = all[k];
-            // x, y and z side by side: one position
-            const base = e.path.endsWith('.x') ? e.path.slice(0, -2) : null;
-            const vec = base && all[k + 1]?.path === base + '.y' && all[k + 2]?.path === base + '.z'
-                && [e, all[k + 1], all[k + 2]].every((v) => v.kind === 'number') ? [e, all[k + 1], all[k + 2]] : null;
-            if (vec) k += 2;
-            if (q && !(e.path.toLowerCase().includes(q) || (e.note || '').toLowerCase().includes(q))) continue;
-            const t = e.path.split(/[.[]/)[0];
-            if (t !== top) {
-                top = t;
-                group = el('div', 'group');
-                group.append(el('h2', '', 'Config.' + t));
-                if (e.about) group.append(el('p', 'about', e.about));
+        const has = (r, s) => [r.label, r.help, s.title, ...r.entries.map((e) => e.path)].some((t) => (t || '').toLowerCase().includes(q));
+        for (const t of q ? cfg.tabs : cfg.tabs.slice(cfg.tab, cfg.tab + 1)) {
+            for (const s of t.sections) {
+                const rows = s.rows.filter((r) => (q ? has(r, s) : adv || !r.adv));
+                if (!rows.length) continue;
+                const group = el('div', 'group'), seen = new Set(), ends = new Map();
+                group.append(el('h2', '', q ? `${t.name}: ${s.title}` : s.title));
+                if (s.help) group.append(el('p', 'about', s.help));
+                for (const r of rows) {
+                    const row = cfgRow(r), l = r.list;
+                    if (l) {
+                        if (!seen.has(r.item)) row.append(cfgDel(r));
+                        seen.add(r.item);
+                        ends.set(l.path, [row, r]);
+                    }
+                    group.append(row);
+                }
+                for (const [row, r] of ends.values()) {
+                    const b = el('button', 'add', `+ ${r.add || 'Add another'}`);
+                    b.type = 'button';
+                    b.title = 'A copy of the last one, to edit';
+                    b.onclick = () => cfgList(r.list.file, r.list.path, 'add');
+                    row.after(b);
+                }
                 list.append(group);
             }
-            const row = vec ? cfgVec(f.file, base, vec) : cfgRow(f.file, e), it = itemOf(e.path);
-            if (it) {
-                if (!seen.has(`${it.l.path}[${it.i}]`)) row.append(cfgDel(f.file, it.l, it.i));
-                seen.add(`${it.l.path}[${it.i}]`);
-                ends.set(it.l, row);
-            }
-            group.append(row);
-        }
-        for (const [l, row] of ends) {
-            const b = el('button', 'add', `+ Add to ${l.path}`);
-            b.type = 'button';
-            b.title = 'A copy of its last entry, to edit';
-            b.onclick = () => cfgList(f.file, l.path, 'add');
-            row.after(b);
         }
         if (!list.children.length) list.append(el('p', 'about', 'Nothing matches.'));
-        $('cfg-save').disabled = !cfg.dirty.size;
-        $('cfg-save').textContent = cfg.dirty.size ? `Save ${cfg.dirty.size}` : 'Save';
     }
-    function cfgRow(file, e) {
-        const id = `${file}:${e.path}`, row = el('label', 'row'), d = cfg.dirty.get(id);
-        const cur = d ? d.value : e.value;
-        row.append(el('span', 'key', e.path));
+    function cfgRow(r) {
+        if (r.as === 'pos') return cfgVec(r);
+        if (r.as === 'range' || r.as === 'rgb') return cfgNums(r);
+        if (r.as === 'key') return cfgKey(r);
+        return cfgField(r);
+    }
+    // a row's label, its control and the help under it
+    function cfgShell(r, ctl) {
+        const row = el('label', 'row');
+        row.append(el('span', 'key', r.label), ctl);
+        if (r.help) row.append(el('span', 'note', r.help));
+        row.classList.toggle('dirty', r.entries.some((e) => cfg.dirty.has(cfgId(e))));
+        return row;
+    }
+    const cfgUnit = (r) => el('span', 'unit', CFG_UNITS[r.unit]?.[0] ?? r.unit);
+    function cfgField(r) {
+        const e = r.entries[0], cur = cfgCur(e), box = el('span', 'val');
         let input;
         if (e.kind === 'boolean') {
             input = el('input');
             input.type = 'checkbox';
             input.checked = !!cur;
+        } else if (r.opts) {
+            input = el('select');
+            input.append(...r.opts.map(([value, text]) => Object.assign(el('option', '', text), { value })));
+            input.value = cur;
         } else {
             input = el('input');
             input.type = e.kind === 'number' ? 'number' : 'text';
             if (e.kind === 'number') input.step = 'any';
-            input.value = cur ?? '';
-            if (e.kind === 'nil' || e.kind === 'string') input.placeholder = 'nil';
+            input.value = e.kind === 'number' ? cfgOut(r, cur) : cur ?? '';
+            if (r.blank) input.placeholder = r.blank;
         }
+        box.append(input);
+        if (r.unit) box.append(cfgUnit(r));
+        const row = cfgShell(r, box);
         input.onchange = input.oninput = () => {
-            let v = e.kind === 'boolean' ? input.checked : input.value;
+            let v = e.kind === 'boolean' ? input.checked : input.value, ok = true;
             if (e.kind === 'number') {
                 v = input.value.trim() === '' ? NaN : Number(input.value);
-                input.classList.toggle('bad', !Number.isFinite(v));
-                if (!Number.isFinite(v)) return;
-            }
-            if (v === (e.value ?? (e.kind === 'boolean' ? false : ''))) cfg.dirty.delete(id);
-            else cfg.dirty.set(id, { file, path: e.path, value: v });
-            cfg.leaving = false;
-            row.classList.toggle('dirty', cfg.dirty.has(id));
-            cfgShowCounts();
+                ok = cfgOk(r, v);
+                if (ok) v = cfgIn(r, e, v);
+            } else if (e.kind !== 'boolean') ok = !!r.blank || v.trim() !== '';
+            input.classList.toggle('bad', !ok);
+            cfgSet(row, r, ok ? [v] : null);
         };
-        row.classList.toggle('dirty', !!d);
-        row.append(input);
-        if (e.note) row.append(el('span', 'note', e.note));
+        return row;
+    }
+    // numbers that belong together: from - to, or red, green, blue
+    function cfgNums(r) {
+        const box = el('span', 'val'), rgb = r.as === 'rgb', dot = rgb ? el('i', 'dot') : null;
+        const inputs = r.entries.map((e) => {
+            const input = el('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.value = cfgOut(r, cfgCur(e));
+            return input;
+        });
+        const paint = () => { if (dot) dot.style.background = `rgb(${inputs.map((i) => i.value).join(',')})`; };
+        inputs.forEach((input, i) => {
+            if (i && !rgb) box.append(el('span', 'unit', 'to'));
+            box.append(input);
+        });
+        if (dot) box.append(dot);
+        if (r.unit) box.append(cfgUnit(r));
+        const row = cfgShell(r, box);
+        inputs.forEach((input) => {
+            input.oninput = () => {
+                const nums = inputs.map((i) => (i.value.trim() === '' ? NaN : Number(i.value)));
+                const ok = nums.every((x) => cfgOk(r, x)) && (rgb || nums[0] <= nums[1]);
+                inputs.forEach((i) => i.classList.toggle('bad', !ok));
+                cfgSet(row, r, ok ? nums.map((x, i) => cfgIn(r, r.entries[i], x)) : null);
+                paint();
+            };
+        });
+        paint();
+        return row;
+    }
+    // a key: click, then press it
+    function cfgKey(r) {
+        const e = r.entries[0], box = el('span', 'val'), b = el('button', 'cap');
+        const show = () => { const v = cfgCur(e); b.textContent = CFG_KEY_NAMES[v] || v; b.classList.remove('wait'); };
+        b.type = 'button';
+        show();
+        box.append(b);
+        const row = cfgShell(r, box);
+        b.onclick = (ev) => {
+            ev.preventDefault();
+            b.focus();
+            b.classList.add('wait');
+            b.textContent = 'Press a key (Esc to cancel)';
+        };
+        b.onkeydown = (ev) => {
+            if (!b.classList.contains('wait')) return;
+            ev.preventDefault();
+            ev.stopPropagation(); // (Esc here isn't closing the menu)
+            const k = cfgKeyOf(ev.code);
+            if (ev.code !== 'Escape' && !k) return cfgMsg("That key can't be used: try another.", true);
+            if (k) cfgSet(row, r, [k]);
+            show();
+        };
+        b.onblur = show;
         return row;
     }
     // A position as "441.00, -985.00, 30.70", or where the admin is standing ("Set here").
-    function cfgVec(file, base, vec) {
-        const row = el('label', 'row'), ids = vec.map((e) => `${file}:${e.path}`);
+    function cfgVec(r) {
         const box = el('span', 'vec'), input = el('input'), here = el('button', 'here', 'Set here');
         const show = (vals) => vals.map((v) => Number(v).toFixed(2)).join(', ');
-        const apply = (vals) => {
-            vec.forEach((e, i) => {
-                if (vals[i] === e.value) cfg.dirty.delete(ids[i]);
-                else cfg.dirty.set(ids[i], { file, path: e.path, value: vals[i] });
-            });
-            cfg.leaving = false;
-            row.classList.toggle('dirty', ids.some((id) => cfg.dirty.has(id)));
-            cfgShowCounts();
-        };
         input.type = 'text';
-        input.value = show(vec.map((e, i) => cfg.dirty.get(ids[i])?.value ?? e.value));
+        input.value = show(r.entries.map(cfgCur));
+        box.append(input, here);
+        const row = cfgShell(r, box);
         input.oninput = () => {
             const vals = input.value.split(',').map((v) => (v.trim() === '' ? NaN : Number(v)));
             const ok = vals.length === 3 && vals.every(Number.isFinite);
             input.classList.toggle('bad', !ok);
-            if (ok) apply(vals);
+            cfgSet(row, r, ok ? vals : null);
         };
         here.type = 'button';
         here.title = 'Where you are standing';
         here.onclick = (ev) => {
             ev.preventDefault();
-            post('configHere').then((r) => r && r.json()).then((p) => {
+            post('configHere').then((p) => p && p.json()).then((p) => {
                 const vals = p && [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100);
                 if (!vals || !vals.every(Number.isFinite)) return;
                 input.value = show(vals);
                 input.classList.remove('bad');
-                apply(vals);
+                cfgSet(row, r, vals);
             }).catch(() => {});
         };
-        box.append(input, here);
-        row.append(el('span', 'key', `${base} (x, y, z)`), box);
-        row.classList.toggle('dirty', ids.some((id) => cfg.dirty.has(id)));
         return row;
     }
-    function cfgDel(file, l, i) {
-        const b = el('button', 'del', '×');
+    function cfgDel(r) {
+        const l = r.list, b = el('button', 'del', '×');
         b.type = 'button';
-        b.title = `Take out ${l.path}[${i}]`;
+        b.title = `Remove ${r.label}`;
         b.disabled = l.count < 2;
         b.onclick = (ev) => {
             ev.preventDefault();
@@ -2078,7 +2220,7 @@
                 b.textContent = 'Remove';
                 return setTimeout(() => { b.classList.remove('sure'); b.textContent = '×'; }, 3000);
             }
-            cfgList(file, l.path, 'remove', i);
+            cfgList(l.file, l.path, 'remove', l.index);
         };
         return b;
     }
@@ -2089,7 +2231,7 @@
     }
     function cfgShowCounts() { // the tab badges and the Save button, without redrawing the rows being typed in
         [...$('cfg-tabs').children].forEach((b, i) => {
-            const n = [...cfg.dirty.values()].filter((c) => c.file === cfg.files[i].file).length;
+            const n = cfg.tabs[i].sections.flatMap((s) => s.rows).flatMap((r) => r.entries).filter((e) => cfg.dirty.has(cfgId(e))).length;
             b.querySelector('.n')?.remove();
             if (n) b.append(el('span', 'n', n));
         });
@@ -2101,6 +2243,7 @@
         post('configClose');
     }
     $('cfg-find').addEventListener('input', () => cfg && cfgShow());
+    $('cfg-adv').addEventListener('change', () => cfg && cfgShow());
     $('cfg-close').addEventListener('click', cfgClose);
     $('cfg-save').addEventListener('click', () => {
         if (!cfg || !cfg.dirty.size) return;
