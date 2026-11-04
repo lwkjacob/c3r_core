@@ -98,13 +98,16 @@ end)
 RegisterNetEvent('c3r:callout:board', function(list) board = type(list) == 'table' and list or {} end)
 
 RegisterNetEvent('c3r:callout:offer', function(r)
-    if call or LocalPlayer.state.c3rNoPopup then return end -- (MDT only: lwk_mdt's settings, and it's on the board there)
-    local ms = ((Config.Callouts or {}).offer_window or 30) * 1000
-    offer = r
-    offer.until_t = GetGameTimer() + ms
-    for _, b in ipairs(board) do if b.id == r.id then r.units = b.units end end
-    SendNUIMessage({ type = 'callout', offer = { name = r.name, street = r.street, distance = r.distance, report = r.description,
-        priority = r.priority, units = r.units, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = ms } })
+    if call then return end
+    local cad_only = LocalPlayer.state.c3rNoPopup -- (lwk_mdt's settings: no card, it's on the board there; dispatch still says it)
+    if not cad_only then
+        local ms = ((Config.Callouts or {}).offer_window or 30) * 1000
+        offer = r
+        offer.until_t = GetGameTimer() + ms
+        for _, b in ipairs(board) do if b.id == r.id then r.units = b.units end end
+        SendNUIMessage({ type = 'callout', offer = { name = r.name, street = r.street, distance = r.distance, report = r.description,
+            priority = r.priority, units = r.units, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = ms } })
+    end
     -- dispatch over the radio: the call's own line, or "Incoming 911 call", in the area of where it is (lwk_control_assets
     -- voice/<key>_to_1.ogg + the location's clips; voice/<key>_1.ogg with no location), the details as text
     local clip = r.voice and LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(r.voice)) and r.voice or 'incoming_call'
@@ -112,7 +115,11 @@ RegisterNetEvent('c3r:callout:offer', function(r)
     local said = pcall(function()
         exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('%s: %s, %s. Priority %d.'):format(alert, r.name:lower(), r.street, r.priority))
     end)
-    if not said then Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(alert, r.name:lower(), r.street)) end
+    if cad_only then
+        Notify(('~b~C~w~3~r~R~s~ New call in the CAD: %s, %s.'):format(r.name, r.street))
+    elseif not said then
+        Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(alert, r.name:lower(), r.street))
+    end
 end)
 
 RegisterNetEvent('c3r:callout:joined', function(r)
