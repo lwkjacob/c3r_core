@@ -173,6 +173,8 @@ ConfigMenu = {
             { 'Backup.speed', 'Speed on lights and siren', unit = 'mph', help = 'Others drive at about 34 mph.' },
             { 'Backup.timeout', 'Time to get there', unit = 's', help = 'Stuck in traffic, it turns up anyway.' },
             { 'Backup.job_timeout', 'Time for the work at the scene', unit = 's', help = 'Before they pack up.' },
+            { 'Backup.arrive', 'Counts as there within', unit = 'm', help = 'Of where it parks, or of you: they stop instead of circling the block.' },
+            { 'Backup.fire_gap', 'Fire engine stops this far from the fire', unit = 'm', help = 'And no nearer.' },
             { 'Backup.cover_minutes', 'A cover unit stands by for', unit = 'minutes', help = 'At most.' },
             { 'Backup.spawn', 'Appears this far from the scene', as = 'range', unit = 'm', adv = true, help = 'Out of your sight.' },
         } },

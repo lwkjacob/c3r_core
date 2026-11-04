@@ -6,6 +6,8 @@ Config.Backup = {
     spawn = { 150.0, 210.0 },   -- m from the scene a unit appears, out of your sight
     speed = 25.0,               -- m/s on lights and siren (others drive at 15)
     timeout = 120,              -- s to get there; stuck in traffic, it turns up anyway
+    arrive = 30.0,              -- m from where it parks (or from you) that counts as there: they stop, not circle the block
+    fire_gap = 25.0,            -- m the fire truck stops from the fire, and no nearer
     job_timeout = 90,           -- s the work at the scene may take before they pack up
     cover_minutes = 5,          -- a cover unit stands by this long at most
     pursuit = { light = 1, medium = 2, heavy = 3, max = 6 }, -- cars per request, and at most in a chase

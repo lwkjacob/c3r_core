@@ -233,20 +233,24 @@ local function alive(u)
         and DoesEntityExist(u.crew[1]) and not IsEntityDead(u.crew[1])
 end
 
--- Drive to `at` and stop near it. Arrived: within 15 m, or stuck 12 s within 40 m (a few seconds' stop is the
--- lights or traffic, not there yet); too long: it turns up anyway.
-local function respond(u, at, found, lights)
+-- Drive to `at` and stop near it. Arrived: within B.arrive m of it or of the scene (a road that loops past the spot
+-- would have them circling it), or stuck 12 s within 40 m (a few seconds' stop is the lights or traffic, not there
+-- yet); too long: it turns up anyway. gap: stop this far from the scene and no nearer (a fire).
+local function respond(u, at, found, lights, scene_at, gap)
     local driver = u.crew[1]
-    TaskVehicleDriveToCoordLongrange(driver, u.veh, at.x, at.y, at.z, lights and B.speed or 15.0, lights and RESPOND or NORMAL, 10.0)
+    local near = gap or B.arrive or 30.0
+    TaskVehicleDriveToCoordLongrange(driver, u.veh, at.x, at.y, at.z, lights and B.speed or 15.0, lights and RESPOND or NORMAL, near)
     local still
     local arrived = wait_until(B.timeout * 1000, function()
         if not alive(u) then return true end
-        local d, moving = #(GetEntityCoords(u.veh) - at), GetEntitySpeed(u.veh) > 0.5
+        local v = GetEntityCoords(u.veh)
+        local d, moving = #(v - at), GetEntitySpeed(u.veh) > 0.5
         still = not moving and (still or GetGameTimer()) or nil
-        return d < 15.0 or (d < 40.0 and still and GetGameTimer() - still > 12000)
+        return (not gap and d < near) or (scene_at and #(v - scene_at) < near)
+            or (d < 40.0 and still and GetGameTimer() - still > 12000)
     end)
     if not alive(u) then return false end
-    if not arrived and found and control(u.veh) then -- stuck: it turns up anyway (never onto the scene itself)
+    if not arrived and found and not gap and control(u.veh) then -- stuck: it turns up anyway (never onto the scene itself)
         SetEntityCoords(u.veh, at.x, at.y, at.z, false, false, false, false)
         SetVehicleOnGroundProperly(u.veh)
     end
@@ -528,7 +532,12 @@ function JOB.fire(u, at)
         TaskLeaveVehicle(p, u.veh, 0)
     end
     Wait(2500)
-    for _, p in ipairs(u.crew) do TaskGoStraightToCoord(p, at.x, at.y, at.z, 2.0, 15000, 0.0, 6.0) end
+    for _, p in ipairs(u.crew) do -- (up to 8 m short of it, from the truck's side: never into the fire)
+        local from = GetEntityCoords(u.veh)
+        local d = #(from - at)
+        local to = d > 8.0 and at + (from - at) / d * 8.0 or from
+        TaskGoStraightToCoord(p, to.x, to.y, to.z, 2.0, 15000, 0.0, 1.0)
+    end
     Wait(6000)
     StopFireInRange(at.x, at.y, at.z, 30.0)
     for _, v in ipairs(GetGamePool('CVehicle')) do
@@ -731,7 +740,7 @@ local function request(kind)
     CreateThread(function()
         if not spawn(u, def, node, h) then return end
         local park, found = park_point(at)
-        local arrived = respond(u, park, found, def.lights)
+        local arrived = respond(u, park, found, def.lights, at, kind == 'fire' and (B.fire_gap or 25.0) or nil)
         if not arrived and not u.cancelled and u.state ~= 'leaving' then say(LABEL[kind] .. ' unable to reach you.') end
         if arrived and JOB[kind] then
             u.state = 'working'
