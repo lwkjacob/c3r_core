@@ -37,6 +37,18 @@ Callout(Ems.call({
             patient = vector4(-1006.32, 490.23, 79.33, 26.4),
             nearby = vector4(-1005.52, 490.83, 79.33, 0.0),
         } },
+        { street = 'Calafia Rd', at = vector3(101.60, 3782.12, 32.61), points = {
+            patient = vector4(101.60, 3782.12, 32.61, 2.7),
+            nearby = vector4(102.40, 3782.72, 32.61, 0.0),
+        } },
+        { street = 'Grapeseed Avenue', at = vector3(1690.38, 4758.41, 41.92), points = {
+            patient = vector4(1690.38, 4758.41, 41.92, 46.0),
+            nearby = vector4(1691.18, 4759.01, 41.92, 0.0),
+        } },
+        { street = 'Paleto Blvd', at = vector3(-1.78, 6547.26, 31.64), points = {
+            patient = vector4(-1.78, 6547.26, 31.64, 198.1),
+            nearby = vector4(-0.98, 6547.86, 31.64, 0.0),
+        } },
     },
     stories = {
         hip = { weight = 3, conditions = { { 'fracture', 'lleg' }, 'pain' },

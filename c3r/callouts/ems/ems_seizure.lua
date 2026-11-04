@@ -36,6 +36,10 @@ Callout(Ems.call({
             patient = vector4(1700.36, 4933.74, 42.08, 83.2),
             nearby = vector4(1701.16, 4934.34, 42.08, 0.0),
         } },
+        { street = 'Paleto Blvd', at = vector3(-0.40, 6513.03, 31.88), points = {
+            patient = vector4(-0.40, 6513.03, 31.88, 140.8),
+            nearby = vector4(0.40, 6513.63, 31.88, 0.0),
+        } },
     },
     stories = {
         sugar = { weight = 2, conditions = { 'hypoglycemia' },

@@ -37,6 +37,10 @@ Callout(Ems.call({
             patient = vector4(1665.78, 3576.97, 35.42, 195.7),
             nearby = vector4(1666.58, 3577.57, 35.42, 0.0),
         } },
+        { street = 'West Mirror Drive', at = vector3(890.96, -548.03, 58.16), points = {
+            patient = vector4(890.96, -548.03, 58.16, 110.8),
+            nearby = vector4(891.76, -547.43, 58.16, 0.0),
+        } },
     },
     stories = {
         chest = { weight = 2, conditions = { 'head', { 'hemorrhage', 'thorax' }, 'pneumothorax', 'pain' },

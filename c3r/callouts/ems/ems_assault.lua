@@ -37,6 +37,10 @@ Callout(Ems.call({
             patient = vector4(-980.60, -1113.60, 2.15, 23.1),
             nearby = vector4(-979.80, -1113.00, 2.15, 0.0),
         } },
+        { street = 'Algonquin Blvd', at = vector3(1355.17, 3614.37, 34.87), points = {
+            patient = vector4(1355.17, 3614.37, 34.87, 65.8),
+            nearby = vector4(1355.97, 3614.97, 34.87, 0.0),
+        } },
     },
     stories = {
         stabbed = { weight = 2, conditions = { { 'hemorrhage', 'abdomen' }, 'pain' },

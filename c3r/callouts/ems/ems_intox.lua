@@ -37,6 +37,10 @@ Callout(Ems.call({
             patient = vector4(118.13, -1945.35, 20.69, 84.6),
             nearby = vector4(118.93, -1944.75, 20.69, 0.0),
         } },
+        { street = 'Route 68', at = vector3(1169.92, 2730.32, 38.00), points = {
+            patient = vector4(1169.92, 2730.32, 38.00, 241.5),
+            nearby = vector4(1170.72, 2730.92, 38.00, 0.0),
+        } },
     },
     stories = {
         vomit = { weight = 3, secret = 'drunk', conditions = { 'airway' },

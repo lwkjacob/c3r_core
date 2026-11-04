@@ -70,6 +70,11 @@ Callout({
             friend = vector4(1571.52, 3687.89, 34.73, 208.1),
             nearby = vector4(1569.58, 3681.14, 34.80, 53.7),
         } },
+        { street = 'Great Ocean Hwy', at = vector3(160.58, 6357.87, 31.39), points = {
+            patient = vector4(160.58, 6357.87, 31.39, 278.3),
+            friend = vector4(160.98, 6353.38, 31.45, 30.9),
+            nearby = vector4(164.30, 6359.02, 31.40, 144.0),
+        } },
     },
 
     stories = {

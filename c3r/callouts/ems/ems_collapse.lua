@@ -61,6 +61,11 @@ Callout({
             witness = vector4(424.79, 2994.90, 40.62, 120.0),
             nearby = vector4(420.79, 2991.90, 40.62, 0.0),
         } },
+        { street = 'Paleto Blvd', at = vector3(-0.10, 6519.90, 31.48), points = {
+            patient = vector4(-0.10, 6519.90, 31.48, 31.8),
+            witness = vector4(6.01, 6511.58, 31.88, 97.7),
+            nearby = vector4(0.70, 6520.50, 31.48, 0.0),
+        } },
     },
 
     stories = {

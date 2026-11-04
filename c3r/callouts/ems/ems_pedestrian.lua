@@ -35,6 +35,10 @@ Callout(Ems.call({
             patient = vector4(361.19, -835.97, 29.29, 215.3),
             nearby = vector4(361.99, -835.37, 29.29, 0.0),
         } },
+        { street = 'Paleto Blvd', at = vector3(-150.98, 6489.88, 29.32), points = {
+            patient = vector4(-150.98, 6489.88, 29.32, 344.2),
+            nearby = vector4(-150.18, 6490.48, 29.32, 0.0),
+        } },
     },
     stories = {
         bad = { weight = 2, conditions = { { 'fracture', 'lleg' }, { 'hemorrhage', 'lleg' }, 'head', 'pain' },

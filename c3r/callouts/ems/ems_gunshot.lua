@@ -37,6 +37,14 @@ Callout(Ems.call({
             patient = vector4(-71.81, -1782.74, 28.19, 155.7),
             nearby = vector4(-71.01, -1782.14, 28.19, 0.0),
         } },
+        { street = 'Joshua Rd', at = vector3(415.14, 2958.25, 40.88), points = {
+            patient = vector4(415.14, 2958.25, 40.88, 97.0),
+            nearby = vector4(415.94, 2958.85, 40.88, 0.0),
+        } },
+        { street = 'Procopio Dr', at = vector3(-204.50, 6457.68, 31.15), points = {
+            patient = vector4(-204.50, 6457.68, 31.15, 245.9),
+            nearby = vector4(-203.70, 6458.28, 31.15, 0.0),
+        } },
     },
     stories = {
         chest = { weight = 2, conditions = { { 'hemorrhage', 'thorax' }, 'pneumothorax', 'pain' },

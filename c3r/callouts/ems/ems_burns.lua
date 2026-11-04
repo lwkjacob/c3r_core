@@ -35,6 +35,10 @@ Callout(Ems.call({
             patient = vector4(407.23, 2954.20, 40.92, 352.8),
             nearby = vector4(408.03, 2954.80, 40.92, 0.0),
         } },
+        { street = 'Paleto Blvd', at = vector3(-73.23, 6603.38, 29.03), points = {
+            patient = vector4(-73.23, 6603.38, 29.03, 97.9),
+            nearby = vector4(-72.43, 6603.98, 29.03, 0.0),
+        } },
     },
     stories = {
         bbq = { weight = 2, conditions = { 'pain' },
