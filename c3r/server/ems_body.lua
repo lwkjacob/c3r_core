@@ -23,8 +23,9 @@ local FALL = { spo2 = 0.35 } -- (oxygen runs down slower than it comes back: the
 local LIMBS = { larm = true, rarm = true, lhand = true, rhand = true, lleg = true, rleg = true, lfoot = true, rfoot = true }
 
 -- part: where it's found (nil: anywhere it's given); fix: what handles it; serious: holds up transport until handled
+-- seen: plain to see on arrival (blood through the clothes, a limb at the wrong angle)
 local KINDS = {
-    hemorrhage = { serious = true }, fracture = { serious = true }, pain = { part = 'head' }, airway = { part = 'head', serious = true },
+    hemorrhage = { serious = true, seen = true }, fracture = { serious = true, seen = true }, pain = { part = 'head' }, airway = { part = 'head', serious = true },
     respiratory = { part = 'thorax', serious = true }, opioid = { part = 'head', serious = true },
     hypoglycemia = { part = 'lhand', serious = true }, cardiac = { part = 'thorax', serious = true }, head = { part = 'head' },
     bradycardia = { part = 'neck', serious = true },
@@ -139,6 +140,8 @@ local function target(b)
     return t
 end
 
+local rhythm_check -- (below, with CPR)
+
 local function set_rhythm(b)
     if b.arrest then return end
     local hr = b.v.hr
@@ -186,7 +189,7 @@ function Body.new(list, opts)
         local kind, part = c, nil
         if type(c) == 'table' then kind, part = c[1], c[2] end
         if not KINDS[kind] then error('no condition "' .. tostring(kind) .. '"', 0) end
-        b.cond[#b.cond + 1] = { kind = kind, part = part or KINDS[kind].part }
+        b.cond[#b.cond + 1] = { kind = kind, part = part or KINDS[kind].part, found = KINDS[kind].seen }
         if kind == 'hemorrhage' then b.blood = b.blood - 15 end -- (they've been bleeding since before the call)
         if kind == 'airway' then b.airway = 'fouled' end
     end
@@ -208,11 +211,16 @@ end
 
 function Body.tick(b, dt, hold)
     b.t = b.t + dt
+    if b.monitor and b.nibp_at and b.t >= b.nibp_at then -- the cuff: a reading every 30 s, as it stands then
+        b.nibp = b.arrest and { 0, 0 } or { math.floor(b.v.sys + 0.5), math.floor(b.v.sys * 0.65 + 0.5) }
+        b.nibp_at = b.t + 30
+    end
     if b.dead then return nil end
     if b.arrest then
         local a = b.arrest
         a.t = a.t + dt
-        b.v.etco2 = (a.last_cpr and b.t - a.last_cpr < 120) and 15 or 4
+        if a.cpr_end and b.t >= a.cpr_end and rhythm_check(b) == 'rosc' then return 'rosc' end
+        b.v.etco2 = a.cpr_end and 15 or 4 -- (good compressions show on the EtCO2)
         b.v.spo2 = 0
         if a.t > cfg().dead_minutes * 60 then
             b.dead = true
@@ -281,16 +289,29 @@ function ASSESS.look(b, part)
     return 'nothing', 'Airway clear.'
 end
 
+-- b.heard: what's in the earpieces (server/ems.lua sends it, the screen plays it): 'normal' | 'chest' (wheezes and
+-- crackles) | 'gurgle' | 'stomach' | 'absent'
 function ASSESS.stethoscope(b, part)
+    b.heard = nil
     if part ~= 'thorax' then return 'nothing', 'Listen to the chest.' end
-    if b.arrest then return 'nothing', 'No heart sounds.' end
+    if b.arrest then
+        b.heard = 'absent'
+        return 'nothing', 'No heart sounds.'
+    end
     if b.tube == 'wrong' then
-        b.tube_checked = true
+        b.tube_checked, b.heard = true, 'stomach'
         return 'found', 'No breath sounds, and gurgling over the stomach: the tube is in the wrong place.'
     end
     if b.tube then b.tube_checked = true end
-    if b.airway == 'fouled' then return 'found', 'Gurgling in the airway.' end
-    if find(b, 'respiratory') then return 'found', FOUND_TEXT.respiratory end
+    if b.airway == 'fouled' then
+        b.heard = 'gurgle'
+        return 'found', 'Gurgling in the airway.'
+    end
+    if find(b, 'respiratory') then
+        b.heard = 'chest'
+        return 'found', FOUND_TEXT.respiratory
+    end
+    b.heard = 'normal'
     if b.tube then return 'nothing', 'Breath sounds on both sides: the tube is in.' end
     return 'nothing', 'Clear breath sounds on both sides.'
 end
@@ -334,6 +355,7 @@ function ASSESS.pulse(b, part)
 end
 
 function ASSESS.monitor(b)
+    if not b.monitor then b.nibp_at = b.t + 15 end -- (the cuff's first reading)
     b.monitor = true
     if b.v.hr < 50 then find(b, 'bradycardia') end
     return 'done', 'Monitor on: leads, SpO2, blood pressure cuff and EtCO2.'
@@ -426,32 +448,52 @@ function FIX.bvm(b)
     return 'done', b.bvm and 'Bagging them.' or 'Stopped bagging.'
 end
 
+-- CPR runs a cycle (a two-minute one, sped up to Config.Ems.cpr_seconds), with a rhythm check at the end.
 function FIX.cpr(b)
     local a = b.arrest
     if not a then return 'wrong', 'They have a pulse.' end
-    a.cprs, a.last_cpr, a.since_shock = a.cprs + 1, b.t, a.since_shock + 1
+    if a.cpr_end then return 'nothing', 'Already doing compressions.' end
+    a.cpr_end = b.t + cfg().cpr_seconds
     b.v.etco2 = 15
-    if SHOCKABLE[a.rhythm] then return 'done', 'Two minutes of CPR.' end
-    -- non-shockable: with epi on board, CPR sometimes brings them back, or turns it into VF
+    return 'done', 'Compressions. Rhythm check in ' .. cfg().cpr_seconds .. ' s.'
+end
+
+-- The end of a cycle: what the rhythm is now. The medic hears it through b.note. -> 'rosc' | nil
+function rhythm_check(b)
+    local a = b.arrest
+    a.cpr_end, a.cprs, a.since_shock = nil, a.cprs + 1, a.since_shock + 1
+    if SHOCKABLE[a.rhythm] then
+        b.note = { kind = 'no_rosc', text = 'Rhythm check: ' .. a.rhythm:upper() .. '. Shock.' }
+        return nil
+    end
+    -- non-shockable: with epi on board, a cycle sometimes brings them back, or turns it into VF
     local chance = (a.epi and b.t - a.epi < 300) and 0.2 or 0.05
     if not reversible(b) then chance = chance / 2 end
     if b.long_dead then chance = chance * cfg().revive end
     local r = b.rand()
     if r < chance then
         rosc(b)
-        return 'rosc', 'A pulse! Return of circulation.'
+        b.note = { kind = 'rosc', text = 'Rhythm check: a pulse! Return of circulation.' }
+        return 'rosc'
     end
     if r < chance + 0.15 then
         a.rhythm, b.rhythm = 'vf', 'vf'
-        return 'done', 'Two minutes of CPR. The rhythm has changed: VF.'
+        b.note = { kind = 'no_rosc', text = 'Rhythm check: it has changed to VF. Shock.' }
+        return nil
     end
-    return 'done', 'Two minutes of CPR. Still no pulse.'
+    b.note = { kind = 'no_rosc', text = 'Rhythm check: still ' .. (a.rhythm == 'pea' and 'PEA' or 'asystole') .. '. Back on the chest.' }
+    return nil
 end
 
 function FIX.defib(b)
     local a = b.arrest
+    if not b.monitor then -- (the pads come first: the monitor and the defib are one box)
+        ASSESS.monitor(b)
+        return 'done', 'Pads on. Read the rhythm.'
+    end
     if not a then return 'harm', "Shocking someone with a pulse: don't." end
-    if not SHOCKABLE[a.rhythm] then return 'not_shockable', 'No shockable rhythm. Continue CPR.' end
+    if not SHOCKABLE[a.rhythm] then return 'not_shockable', 'No shock advised. Continue CPR.' end
+    a.cpr_end = nil -- (hands off for the shock)
     local chance = 0.25 + (a.since_shock > 0 and 0.15 or 0) + ((a.epi and b.t - a.epi < 300) and 0.15 or 0)
     if not reversible(b) then chance = chance - 0.15 end
     if b.long_dead then chance = chance * cfg().revive end
@@ -482,7 +524,9 @@ end
 
 function DRUG.epi(b)
     if b.arrest then
-        b.arrest.epi = b.t
+        local a = b.arrest
+        if a.epi and b.t - a.epi < 180 then return 'done', 'Epi given. Too soon: every three to five minutes.' end -- (no better for it)
+        a.epi = b.t
         return 'done', 'Epi given.'
     end
     if b.v.hr > 120 then
@@ -532,7 +576,11 @@ function Body.act(b, tool, part)
     if b.dead then return 'nothing', 'They are gone.' end
     local fn = ASSESS[tool] or FIX[tool] or DRUG[tool]
     if not fn then return 'nothing', 'Nothing happens.' end
-    if DRUGS[tool] then b.given[tool] = (b.given[tool] or 0) + 1 end
+    if DRUGS[tool] then
+        b.given[tool] = (b.given[tool] or 0) + 1
+        b.given_at = b.given_at or {}
+        b.given_at[tool] = b.t -- (the screen counts from the last dose: epi every three to five minutes)
+    end
     return fn(b, part)
 end
 
@@ -542,7 +590,7 @@ local function alarms(b)
     local a, v = {}, b.v
     if b.arrest then return { 'ARREST' } end
     if v.hr > 140 then a[#a + 1] = 'HR HIGH' elseif v.hr < 45 then a[#a + 1] = 'HR LOW' end
-    if v.sys < 90 then a[#a + 1] = 'BP LOW' end
+    if b.nibp and b.nibp[1] < 90 then a[#a + 1] = 'BP LOW' end -- (the cuff's last reading: that's all the monitor knows)
     if v.spo2 < 90 then a[#a + 1] = 'SPO2 LOW' end
     if v.rr < 8 then a[#a + 1] = 'RESP LOW' elseif v.rr > 30 then a[#a + 1] = 'RESP HIGH' end
     if b.tube and v.etco2 < 10 then a[#a + 1] = 'NO ETCO2' end
@@ -558,11 +606,16 @@ function Body.view(b)
     end
     local v = b.v
     local view = { found = found, arrest = b.arrest ~= nil, dead = b.dead == true, stable = Body.stable(b),
-                   airway = b.airway_kit, bvm = b.bvm, o2 = b.o2, hand_hr = b.hand_hr }
+                   airway = b.airway_kit, bvm = b.bvm, o2 = b.o2, hand_hr = b.hand_hr, given = {},
+                   cpr = b.arrest and b.arrest.cpr_end and round(b.arrest.cpr_end - b.t) or nil }
+    for drug, n in pairs(b.given) do
+        view.given[#view.given + 1] = { id = drug, n = n, ago = round(b.t - (b.given_at and b.given_at[drug] or b.t)) }
+    end
+    table.sort(view.given, function(x, y) return x.ago < y.ago end)
     if b.monitor then
         view.monitor = {
             hr = (b.arrest and (b.arrest.rhythm == 'vf' or b.arrest.rhythm == 'asystole')) and 0 or round(v.hr),
-            sys = round(v.sys), dia = round(v.sys * 0.65), spo2 = b.arrest and 0 or round(v.spo2), rr = round(v.rr),
+            sys = b.nibp and b.nibp[1], dia = b.nibp and b.nibp[2], cuff = b.nibp_at ~= nil and b.nibp_at - b.t <= 6, spo2 = b.arrest and 0 or round(v.spo2), rr = round(v.rr),
             etco2 = round(v.etco2), rhythm = b.rhythm, alarms = alarms(b),
         }
     end
@@ -585,9 +638,12 @@ function Body.hint(b)
     local v = b.v
     if b.dead then return 'They are gone. Pronounce them.' end
     if b.arrest then
-        if not b.monitor then return 'No pulse: put the monitor on to see the rhythm.' end
-        if SHOCKABLE[b.arrest.rhythm] then return 'Shockable rhythm: shock, then two minutes of CPR.' end
-        return 'No shockable rhythm: CPR, and epi every three to five minutes.'
+        local a = b.arrest
+        if not b.monitor then return 'No pulse: put the monitor or the defib pads on to see the rhythm.' end
+        if SHOCKABLE[a.rhythm] and not a.cpr_end then return 'Shockable rhythm: shock, then a cycle of CPR.' end
+        if not a.cpr_end then return 'No shockable rhythm: start CPR.' end
+        if (a.cprs > 0 or not SHOCKABLE[a.rhythm]) and (not a.epi or b.t - a.epi >= 240) then return 'Give epi: every three to five minutes.' end
+        return 'Keep the compressions going until the rhythm check.'
     end
     if b.tube and not b.tube_checked then return 'Confirm the tube: listen to the chest and check the EtCO2.' end
     if b.tube == 'wrong' then return 'The tube is in the wrong place: pull it and try again.' end

@@ -465,21 +465,35 @@
         #ems-state .hint.on { display: block; }
         .ems-side { position: absolute; top: 28px; width: 270px; padding: 12px 14px; border-radius: 12px; background: rgba(14, 18, 30, .92); color: #fff; }
         #ems-log { left: 28px; max-height: 46vh; overflow: auto; }
-        #ems-mon { right: 28px; }
+        #ems-mon { right: 28px; width: 392px; }
+        #ems-mon .on { display: none; gap: 10px; }
+        #ems-mon.live .on { display: flex; }
+        #ems-mon.live .off { display: none; }
+        #ems-mon .traces { display: flex; flex-direction: column; gap: 4px; }
+        #ems-mon canvas { display: block; width: 250px; height: 54px; background: #05080d; border-radius: 4px; }
+        #ems-mon .nums { flex: 1; }
+        #ems-mon .v.bp b { font-size: 18px; }
+        #ems-mon .v.cuffing b { opacity: .45; }
         .ems-side h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
         #ems-log .row { padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, .08); font-size: 12.5px; line-height: 1.35; }
         #ems-log .row b { display: block; color: var(--red); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
         #ems-log .row.fixed b { color: var(--green); }
         #ems-log .row.fixed span { color: rgba(255, 255, 255, .55); }
         #ems-log .none { color: rgba(255, 255, 255, .55); font-size: 12.5px; }
-        #ems-mon .v { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-variant-numeric: tabular-nums; }
+        #ems-log h3.second { margin-top: 12px; }
+        #ems-log .kit { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+        #ems-log .kit span { padding: 2px 8px; border-radius: 999px; background: rgba(106, 216, 255, .15); color: #8fdcff; font-size: 11.5px; font-weight: 700; }
+        #ems-log .dose { display: flex; justify-content: space-between; padding: 4px 0; border-top: 1px solid rgba(255, 255, 255, .08); font-size: 12.5px; }
+        #ems-log .dose i { color: var(--muted); font-style: normal; }
+        .ems-tool.on { border-color: #6ad8ff; background: rgba(106, 216, 255, .12); }
+        #ems-mon .v { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 0; font-variant-numeric: tabular-nums; }
         #ems-mon .v span { color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; }
         #ems-mon .v b { font-size: 22px; }
         #ems-mon .v.hr b { color: #6fe08a; } #ems-mon .v.sp b { color: #6ad8ff; } #ems-mon .v.co b { color: #ffd27a; }
         #ems-mon .rhythm { margin-top: 6px; font-size: 13px; font-weight: 700; }
         #ems-mon .alarm { margin-top: 6px; color: var(--red); font-size: 12px; font-weight: 700; letter-spacing: .06em; animation: pulse 1s infinite; }
         #ems-mon .off { color: rgba(255, 255, 255, .55); font-size: 12.5px; }
-        #ems-btns { position: absolute; top: 28px; right: 318px; display: flex; flex-direction: column; gap: 8px; }
+        #ems-btns { position: absolute; top: 28px; right: 440px; display: flex; flex-direction: column; gap: 8px; }
         #ems-btns button { padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(14, 18, 30, .92); color: #ffd27a; border: 1px solid rgba(255, 210, 122, .6); }
         #ems-pronounce { color: var(--red) !important; border-color: var(--red) !important; display: none; }
         #ems-pronounce.on { display: block; }
@@ -619,8 +633,21 @@
     <svg id="ems-lines" aria-hidden="true"></svg>
     <div id="ems-marks"></div>
     <div id="ems-state" class="glass" role="status"><div class="says" id="ems-says"></div><div class="part" id="ems-part"></div><div class="say" id="ems-say"></div><div class="hint" id="ems-hint"></div></div>
-    <div id="ems-log" class="ems-side"><h3>Findings</h3><div id="ems-found"></div></div>
-    <div id="ems-mon" class="ems-side" aria-live="polite"><h3>Vitals</h3><div id="ems-vit"></div></div>
+    <div id="ems-log" class="ems-side"><h3>Findings</h3><div id="ems-found"></div><h3 class="second">Given</h3><div id="ems-given"></div></div>
+    <div id="ems-mon" class="ems-side"><h3>Monitor</h3>
+        <div class="off"><div>Monitor off.</div><div class="v hr" id="ems-hand"></div></div>
+        <div class="on">
+            <div class="traces"><canvas id="ems-ecg" width="250" height="54"></canvas><canvas id="ems-pleth" width="250" height="54"></canvas><canvas id="ems-co2" width="250" height="54"></canvas></div>
+            <div class="nums" aria-live="polite">
+                <div class="v hr"><span>HR</span><b id="ems-hr"></b></div>
+                <div class="v sp"><span>SPO2</span><b id="ems-sp"></b></div>
+                <div class="v co"><span>ETCO2</span><b id="ems-co"></b></div>
+                <div class="v bp" id="ems-bp-row"><span>BP</span><b id="ems-bp"></b></div>
+                <div class="v"><span>RESP</span><b id="ems-rr"></b></div>
+            </div>
+        </div>
+        <div class="rhythm" id="ems-rhythm"></div><div class="alarm" id="ems-alarm"></div>
+    </div>
     <div id="ems-btns"><button id="ems-hint-btn" type="button">Hint (H)</button><button id="ems-pronounce" type="button">Pronounce dead</button></div>
     <div id="ems-work"><i></i></div>
     <div id="ems-kit"><div id="ems-tabs" role="tablist"></div><div id="ems-tools" role="toolbar" aria-label="Medical bag"></div></div>
@@ -1852,7 +1879,7 @@
 
     // ── the treatment screen (client/ems.lua): pick a body part, then a tool. Nothing shows until it's found by assessing;
     // the truth, the vitals and the hint are the server's (server/ems_body.lua) ──
-    const ems = { open: false, part: null, view: null, tools: [], parts: {}, tab: 'assess', busy: false, say: null, hint: false };
+    const ems = { open: false, part: null, view: null, tools: [], parts: {}, tab: 'assess', busy: false, say: null, hint: true }; // (hint: on until H turns it off)
     const EMS_LEFT = new Set(['head', 'abdomen', 'rarm', 'rhand', 'rleg', 'rfoot']); // (on the screen's left: they're on their back, head up)
     const EMS_TABS = [['assess', 'Assess'], ['treat', 'Treat'], ['airway', 'Airway'], ['drugs', 'Drugs']];
     const EMS_GOOD = new Set(['done', 'found', 'rosc']);
@@ -1884,13 +1911,228 @@
         $('ems-tabs').innerHTML = EMS_TABS.map(([id, label]) => `<button class="ems-tab${id === ems.tab ? ' on' : ''}" type="button" role="tab" data-tab="${id}">${label}</button>`).join('');
         $('ems-tools').innerHTML = emsTab().map((t, i) => `<button class="ems-tool" type="button" data-t="${t.id}"><span class="k">${i < 8 ? i + 1 : ''}</span><span class="n"></span>${RAD_ICONS[t.icon] || RAD_ICONS.medic}<span>${t.label}</span></button>`).join('');
     }
-    function emsVitals(v) {
+    // ── the monitor: three sweeping traces drawn from the rhythm and the numbers the server sends each second, a beep each
+    // beat (higher the better the SpO2, as real monitors do), alarm tones and the cuff. All made here: no sound files ──
+    const mon = { on: false, raf: 0, last: 0, t: 0, beat: 0, beatLen: 0.8, breath: 0, breathLen: 4, prev: [], alarmAt: -9, cuff: false, audio: null, metro: 0 };
+    const SWEEP = 6; // seconds across a trace
+    const TRACES = [['ems-ecg', '#6fe08a'], ['ems-pleth', '#6ad8ff'], ['ems-co2', '#ffd27a']];
+    const gauss = (x, c, w) => Math.exp(-(((x - c) / w) ** 2));
+    function monAudio() {
+        try { mon.audio = mon.audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { mon.audio = null; }
+        return mon.audio;
+    }
+    function tone(freq, dur, vol, type, at) {
+        const a = monAudio();
+        if (!a) return;
+        const t0 = a.currentTime + (at || 0), o = a.createOscillator(), g = a.createGain();
+        o.type = type || 'sine';
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(vol, t0 + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g); g.connect(a.destination);
+        o.start(t0); o.stop(t0 + dur + 0.02);
+    }
+    function cuffSound() { // the pump's whirr: pulsing filtered noise for 4 s
+        const a = monAudio();
+        if (!a) return;
+        const len = a.sampleRate * 4, buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (0.6 + 0.4 * Math.sin(i / a.sampleRate * 2 * Math.PI * 28));
+        const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(), t0 = a.currentTime;
+        src.buffer = buf; f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.04, t0 + 0.3);
+        g.gain.setValueAtTime(0.04, t0 + 3.4); g.gain.linearRampToValueAtTime(0.0001, t0 + 4);
+        src.connect(f); f.connect(g); g.connect(a.destination);
+        src.start();
+    }
+    function chargeSound(dur) {
+        const a = monAudio();
+        if (!a) return;
+        const t0 = a.currentTime, o = a.createOscillator(), g = a.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(500, t0);
+        o.frequency.exponentialRampToValueAtTime(2600, t0 + dur);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.035, t0 + 0.15);
+        g.gain.setValueAtTime(0.035, t0 + dur); g.gain.linearRampToValueAtTime(0.0001, t0 + dur + 0.05);
+        o.connect(g); g.connect(a.destination);
+        o.start(t0); o.stop(t0 + dur + 0.1);
+        tone(2000, 0.5, 0.05, 'square', dur + 0.1); // (charged)
+    }
+    function shockSound() {
+        const a = monAudio();
+        if (!a) return;
+        const len = Math.floor(a.sampleRate * 0.35), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (a.sampleRate * 0.06));
+        const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+        src.buffer = buf; f.type = 'lowpass'; f.frequency.value = 220; g.gain.value = 0.9;
+        src.connect(f); f.connect(g); g.connect(a.destination);
+        src.start();
+    }
+    const cprOn = () => !!(ems.view && ems.view.cpr != null);
+    // ── the kit's own sounds, made here like the monitor's: filtered noise and tones, no files ──
+    // noise burst: o = { at, dur, type, freq, q, vol, am (Hz: a flutter), sweep (freq to ramp to) }
+    function hiss(o) {
+        const a = monAudio();
+        if (!a) return;
+        const dur = o.dur, len = Math.max(1, Math.floor(a.sampleRate * dur)), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) {
+            const t = i / a.sampleRate;
+            d[i] = (Math.random() * 2 - 1) * (o.am ? 0.5 + 0.5 * Math.sin(t * 2 * Math.PI * o.am) : 1);
+        }
+        const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(), t0 = a.currentTime + (o.at || 0);
+        src.buffer = buf; f.type = o.type || 'bandpass'; f.frequency.value = o.freq || 1000; f.Q.value = o.q || 1;
+        if (o.sweep) { f.frequency.setValueAtTime(o.freq, t0); f.frequency.exponentialRampToValueAtTime(o.sweep, t0 + dur); }
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(o.vol || 0.1, t0 + Math.min(0.02, dur / 4));
+        g.gain.setValueAtTime(o.vol || 0.1, t0 + dur * 0.7); g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+        src.connect(f); f.connect(g); g.connect(a.destination);
+        src.start(t0);
+    }
+    const snip = (at) => { hiss({ at, dur: 0.05, type: 'highpass', freq: 3500, vol: 0.25 }); tone(5200, 0.02, 0.05, 'square', at); };
+    const velcro = (at, dur) => hiss({ at, dur: dur || 0.45, type: 'bandpass', freq: 2500, q: 0.7, vol: 0.16, am: 70 });
+    const click = (at, f) => tone(f || 3000, 0.015, 0.08, 'square', at);
+    const ampoule = (at) => { click(at, 4200); tone(6200, 0.12, 0.03, 'sine', at + 0.02); hiss({ at: at + 0.3, dur: 0.6, type: 'lowpass', freq: 500, vol: 0.03 }); };
+    // The stethoscope: their heart (lub-dub at their rate) and breathing (at theirs), and what's wrong in it.
+    function listen(h, dur) {
+        const beat = 60 / Math.max(h.hr || 0, 1), breath = 60 / Math.max(h.rr || 0, 1);
+        if (h.what !== 'absent' && h.hr > 0) {
+            for (let t = 0.1; t < dur; t += beat) {
+                tone(55, 0.09, 0.35, 'sine', t); hiss({ at: t, dur: 0.07, type: 'lowpass', freq: 120, vol: 0.25 });
+                tone(70, 0.07, 0.25, 'sine', t + Math.min(0.3, beat * 0.4)); // (dub)
+            }
+        }
+        if (h.what === 'gurgle' || h.what === 'stomach') { // (bubbling, with the breaths or without)
+            for (let t = 0.05; t < dur; t += 0.12 + Math.random() * 0.15) hiss({ at: t, dur: 0.08, type: 'bandpass', freq: 250 + Math.random() * 350, q: 6, vol: 0.12 });
+        }
+        if (h.what === 'absent' || h.what === 'stomach' || !(h.rr > 0)) return;
+        for (let t = 0.05; t < dur; t += breath) {
+            const inn = breath * 0.4, out = breath * 0.5;
+            hiss({ at: t, dur: inn, type: 'lowpass', freq: 600, sweep: 900, vol: 0.06 });
+            hiss({ at: t + inn, dur: out, type: 'lowpass', freq: 800, sweep: 400, vol: 0.04 });
+            if (h.what === 'chest') {
+                tone(520, out * 0.9, 0.02, 'sine', t + inn); // (the wheeze, breathing out)
+                for (let k = 0; k < 6; k++) click(t + Math.random() * inn, 900 + Math.random() * 900); // (crackles, breathing in)
+            }
+        }
+    }
+    const SFX = {
+        shears: (d) => { for (let t = 0; t < Math.min(d, 2); t += 0.28) snip(t); },
+        dressing: () => { hiss({ dur: 0.3, type: 'highpass', freq: 2500, vol: 0.12 }); hiss({ at: 0.4, dur: 0.9, type: 'bandpass', freq: 1500, q: 0.5, vol: 0.06, am: 9 }); },
+        tourniquet: () => { velcro(0); for (let k = 0; k < 5; k++) click(0.7 + k * 0.22, 1800); velcro(1.9, 0.25); },
+        splint: () => { velcro(0.1); velcro(0.9); },
+        suction: (d) => { tone(110, d * 0.8, 0.04, 'sawtooth'); for (let t = 0.2; t < d * 0.8; t += 0.15 + Math.random() * 0.1) hiss({ at: t, dur: 0.1, type: 'bandpass', freq: 400, q: 5, vol: 0.1 }); },
+        bvm: () => { hiss({ dur: 0.6, type: 'lowpass', freq: 400, sweep: 1200, vol: 0.12 }); hiss({ at: 1.2, dur: 0.6, type: 'lowpass', freq: 400, sweep: 1200, vol: 0.12 }); },
+        oxygen: () => { click(0, 2200); hiss({ at: 0.1, dur: 1.6, type: 'highpass', freq: 3000, vol: 0.05 }); },
+        laryngoscope: () => { click(0, 2500); click(0.05, 1800); },
+        tube: () => hiss({ at: 0.6, dur: 0.4, type: 'bandpass', freq: 1800, q: 2, vol: 0.05 }), // (the cuff going up)
+        pull_tube: () => hiss({ dur: 0.5, type: 'bandpass', freq: 700, q: 1, vol: 0.06 }),
+        penlight: () => { click(0, 2600); click(1.2, 2600); },
+        glucometer: () => { tone(2700, 0.08, 0.05, 'square', 0.1); tone(2700, 0.08, 0.05, 'square', 1.4); tone(2700, 0.08, 0.05, 'square', 1.55); },
+        morphine: () => ampoule(0), epi: () => ampoule(0), narcan: () => ampoule(0), glucose: () => ampoule(0),
+        saline: () => { click(0, 1500); for (let t = 0.4; t < 1.8; t += 0.35) tone(1400, 0.04, 0.03, 'sine', t); },
+        aspirin: () => { for (let k = 0; k < 7; k++) click(Math.random() * 0.4, 1200 + Math.random() * 1500); },
+    };
+    function toolSound(r) {
+        const d = Math.max(1, (r.ms || 0) / 1000);
+        if (r.heard) return listen(r.heard, Math.max(3, d)); // (long enough for a breath or two)
+        if (SFX[r.tool]) SFX[r.tool](d);
+    }
+    // s: seconds into this beat
+    function ecgAt(m, s) {
+        const r = m.rhythm;
+        if (r === 'asystole') return (Math.random() - 0.5) * 0.03;
+        if (r === 'vf') return 0.35 * Math.sin(mon.t * 31) + 0.25 * Math.sin(mon.t * 19 + 1) + 0.15 * Math.sin(mon.t * 47 + 2);
+        if (r === 'vt') return 0.8 * Math.sin(s / mon.beatLen * 2 * Math.PI);
+        const k = Math.min(1, mon.beatLen / 0.8); // (a fast heart squeezes the P and T waves in)
+        return 0.12 * gauss(s, 0.10 * k, 0.03) - 0.1 * gauss(s, 0.2 * k, 0.01) + gauss(s, 0.23 * k, 0.012)
+            - 0.25 * gauss(s, 0.26 * k, 0.012) + 0.25 * gauss(s, 0.45 * k, 0.06 * k);
+    }
+    const plethAt = (m, s) => (m.spo2 ? 0.8 * gauss(s, 0.32, 0.08) + 0.3 * gauss(s, 0.52, 0.1) : 0);
+    function co2At(m, p) { // p: 0 to 1 through this breath: up, a plateau, down, then breathing in
+        if (!m.etco2 || m.etco2 < 2) return 0;
+        const h = Math.min(m.etco2 / 50, 1);
+        if (p < 0.08) return h * p / 0.08;
+        if (p < 0.5) return h * (0.92 + 0.08 * (p - 0.08) / 0.42);
+        if (p < 0.58) return h * (1 - (p - 0.5) / 0.08);
+        return 0;
+    }
+    function monDraw(m) {
+        const vals = [ecgAt(m, mon.beat), plethAt(m, mon.beat), co2At(m, mon.breath / mon.breathLen)];
+        if (cprOn()) {
+            const push = Math.max(0, Math.sin(mon.t * 2 * Math.PI * 110 / 60));
+            vals[0] += 0.6 * push;
+            vals[1] += 0.3 * push;
+        }
+        TRACES.forEach(([id, color], i) => {
+            const c = $(id), g = c.getContext('2d'), W = c.width, H = c.height;
+            const x = (mon.t % SWEEP) / SWEEP * W;
+            const y = i === 2 ? H - 5 - vals[i] * (H - 12) : H * 0.62 - vals[i] * H * 0.45;
+            g.clearRect(x, 0, 12, H); // (the gap the sweep leaves ahead of itself)
+            const p = mon.prev[i];
+            if (p && x >= p[0]) {
+                g.strokeStyle = color; g.lineWidth = 1.6;
+                g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(x, y); g.stroke();
+            } else g.clearRect(0, 0, 12, H);
+            mon.prev[i] = [x, y];
+        });
+    }
+    function monFrame(now) {
+        if (!mon.on) return;
+        const m = ems.view && ems.view.monitor;
+        const dt = Math.min(0.1, (now - (mon.last || now)) / 1000);
+        mon.last = now;
+        mon.t += dt;
+        if (m) {
+            mon.beat += dt;
+            if (mon.beat >= mon.beatLen) { // a beat
+                mon.beat -= mon.beatLen;
+                const rate = m.rhythm === 'vt' ? 180 : m.rhythm === 'pea' ? 40 : (m.hr || 60);
+                mon.beatLen = 60 / Math.max(rate, 20);
+                if (m.hr > 0 && m.rhythm !== 'vf' && m.rhythm !== 'asystole') {
+                    const pitch = 440 + Math.max(0, Math.min(1, ((m.spo2 || 70) - 70) / 30)) * 440;
+                    tone(pitch, 0.09, 0.05, 'sine', 0.23 * Math.min(1, mon.beatLen / 0.8)); // (on the R wave)
+                }
+            }
+            mon.breath += dt;
+            if (mon.breath >= mon.breathLen) {
+                mon.breath -= mon.breathLen;
+                mon.breathLen = 60 / Math.max(m.rr || (m.etco2 > 5 ? 10 : 6), 4);
+            }
+            monDraw(m);
+            if (m.alarms && m.alarms.length && mon.t - mon.alarmAt > 4) { // three tones every 4 s; higher for the worst
+                mon.alarmAt = mon.t;
+                const high = m.alarms.some((a) => a === 'ARREST' || a === 'SPO2 LOW' || a === 'NO ETCO2');
+                [0, 0.18, 0.36].forEach((at) => tone(high ? 960 : 700, 0.14, 0.06, 'square', at));
+            }
+            if (m.cuff && !mon.cuff) cuffSound();
+            mon.metro = cprOn() ? mon.metro + dt : 0;
+            if (mon.metro >= 60 / 110) { mon.metro -= 60 / 110; tone(1400, 0.03, 0.03, 'triangle'); }
+            mon.cuff = !!m.cuff;
+        }
+        mon.raf = requestAnimationFrame(monFrame);
+    }
+    function monStop() {
+        mon.on = false;
+        cancelAnimationFrame(mon.raf);
+        TRACES.forEach(([id]) => { const c = $(id); c.getContext('2d').clearRect(0, 0, c.width, c.height); });
+    }
+    function emsMonitor(v) {
         const m = v.monitor;
-        if (!m) return `<div class="off">Monitor off.</div>${v.hand_hr ? `<div class="v hr"><span>PULSE (HAND)</span><b>${v.hand_hr}</b></div>` : ''}`;
-        const row = (cls, label, val) => `<div class="v ${cls}"><span>${label}</span><b>${val}</b></div>`;
-        return row('hr', 'HR', m.hr || '---') + row('', 'BP', m.sys ? `${m.sys}/${m.dia}` : '---') + row('sp', 'SPO2', m.spo2 ? `${m.spo2}%` : '---')
-            + row('', 'RESP', m.rr) + row('co', 'ETCO2', m.etco2) + `<div class="rhythm">${RHYTHM[m.rhythm] || ''}</div>`
-            + (m.alarms && m.alarms.length ? `<div class="alarm">${m.alarms.join(' · ')}</div>` : '');
+        $('ems-mon').classList.toggle('live', !!m);
+        $('ems-hand').innerHTML = !m && v.hand_hr ? `<span>PULSE (HAND)</span><b>${v.hand_hr}</b>` : '';
+        $('ems-rhythm').textContent = m ? (RHYTHM[m.rhythm] || '') + (v.cpr != null ? ' · CPR' : '') : '';
+        $('ems-alarm').textContent = m && m.alarms && m.alarms.length ? m.alarms.join(' · ') : '';
+        if (m) {
+            $('ems-hr').textContent = m.hr || '---';
+            $('ems-sp').textContent = m.spo2 ? `${m.spo2}%` : '---';
+            $('ems-co').textContent = m.etco2;
+            $('ems-bp').textContent = m.sys ? `${m.sys}/${m.dia}` : '---';
+            $('ems-bp-row').classList.toggle('cuffing', !!m.cuff);
+            $('ems-rr').textContent = m.rr;
+        }
+        if (m && ems.open && !mon.on) {
+            Object.assign(mon, { on: true, last: 0, prev: [] });
+            mon.raf = requestAnimationFrame(monFrame);
+        } else if ((!m || !ems.open) && mon.on) monStop();
     }
     function emsDraw() {
         const v = ems.view || { found: [], stock: {} };
@@ -1906,7 +2148,7 @@
         let text, kind = '';
         if (ems.say) { text = ems.say.text; kind = ems.say.kind; }
         else if (v.dead) { text = 'No signs of life.'; kind = 'alert'; }
-        else if (v.arrest) { text = 'No pulse!'; kind = 'alert'; }
+        else if (v.arrest) { text = v.cpr != null ? `CPR: rhythm check in ${v.cpr} s.` : 'No pulse!'; kind = 'alert'; }
         else if (ems.part && emsHurt(ems.part)) text = emsFound(ems.part).filter((f) => !f.fixed).map((f) => f.text).join(' ');
         else if (v.stable) { text = 'Stable. Get the stretcher from the ambulance.'; kind = 'ok'; }
         else text = ems.part ? 'Pick a tool.' : 'Pick a body part, then a tool to assess it.';
@@ -1918,11 +2160,22 @@
         const found = v.found || [];
         $('ems-found').innerHTML = found.length ? found.map((f) => `<div class="row${f.fixed ? ' fixed' : ''}"><b>${ems.parts[f.part] || f.part}${f.fixed ? ' · treated' : ''}</b><span>${f.text}</span></div>`).join('')
             : '<div class="none">Nothing found yet.</div>';
-        $('ems-vit').innerHTML = emsVitals(v);
+        const kit = [], AIR = { opa: 'Oral airway', npa: 'Nasal airway', igel: 'i-gel', tube: 'ET tube' };
+        if (v.airway) kit.push(AIR[v.airway] || v.airway);
+        if (v.o2) kit.push('Oxygen on');
+        if (v.bvm) kit.push('Bagging');
+        const label = (id) => (ems.tools.find((t) => t.id === id) || { label: id }).label;
+        const ago = (s) => (s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`);
+        const given = (v.given || []).filter((g) => g.id !== 'oxygen');
+        $('ems-given').innerHTML = (kit.length ? `<div class="kit">${kit.map((k) => `<span>${k}</span>`).join('')}</div>` : '')
+            + (given.length ? given.map((g) => `<div class="dose"><span>${label(g.id)}${g.n > 1 ? ` x${g.n}` : ''}</span><i>${ago(g.ago)}</i></div>`).join('')
+                : kit.length ? '' : '<div class="none">Nothing yet.</div>');
+        emsMonitor(v);
         document.querySelectorAll('.ems-tool').forEach((b) => {
             const left = (v.stock || {})[b.dataset.t];
             b.disabled = ems.busy || left === 0;
             b.querySelector('.n').textContent = left > 0 ? `x${left}` : left === 0 ? 'Empty' : '';
+            b.classList.toggle('on', (b.dataset.t === 'bvm' && !!v.bvm) || (b.dataset.t === 'oxygen' && !!v.o2));
         });
         $('ems-pronounce').classList.toggle('on', !!(v.dead || v.arrest));
     }
@@ -1938,13 +2191,14 @@
     function emsScreen(d) {
         const el = $('ems');
         if (d.open === false) {
-            Object.assign(ems, { open: false, part: null, view: null, busy: false, say: null, hint: false });
+            Object.assign(ems, { open: false, part: null, view: null, busy: false, say: null });
+            monStop();
             el.classList.remove('open');
             el.setAttribute('aria-hidden', 'true');
             return;
         }
         if (d.open) {
-            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, hint: false, tab: 'assess', tools: d.tools || [] });
+            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, tab: 'assess', tools: d.tools || [] });
             emsLayout(d.parts || [], d.bag);
             emsKit();
             el.classList.add('open');
@@ -1953,7 +2207,9 @@
         if (d.view) ems.view = d.view;
         if (d.result) {
             const r = d.result;
+            if (r.tool && !['wrong', 'empty', 'not_shockable'].includes(r.kind)) toolSound(r);
             const finish = () => {
+                if (r.shock) shockSound();
                 ems.busy = false;
                 ems.say = { text: r.text, kind: EMS_GOOD.has(r.kind) ? 'ok' : EMS_BAD.has(r.kind) ? 'alert' : '' };
                 emsDraw();
@@ -1962,6 +2218,7 @@
             if (r.ms > 0) {
                 const work = $('ems-work'), bar = work.firstElementChild;
                 work.classList.add('on');
+                if (r.shock) chargeSound(r.ms / 1000 * 0.75);
                 bar.animate([{ width: '0%' }, { width: '100%' }], { duration: r.ms, fill: 'forwards' });
                 setTimeout(() => { work.classList.remove('on'); finish(); }, r.ms);
             } else finish();

@@ -32,7 +32,8 @@ function Ems.new(list, say, dead)
 end
 
 -- Someone with no callout behind them: what got them is what's wrong with them.
-function Ems.guess(part, dead)
+function Ems.guess(part, dead, shot)
+    if part == 'head' and shot then return Ems.new({ { 'hemorrhage', 'head' }, 'head' }, nil, true) end -- (shot in the head: no pulse)
     if LIMBS[part] then return Ems.new({ { 'hemorrhage', part }, 'pain' }, nil, dead) end
     if part == 'head' then return Ems.new({ 'head' }, nil, dead) end
     return Ems.new({ { 'hemorrhage', (part == 'neck' or part == 'thorax') and part or 'abdomen' }, 'pain' }, nil, dead)
@@ -41,7 +42,14 @@ end
 function Ems.stable(b) return Body.stable(b) end
 
 -- A callout's patient (spec.injuries), before anyone's touched them.
-function Ems.admit(net, list, say) Patients[net] = Ems.new(list, say) end
+function Ems.admit(net, list, say)
+    local p = Ems.new(list, say)
+    Patients[net] = p
+    local parts = {}
+    for _, c in ipairs(p.cond) do if c.kind == 'hemorrhage' then parts[#parts + 1] = c.part end end
+    local ent = NetworkGetEntityFromNetworkId(net)
+    if #parts > 0 and ent and ent ~= 0 then Entity(ent).state:set('c3r_blood', parts, true) end -- (client/ems.lua: blood where they bleed)
+end
 function Ems.patient(net) return Patients[net] end
 
 -- ─── a medical call's card and ending (callouts/ems/) ───────────────────
@@ -96,12 +104,12 @@ local function send(src, net, b, result)
     TriggerClientEvent('c3r:ems:view', src, net, view, result)
 end
 
-RegisterNetEvent('c3r:ems:start', function(net, part, dead)
+RegisterNetEvent('c3r:ems:start', function(net, part, dead, shot)
     local src = source
     if not beside(src, net) then return end
     local p = Patients[net]
     if not p then
-        p = Ems.guess(type(part) == 'string' and part or nil, dead == true)
+        p = Ems.guess(type(part) == 'string' and part or nil, dead == true, shot == true)
         Patients[net] = p
     elseif dead == true and not p.arrest and not p.dead then
         p = Ems.new({}, p.say, true) -- (a call's patient who died before anyone got there)
@@ -125,7 +133,9 @@ RegisterNetEvent('c3r:ems:use', function(net, part, tool)
     local ms = (how == 'wrong' or how == 'nothing' or how == 'not_shockable') and cfg().wrong_ms
         or ASSESS[tool] and cfg().assess_ms or cfg().use_ms
     -- (a harmful dose looks like any other: the monitor is what tells them)
-    send(src, net, p, { kind = how == 'harm' and tool ~= 'opa' and 'done' or how, text = text, ms = ms })
+    send(src, net, p, { kind = how == 'harm' and tool ~= 'opa' and 'done' or how, text = text, ms = ms,
+        shock = tool == 'defib' and (how == 'rosc' or how == 'no_rosc' or how == 'harm') or nil, tool = tool,
+        heard = tool == 'stethoscope' and p.heard and { what = p.heard, hr = math.floor(p.v.hr + 0.5), rr = math.floor(p.v.rr + 0.5) } or nil })
     if Ems.stable(p) and not p.stabilised then
         p.stabilised = true
         Callouts.aid(src, net, 'stabilised')
@@ -188,7 +198,9 @@ function Ems.tick_all()
                 local owner = NetworkGetEntityOwner(ent)
                 if owner and owner > 0 then TriggerClientEvent('c3r:ems:kill', owner, net) end
             end
-            if p.medic then send(p.medic, net, p) end -- (the monitor moves every second)
+            local note = p.note -- (a rhythm check at the end of a CPR cycle)
+            p.note = nil
+            if p.medic then send(p.medic, net, p, note and { kind = note.kind, text = note.text, ms = 0 }) end -- (the monitor moves every second)
             if p.medic and not p.stabilised and Body.stable(p) then
                 p.stabilised = true
                 Callouts.aid(p.medic, net, 'stabilised')

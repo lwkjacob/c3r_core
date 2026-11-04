@@ -75,7 +75,9 @@ Config.Hospitals = {
 -- The patient (server/ems_body.lua). bleed: % of their blood an untreated limb bleed loses a second (a body wound, 1.4x).
 -- misplace: how often a tube goes into the wrong place. dead_minutes: arrest without a pulse back before they're gone.
 -- cardiac_minutes: a heart attack with no aspirin, before it gets worse (then about 40 s of alarms, then it stops).
+-- cpr_seconds: one cycle of CPR before the rhythm check (two minutes in life, shorter here).
 Config.Ems.bleed = 0.12
 Config.Ems.misplace = 0.15
 Config.Ems.dead_minutes = 10
 Config.Ems.cardiac_minutes = 6
+Config.Ems.cpr_seconds = 30

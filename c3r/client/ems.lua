@@ -432,6 +432,9 @@ local PARTS = {
 local HIT = { [58271] = 'lleg', [51826] = 'rleg', [45509] = 'larm', [40269] = 'rarm', [11816] = 'abdomen', [24816] = 'abdomen', [24818] = 'thorax' }
 for _, p in ipairs(PARTS) do HIT[p[3]] = p[1] end
 
+-- Shot, not hit with something (2: any weapon; 1: melee).
+local function shot(ped) return HasPedBeenDamagedByWeapon(ped, 0, 2) and not HasPedBeenDamagedByWeapon(ped, 0, 1) end
+
 local function hit_part(ped)
     local ok, bone = GetPedLastDamageBone(ped)
     return ok and HIT[bone] or nil
@@ -522,7 +525,7 @@ function EmsTreat(ped)
         scr, opening = { ped = ped, net = net, cam = cam }, false
         SetNuiFocus(true, true)
         SendNUIMessage({ type = 'ems', open = true, parts = parts, bag = project(kit), tools = E.tools })
-        TriggerServerEvent('c3r:ems:start', net, hit_part(ped), IsEntityDead(ped))
+        TriggerServerEvent('c3r:ems:start', net, hit_part(ped), IsEntityDead(ped) or IsPedDeadOrDying(ped, true), shot(ped))
         while scr do -- (the medic would stand in the way: the overhead view is of the patient)
             SetEntityLocallyInvisible(PlayerPedId())
             InvalidateIdleCam()
@@ -552,7 +555,37 @@ RegisterNetEvent('c3r:ems:view', function(net, view, result)
         local ped = scr.ped
         CreateThread(function() if ControlPed(ped) then RevivePed(ped) end end)
     end
+    local cpr = view.cpr ~= nil
+    if cpr ~= (scr.cpr or false) then -- (on the chest, or back to watching them: what everyone else sees)
+        scr.cpr = cpr
+        local anim = cpr and MedicAnim.cpr or MedicAnim.vitals
+        CreateThread(function()
+            if LoadDict(anim[1]) then TaskPlayAnim(PlayerPedId(), anim[1], anim[2], 4.0, -4.0, -1, 1, 0.0, false, false, false) end
+        end)
+    end
     SendNUIMessage({ type = 'ems', view = view, result = result })
+end)
+
+-- A bleed shows: blood on that part of them (server/ems.lua says where), in every game that has them.
+-- UNVERIFIED: the zone numbers (torso, head, left arm, right arm, left leg, right leg) and the blood names, from peddamage.xml.
+local ZONE = { thorax = 0, abdomen = 0, head = 1, neck = 1, larm = 2, lhand = 2, rarm = 3, rhand = 3, lleg = 4, lfoot = 4, rleg = 5, rfoot = 5 }
+AddStateBagChangeHandler('c3r_blood', nil, function(bag, _, parts)
+    if type(parts) ~= 'table' then return end
+    CreateThread(function()
+        local ent, deadline = GetEntityFromStateBagName(bag), GetGameTimer() + 5000
+        while (ent == 0 or not DoesEntityExist(ent)) and GetGameTimer() < deadline do
+            Wait(100)
+            ent = GetEntityFromStateBagName(bag)
+        end
+        if ent == 0 or not DoesEntityExist(ent) then return end
+        for _, part in ipairs(parts) do
+            local z = ZONE[part]
+            if z then
+                ApplyPedBloodSpecific(ent, z, 0.5, part == 'abdomen' and 0.65 or 0.45, 0.0, 1.0, -1, 0.0, 'BulletLarge')
+                ApplyPedBloodSpecific(ent, z, 0.5, 0.5, 0.0, 1.0, -1, 0.0, 'wound_sheet')
+            end
+        end
+    end)
 end)
 
 -- Their time ran out, and this game owns them.

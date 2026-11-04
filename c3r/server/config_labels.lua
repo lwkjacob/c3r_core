@@ -213,6 +213,7 @@ ConfigMenu = {
             { 'Ems.misplace', 'A tube goes into the wrong place', unit = 'pct', adv = true, help = 'The stethoscope and the EtCO2 show it.' },
             { 'Ems.dead_minutes', 'In arrest, they are gone after', unit = 'minutes' },
             { 'Ems.cardiac_minutes', 'A heart attack with no aspirin gets worse after', unit = 'minutes', adv = true },
+            { 'Ems.cpr_seconds', 'A cycle of CPR before the rhythm check', unit = 's', help = 'Two minutes in life.' },
             { 'Ems.use_ms', 'A tool that helps takes', unit = 'ms' },
             { 'Ems.wrong_ms', 'A wrong tool costs', unit = 'ms' },
             { 'Ems.assess_ms', 'An assessment takes', unit = 'ms' },
