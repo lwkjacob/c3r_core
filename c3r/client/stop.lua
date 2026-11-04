@@ -151,6 +151,7 @@ local function target_key() return KeyName('+c3r_target', 'Shift') end
 -- Everyone in the car, networked (ambient traffic often isn't, and then the server can't see it), then
 -- the request. people: { { seat, net, male } }, the driver first.
 local function request_stop(veh, opts)
+    if LocalPlayer.state.c3rService == 'ambulance' then return end -- (medics don't pull people over)
     asking = true
     CreateThread(function()
         local people = {}
@@ -270,6 +271,8 @@ end
 -- (client/pa.lua): they do that, and no menu.
 function RequestContact(ped, pa)
     if not DoesEntityExist(ped) or (not pa and (Stop or asking)) then return end
+    if LocalPlayer.state.c3rService == 'ambulance' -- (a medic talks to the people on their call, no one else)
+        and not (NetworkGetEntityIsNetworked(ped) and Entity(ped).state.c3r_person) then return end
     local veh = GetVehiclePedIsIn(ped, false)
     if veh ~= 0 then
         local driver = GetPedInVehicleSeat(veh, -1)

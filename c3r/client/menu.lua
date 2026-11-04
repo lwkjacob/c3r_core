@@ -121,10 +121,12 @@ local function contacts(s)
     local mine = {}
     for _, o in pairs(s and s.occ or {}) do mine[o.ped] = true end
     local pos, out = GetEntityCoords(me), {}
+    local medic = LocalPlayer.state.c3rService == 'ambulance' -- (only the people on a call: client/stop.lua RequestContact)
     for _, ped in ipairs(GetGamePool('CPed')) do
         local d = ped ~= me and not mine[ped] and #(GetEntityCoords(ped) - pos) -- (distance first: the rest only for someone close)
         if d and d < FAR_TALK and (d < NEAR_SEAT or d < reach_of(ped)) and not IsPedAPlayer(ped) and not IsEntityDead(ped) and IsPedHuman(ped)
-            and not IsBackup(ped) and not IsDowned(ped) then
+            and not IsBackup(ped) and not IsDowned(ped)
+            and (not medic or (NetworkGetEntityIsNetworked(ped) and Entity(ped).state.c3r_person)) then
             local veh = GetVehiclePedIsIn(ped, false)
             local driver = veh ~= 0 and GetPedInVehicleSeat(veh, -1) or 0
             if (veh == 0 and d < reach_of(ped)) or (veh ~= 0 and d < NEAR_SEAT and GetEntitySpeed(veh) < 1.0 and (driver == 0 or not IsPedAPlayer(driver))) then

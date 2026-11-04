@@ -776,6 +776,7 @@ local function make_near(inc)
                 if spec.vitals then Entity(ent).state:set('c3r_vitals', spec.vitals, true) end
                 if spec.conditions or spec.injuries then Ems.admit(net, spec.conditions or spec.injuries, spec.vitals, spec.arrest) end
             end
+            Entity(ent).state:set('c3r_person', true, true) -- (a call's person: client/stop.lua lets a medic talk to them)
             made = true
         end
     end
