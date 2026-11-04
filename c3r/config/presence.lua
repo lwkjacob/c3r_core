@@ -32,3 +32,9 @@ Config.Presence = {
         scene = { text = '{unit} · On scene: {call}', icon = 'callout' },
     },
 }
+
+-- A medic's shift (on duty as Ambulance): on shift, and on the way to hospital with a patient. On a call, the call's own
+-- states above. {patients}: handed over at hospital this shift.
+Config.Presence.states.ems = { text = '{unit} · Ambulance on shift', icon = 'patrol', hover = 'This shift: {patients} patients · {callouts} calls' }
+Config.Presence.states.transport = { text = '{unit} · Transporting to hospital', icon = 'callout', hover = 'This shift: {patients} patients · {callouts} calls' }
+Config.Presence.noCallsignMedic = 'Paramedic' -- {unit} for a medic with no callsign yet

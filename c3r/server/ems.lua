@@ -188,6 +188,7 @@ RegisterNetEvent('c3r:ems:deliver', function(net)
     Callouts.aid(src, net, 'delivered')
     Patients[net] = nil
     Aboard[src] = nil
+    TriggerEvent('c3r:stat', src, 'patients', 1)
     TriggerClientEvent('c3r:ems:handover', src, { minutes = mins, treated = fixed,
         grade = mins <= fast and 'Excellent work.' or mins <= fair and 'Good work.' or 'They made it. It could have been quicker.' })
 end)

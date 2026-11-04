@@ -41,6 +41,7 @@ Callout({
     service = 'ambulance',
     name = 'Unconscious person',
     priority = 1,
+    voice = 'call_overdose', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     weight = 1,
     enabled = true,
     reports = {

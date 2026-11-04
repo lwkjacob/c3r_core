@@ -4,7 +4,7 @@
 -- A shift brings the vehicle to the road beside you and puts you in uniform; ending it takes both back.
 Config.Ems = {
     ace = nil,
-    vehicle = 'f450ambo',
+    vehicle = 'ambulance',
     uniform = true,                 -- false: keep what you're wearing (a server with its own clothing script)
     ped = 's_m_m_paramedic_01',     -- the uniform, for a player who isn't an online character
     -- An online character (mp_m_freemode_01, mp_f_freemode_01) keeps their face and only changes clothes, as a backup

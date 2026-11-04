@@ -98,7 +98,7 @@ local function truck_spot()
 end
 
 local function bring_truck()
-    local m = load_model(E.vehicle)
+    local m = load_model(E.vehicle) or load_model('ambulance') -- (an add-on vehicle this server doesn't have: the game's own)
     if not m then return Notify('~b~C~w~3~r~R~s~ No ambulance available.') end
     local at, h = truck_spot()
     truck = CreateVehicle(m, at.x, at.y, at.z + 0.5, h, true, false)
@@ -607,6 +607,9 @@ local function net_of(ped)
     return NetworkGetEntityIsNetworked(ped) and PedToNet(ped) or nil
 end
 
+-- A patient in the back (client/presence.lua).
+function EmsAboard() return aboard ~= nil end
+
 -- The treatment screen is up (client/callouts.lua leaves its arrows off, client/menu.lua its hint).
 function EmsScreen() return scr ~= nil or opening end
 
@@ -748,7 +751,8 @@ RegisterNetEvent('c3r:ems:offer', function(o)
     SendNUIMessage({ type = 'callout', offer = { name = 'Ambulance requested', street = street,
         distance = #(GetEntityCoords(PlayerPedId()) - ask.at), report = ('%s needs an ambulance at their scene.'):format(o.from),
         priority = 1, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = o.ms } })
-    pcall(function() exports.lwk_control:say(nil, ('Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end)
+    local said = pcall(function() exports.lwk_control:sayCall('ems_request', ask.at, ('Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end)
+    if not said then Notify(('~b~DISPATCH~s~ Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end
 end)
 
 RegisterNetEvent('c3r:ems:assigned', function(j, why)

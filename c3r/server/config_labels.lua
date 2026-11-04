@@ -28,6 +28,7 @@ local UNIT = {
 local STATE = {
     off = 'Off duty', patrol = 'On patrol', stop = 'Traffic stop', felony = 'Felony stop', contact = 'On foot with someone',
     pursuit = 'Car chase', chase = 'Foot chase', callout = 'Responding to a call', scene = 'On scene at a call',
+    ems = 'Ambulance on shift', transport = 'Taking a patient to hospital',
 }
 
 local MODEL = 'A model name, from docs.fivem.net/docs/game-references.'
@@ -264,6 +265,7 @@ ConfigMenu = {
             { 'Presence.line', 'Line under the status', blank = 'None' },
             { 'Presence.hover', 'Small image hover text', blank = 'None' },
             { 'Presence.noCallsign', 'Name with no callsign yet', help = 'Used for {unit}.' },
+            { 'Presence.noCallsignMedic', 'A medic with no callsign yet', help = 'Used for {unit}.' },
         } },
         { title = 'Buttons', help = 'A link starts https:// or fivem://connect/, or the button is not shown. Labels up to 32 characters. Players only see the buttons on other people\'s profiles.', rows = {
             { 'Presence.join.label', 'Join button text' },

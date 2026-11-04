@@ -41,6 +41,7 @@ Callout({
     service = 'ambulance',
     name = 'Fall injury',
     priority = 2,
+    voice = 'call_fall', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     weight = 1,
     enabled = true,
     reports = {

@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 
 name 'c3r'
-description 'CODE3RESPONSE: free, open-source police game mode'
+description 'CODE3RESPONSE: free, open-source police and ambulance game mode'
 version '0.0.1'
 author 'LWK DEVELOPMENT'
 license 'CC-BY-NC-SA-4.0'

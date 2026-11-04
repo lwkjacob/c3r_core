@@ -18,6 +18,11 @@ RegisterNetEvent('c3r:presence:stat', function(stat, n) shift[stat] = (shift[sta
 -- A callout outranks the stops inside it; a chase outranks the callout.
 local function doing()
     if not LocalPlayer.state.c3rDuty then return 'off' end
+    if LocalPlayer.state.c3rService == 'ambulance' then -- (client/ems.lua: a patient aboard)
+        if EmsAboard and EmsAboard() then return 'transport' end
+        if call then return call.arrived and 'scene' or 'callout' end
+        return 'ems'
+    end
     local s = Stop
     if s and s.pursuit then return 'pursuit' end
     for _, o in pairs(s and s.occ or {}) do
@@ -32,6 +37,7 @@ end
 local function unit()
     local cs = GetResourceState('lwk_control') == 'started' and exports.lwk_control:getCallsign()
         or LocalPlayer.state.lwkMdtCallsign
+    if LocalPlayer.state.c3rService == 'ambulance' then return cs and cs ~= '' and cs or P.noCallsignMedic or 'Paramedic' end
     return cs and cs ~= '' and cs or P.noCallsign
 end
 
@@ -60,11 +66,12 @@ local function update()
     if on and not was_on then shift = {} end
     was_on = on
 
-    local state = P.states[doing()]
+    local state = P.states[doing()] or P.states.patrol or {} -- (a config from before a state was added)
     local online = GlobalState.c3rOnline or {}
     local values = { unit = unit(), call = call and call.name or '', players = online.players or 0,
                      max = online.max or 0, duty = online.duty or 0 }
     local function fill(text)
+        text = text or ''
         return (text:gsub('{([%w_]+)}', function(k) return values[k] or shift[k] or 0 end))
     end
 
