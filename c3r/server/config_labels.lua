@@ -246,6 +246,10 @@ ConfigMenu = {
             { 'Ems.cam_height', 'Treatment camera height', unit = 'm', help = 'Above the patient.' },
             { 'Ems.lie_height', 'Patient lies above the stretcher', unit = 'm' },
             { 'Ems.lie_turn', 'Turn the patient', unit = 'degrees', neg = true, help = 'If they lie across the stretcher.' },
+            { 'Ems.lie_shift', 'Move the patient toward the head end', unit = 'm', neg = true, adv = true, help = 'If they lie too far up or down it.' },
+            { 'Ems.cot.y_nudge', 'In the ambulance, move the patient toward the cab', unit = 'm', neg = true, adv = true },
+            { 'Ems.cot.z_nudge', 'In the ambulance, raise the patient', unit = 'm', neg = true, adv = true },
+            { 'Ems.back_cam_height', 'In the ambulance, the treatment camera looks down from', unit = 'm', adv = true, help = 'Above the patient.' },
         } },
     } },
 

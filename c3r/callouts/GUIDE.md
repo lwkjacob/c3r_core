@@ -161,7 +161,8 @@ c:person('host', { at = 'host', label = 'Host', male = true, home = true, secret
 | `pockets` | Everyday things a search finds that aren't evidence ('Gas station receipt'). |
 | `injured` | `true`: on the ground hurt. E beside them opens first aid, paramedics take them, and `'aid'` fires. |
 | `vitals` | What **Check vitals** says about someone `injured`, instead of the bleeding. A medic's screen shows it too. |
-| `injuries` | What a medic finds on someone `injured`: `{ { 'lleg', 'bleed' }, { 'head', 'wound' } }`. Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`. Kinds: `bleed`, `wound`, `fracture`, `airway`, `breathing`, `overdose`, `sugar`, `pulse`. |
+| `conditions` | What's really wrong with someone `injured`, for a medic to find and treat: `{ { 'hemorrhage', 'lleg' }, { 'fracture', 'lleg' }, 'pain' }`. See **Conditions** below. |
+| `injuries` | The short form of `conditions` for a simple trauma call: `{ { 'lleg', 'bleed' }, { 'head', 'wound' } }` (part first). Kinds: `bleed` and `wound` (a hemorrhage), `fracture`, `airway`, `breathing` (respiratory), `overdose` (opioid), `sugar` (hypoglycemia). A bleed or break adds `pain`. |
 | `runs` | `true`: pulled over while driving (see `c:task(..., 'drive')`), they floor it and it's a chase. `bail = 0.3`: how often it ends with them on foot. |
 | `seated` | A vehicle key: they start at the wheel of it, engine running. Give them the car's point as `at`, and make the car `locked = false`. |
 | `wanted` | `true`: someone on file with an active warrant, with their own name, record and face. With `home`, they've moved there. Nobody free: a new person with a warrant. Their gender is theirs, so don't count on `male`. `warrant.lua` is the example. |
@@ -336,3 +337,26 @@ Units can always leave a call with **X** or by clearing with dispatch. The last 
 3. Watch the server console. A broken file prints `callout noise left out: <why>`. An error in a story prints `[c3r] callout noise (story): <error>` and cancels only that call. Nothing else on the server breaks.
 4. Play every story. Request the call until each one comes up, and check that the opening card is identical in all of them.
 5. Try it with a second officer: do both have something to do?
+
+## Conditions
+
+What a medic finds on an `injured` person (`conditions = { ... }` on `c:person`), and what makes them better or worse.
+Each is a name, or `{ name, part }` for the ones that sit on a body part. The server holds the truth; the medic's
+screen shows a condition only once it's found. Each pushes the patient's vitals, so an untreated one shows on the
+monitor and, left long enough, can stop their heart (after alarms).
+
+| Condition | Part | Found by | Treated by |
+|---|---|---|---|
+| `hemorrhage` | any (`lleg`, `abdomen`...) | Seen on arrival; the shears show the wound | Tourniquet on a limb, dressing on the head or body. Saline for the blood lost. |
+| `fracture` | a limb | Seen on arrival; hands on it | Splint |
+| `pain` | | Asking them | Morphine, if their blood pressure and breathing allow it |
+| `airway` | | Look in their mouth | Suction, then an airway (nasal, oral if unresponsive, i-gel or tube) |
+| `respiratory` | | Stethoscope on the chest | Oxygen |
+| `opioid` | | Pen light on the head: pinpoint pupils | Narcan (it wears off: a second dose), the BVM while they barely breathe |
+| `hypoglycemia` | | Glucometer on a hand | Glucose |
+| `cardiac` | | Asking them | Aspirin. Without it, after `Config.Ems.cardiac_minutes` and some alarms, VF. |
+| `head` | | Hands or pen light on the head | Nothing at the scene: keep the airway, get them to hospital |
+| `bradycardia` | | Pulse at the neck or wrist, or the monitor | Epinephrine |
+
+Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`.
+A name the server doesn't know stops the call with an error naming it. `callouts/ems/` has an example of each.

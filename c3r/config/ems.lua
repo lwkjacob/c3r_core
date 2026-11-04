@@ -60,6 +60,9 @@ Config.Ems.stretcher = { 'c3r_gurney', 'm25_2_prop_m52_gurney_01a', 'm23_2_prop_
 Config.Ems.cam_height = 2.6         -- m above the patient, on the treatment screen
 Config.Ems.lie_height = 0.12        -- m above the stretcher's top that a patient's back lies
 Config.Ems.lie_turn = 0.0           -- degrees, extra: they're turned head to the head end by themselves
+Config.Ems.lie_shift = 0.0          -- m, extra: moves them toward the head end (- toward the feet)
+Config.Ems.cot = { y_nudge = 0.0, z_nudge = 0.0 } -- m: the patient in the back, toward the cab and up
+Config.Ems.back_cam_height = 1.0    -- m above the patient in the back that the treatment camera looks down from
 
 -- Patients are handed over at the door (the marker) of the nearest of these, after stopping within hospital_radius m.
 -- Positions are approximate: move them to suit.

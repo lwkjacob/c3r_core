@@ -16,6 +16,8 @@ local stretcher, fit = nil, nil -- the stretcher being pushed; how it sits, from
 local lying, aboard = nil, nil -- { ped, net }: on the stretcher; in the back
 local hospital = nil -- where they're going: an entry of Config.Hospitals, with its blip
 local scr, opening = nil, false -- the treatment screen: { ped, net, cam }
+local partner, ride = nil, nil -- the AI partner (a shift's, in the passenger seat); the ride: 'back' | 'drive' | 'there'
+local DRIVE = 786469 | 2 | 16 -- (client/backup.lua's lights-on driving)
 local Stable = {} -- [net] = true: ready for the stretcher
 
 local PUSH = { 'anim@heists@box_carry@', 'idle' } -- UNVERIFIED
@@ -108,6 +110,24 @@ local function bring_truck()
 end
 
 local function have_truck() return truck ~= nil and DoesEntityExist(truck) end
+
+-- The partner: in the passenger seat all shift and never out on scene. On the ride they drive while the medic treats in
+-- the back, or sit with the patient while the medic drives. Config flag 184: PreventAutoShuffleToDriversSeat.
+local function bring_partner()
+    local m = have_truck() and load_model(E.ped)
+    if not m then return end
+    partner = CreatePedInsideVehicle(truck, 4, m, 0, true, false)
+    SetModelAsNoLongerNeeded(m)
+    if partner == 0 then partner = nil return end
+    SetEntityAsMissionEntity(partner, true, true)
+    SetNetworkIdCanMigrate(NetworkGetNetworkIdFromEntity(partner), false)
+    SetBlockingOfNonTemporaryEvents(partner, true)
+    SetPedCanBeDraggedOut(partner, false)
+    SetPedConfigFlag(partner, 184, true)
+    SetPedKeepTask(partner, true)
+end
+
+local function partner_ok() return partner ~= nil and DoesEntityExist(partner) and not IsEntityDead(partner) and have_truck() end
 
 local function at_rear()
     if not have_truck() then return false end
@@ -237,41 +257,63 @@ local function put_stretcher_away()
     back_doors(false)
 end
 
-local function attach_lying(ped, x, y, z, yaw)
-    AttachEntityToEntity(ped, stretcher, 0, x, y, z, 0.0, 0.0, yaw, false, false, false, false, 2, true)
+local function attach_lying(ped, ent, x, y, z, yaw)
+    AttachEntityToEntity(ped, ent, 0, x, y, z, 0.0, 0.0, yaw, false, false, false, false, 2, true)
 end
 
--- Where their body is, in the stretcher's own terms: head, hips, back.
-local function body_on(ped)
+-- Where their body is, in `ent`'s own terms: head, hips, back, feet.
+local function body_on(ped, ent)
     local function at(b)
         local w = GetPedBoneCoords(ped, b, 0.0, 0.0, 0.0)
-        return GetOffsetFromEntityGivenWorldCoords(stretcher, w.x, w.y, w.z)
+        return GetOffsetFromEntityGivenWorldCoords(ent, w.x, w.y, w.z)
     end
-    return at(31086), at(11816), at(24817)
+    return at(31086), at(11816), at(24817), (at(14201) + at(52301)) / 2
 end
 
 -- The lying animation carries the body well away from the ped's own origin (about a metre down, and to one side), so
--- a fixed offset leaves them under the stretcher. Put them on, see where the body went, then turn them head to the
--- head end (the model's long way, +) and move them until their back is lie_height above the mattress, in the middle.
-local function lie_on_stretcher(ped)
+-- a fixed offset leaves them in the wrong place. Put them on, see where the body went, then turn them head to the
+-- head end (`ent`'s long way, +) and move them until their back is lie_height above `bed.top`, centred on bed.x, bed.y.
+-- bed = { x, y, top, turn (0: ent's long way is its y; 90: its x) }
+local function lie_on(ped, ent, bed)
     FreezeEntityPosition(ped, false)
     ClearPedTasksImmediately(ped)
     SetBlockingOfNonTemporaryEvents(ped, true)
-    local x, y, z, yaw = 0.0, 0.0, fit.top + 1.0, fit.turn + E.lie_turn
-    attach_lying(ped, x, y, z, yaw)
+    local x, y, z, yaw = bed.x, bed.y, bed.top + 1.0, bed.turn + E.lie_turn
+    attach_lying(ped, ent, x, y, z, yaw)
     Patients[ped] = Patients[ped] or {}
     Patients[ped].down, Patients[ped].gurney = true, true -- (client/medical.lua stops laying them on their side)
     if LoadDict(SUPINE[1]) then TaskPlayAnim(ped, SUPINE[1], SUPINE[2], 8.0, -8.0, -1, 1, 0.0, false, false, false) end
     Wait(500) -- (the pose is on)
-    local head, hips = body_on(ped)
-    local want = fit.turn == 0.0 and 90.0 or 0.0 -- (the long way: its y, or its x)
+    local head, hips = body_on(ped, ent)
+    local want = bed.turn == 0.0 and 90.0 or 0.0 -- (the long way: its y, or its x)
     yaw = yaw + want - math.deg(math.atan(head.y - hips.y, head.x - hips.x))
-    attach_lying(ped, x, y, z, yaw)
+    attach_lying(ped, ent, x, y, z, yaw)
     Wait(50)
-    local back
-    head, hips, back = body_on(ped)
-    local mid = (head + hips) / 2
-    attach_lying(ped, x - mid.x, y - mid.y, z + fit.top + E.lie_height - back.z, yaw)
+    local back, feet
+    head, hips, back, feet = body_on(ped, ent)
+    local mid = (head + feet) / 2
+    local tx, ty = bed.x, bed.y
+    if bed.turn == 0.0 then ty = ty + (E.lie_shift or 0.0) else tx = tx + (E.lie_shift or 0.0) end
+    attach_lying(ped, ent, x + tx - mid.x, y + ty - mid.y, z + bed.top + E.lie_height - back.z, yaw)
+end
+
+local function lie_on_stretcher(ped) lie_on(ped, stretcher, { x = 0.0, y = 0.0, top = fit.top, turn = fit.turn }) end
+
+-- The cot in the back of the ambulance: between its two back seats, at their height, head to the cab. UNVERIFIED: the
+-- bone names (GTA's usual ones for back seats); without them, the middle of the back half of the truck.
+local function lie_in_back(ped)
+    local function seat(name)
+        local i = GetEntityBoneIndexByName(truck, name)
+        if i == -1 then return nil end
+        local w = GetWorldPositionOfEntityBone(truck, i)
+        return GetOffsetFromEntityGivenWorldCoords(truck, w.x, w.y, w.z)
+    end
+    local l, r = seat('seat_dside_r'), seat('seat_pside_r')
+    local min = GetModelDimensions(GetEntityModel(truck))
+    local bed = l and r and { x = (l.x + r.x) / 2, y = (l.y + r.y) / 2, top = (l.z + r.z) / 2 } or { x = 0.0, y = min.y * 0.45, top = 0.0 }
+    local nudge = E.cot or {}
+    bed.y, bed.top, bed.turn = bed.y + (nudge.y_nudge or 0.0), bed.top + (nudge.z_nudge or 0.0), 0.0
+    lie_on(ped, truck, bed)
 end
 
 local function lift(t)
@@ -283,23 +325,72 @@ local function lift(t)
 end
 
 local function load_patient()
-    local t, seat = lying, back_seat()
-    if not seat or not ControlPed(t.ped) then return end
+    local t = lying
+    if not ControlPed(t.ped) then return end
     TriggerServerEvent('c3r:ems:load', t.net) -- (the call hears it, before they're moved)
     DetachEntity(t.ped, true, false)
-    Patients[t.ped] = nil
-    ClearPedTasksImmediately(t.ped)
-    TaskWarpPedIntoVehicle(t.ped, truck, seat) -- (the project's convention for someone carried in)
+    lie_in_back(t.ped) -- (flat on the cot, not sat in a seat: both back seats stay free for the crew)
     lying, aboard = nil, t
     put_stretcher_away()
     route_to_hospital()
     Prompt('ems', 'ok', 'Patient loaded', hospital and ('Take them to %s. It is on your map.'):format(hospital.name) or 'Take them to hospital.', 7000)
 end
 
+-- Ride in the back with them: the partner takes the wheel to the hospital, lights on.
+local function ride_back()
+    local seat = back_seat()
+    if not seat or not aboard then return end
+    back_doors(false)
+    TaskWarpPedIntoVehicle(PlayerPedId(), truck, seat)
+    ride = 'back'
+    if not partner_ok() then return end
+    ClearPedTasks(partner)
+    SetPedIntoVehicle(partner, truck, -1)
+    SetVehicleSiren(truck, true)
+    if hospital then TaskVehicleDriveToCoordLongrange(partner, truck, hospital.x, hospital.y, hospital.z, 25.0, DRIVE, 15.0) end
+    Prompt('ems', 'info', 'Your partner drives', ('Press %s to treat them on the way.'):format(KeyName('+c3r_interact', 'E')), 7000)
+end
+
+-- Back to how a shift starts: the partner up front, no lights, the patient no longer held.
+local function end_ride(net)
+    if ride == 'drive' and net then TriggerServerEvent('c3r:ems:hold', net, false) end
+    ride = nil
+    if have_truck() then SetVehicleSiren(truck, false) end
+    if partner_ok() and GetPedInVehicleSeat(truck, 0) ~= partner then
+        ClearPedTasks(partner)
+        SetPedIntoVehicle(partner, truck, 0)
+    end
+end
+
+-- The medic at the wheel with a patient aboard: the partner sits with them, and they hold. A ride in the back at the
+-- hospital: the partner pulls up and says so.
+CreateThread(function()
+    while true do
+        Wait(500)
+        if aboard and partner_ok() then
+            if ride ~= 'drive' and GetPedInVehicleSeat(truck, -1) == PlayerPedId() then
+                local seat = back_seat()
+                if seat then
+                    ride = 'drive'
+                    SetPedIntoVehicle(partner, truck, seat)
+                    TriggerServerEvent('c3r:ems:hold', aboard.net, true)
+                    Prompt('ems', 'info', 'Your partner', "I've got them in the back. Drive.", 6000)
+                end
+            elseif ride == 'back' and hospital and #(GetEntityCoords(truck) - door(hospital)) < E.hospital_radius
+                and GetEntitySpeed(truck) < 1.0 then
+                ride = 'there'
+                SetVehicleSiren(truck, false)
+                Prompt('ems', 'ok', 'Your partner', ("We're here. Get out and unload them at the back."), 7000)
+            end
+        end
+    end
+end)
+
 local function unload_patient()
     local t = aboard
+    end_ride(t.net)
     if not ControlPed(t.ped) or not take_stretcher() then return end
-    ClearPedTasksImmediately(t.ped) -- (out of the ambulance at once)
+    DetachEntity(t.ped, false, false) -- (off the cot)
     Wait(100)
     lie_on_stretcher(t.ped)
     lying, aboard = t, nil
@@ -339,7 +430,13 @@ end
 -- -> { label, fn } | nil
 local function action()
     local me = PlayerPedId()
-    if scr or opening or not on_ems() or IsPedInAnyVehicle(me, false) then return nil end
+    if scr or opening or not on_ems() then return nil end
+    if IsPedInAnyVehicle(me, false) then
+        if aboard and (ride == 'back' or ride == 'there') and GetVehiclePedIsIn(me, false) == truck then
+            return { 'Treat the patient', function() EmsTreat(aboard.ped) end }
+        end
+        return nil
+    end
     if stretcher then
         if lying then
             if hospital then
@@ -359,6 +456,7 @@ local function action()
         if hospital and #(GetEntityCoords(truck) - door(hospital)) < E.hospital_radius and GetEntitySpeed(truck) < 1.0 then
             return { 'Unload the patient', unload_patient }
         end
+        if ride ~= 'drive' then return { 'Ride in the back with them (or take the wheel)', ride_back } end
         return nil
     end
     if bag_out then
@@ -395,15 +493,16 @@ end)
 
 CreateThread(function()
     while true do
-        if stretcher or hospital then
+        if stretcher or hospital or aboard then
+            local t = lying or aboard
+            local p = t and t.ped
+            if p and DoesEntityExist(p) and NetworkHasControlOfEntity(p) and HasAnimDictLoaded(SUPINE[1])
+                and not IsEntityPlayingAnim(p, SUPINE[1], SUPINE[2], 3) then -- (kept on their back)
+                TaskPlayAnim(p, SUPINE[1], SUPINE[2], 8.0, -8.0, -1, 1, 0.0, false, false, false)
+            end
             if stretcher then
                 local me = PlayerPedId()
                 if DoesEntityExist(stretcher) then roll_stretcher() end
-                local p = lying and lying.ped
-                if p and DoesEntityExist(p) and NetworkHasControlOfEntity(p) and HasAnimDictLoaded(SUPINE[1])
-                    and not IsEntityPlayingAnim(p, SUPINE[1], SUPINE[2], 3) then -- (kept on their back)
-                    TaskPlayAnim(p, SUPINE[1], SUPINE[2], 8.0, -8.0, -1, 1, 0.0, false, false, false)
-                end
                 for _, c in ipairs({ 21, 22, 23, 24, 25, 44, 140, 141, 142 }) do DisableControlAction(0, c, true) end -- (a walk: no sprint, jump, car or fists)
                 if not IsEntityPlayingAnim(me, PUSH[1], PUSH[2], 3) and HasAnimDictLoaded(PUSH[1]) then
                     TaskPlayAnim(me, PUSH[1], PUSH[2], 4.0, -4.0, -1, 49, 0.0, false, false, false)
@@ -483,6 +582,19 @@ local function overhead(ped)
     return cam
 end
 
+-- In the back of the ambulance: straight down on them from the roof, head at the top, fixed to the truck (it moves).
+local function in_the_back(ped)
+    local head, feet = bone(ped, 31086), bone(ped, 14201)
+    local mid = (head + feet) / 2
+    local p = GetOffsetFromEntityGivenWorldCoords(truck, mid.x, mid.y, mid.z)
+    local cam = CreateCam('DEFAULT_SCRIPTED_CAMERA', false)
+    HardAttachCamToEntity(cam, truck, -89.0, 0.0, 0.0, p.x, p.y, p.z + E.back_cam_height, true)
+    SetCamFov(cam, 80.0)
+    SetCamActive(cam, true)
+    RenderScriptCams(true, true, 400, true, true)
+    return cam
+end
+
 local function project(at)
     local on, x, y = GetScreenCoordFromWorldCoord(at.x, at.y, at.z)
     return on and { x = x, y = y } or nil
@@ -501,30 +613,33 @@ function EmsScreen() return scr ~= nil or opening end
 -- client/menu.lua's E beside someone down.
 function EmsTreat(ped)
     if scr or opening then return end
-    if have_truck() and not bag_out then
+    local inside = aboard ~= nil and aboard.ped == ped -- (on the cot in the back: the kit's all there)
+    if have_truck() and not bag_out and not inside then
         return Prompt('ems', 'info', 'No bag', 'Take your medical bag from the back of the ambulance.', 5000)
     end
     opening = true
     CreateThread(function()
         local net = net_of(ped)
         if not net then opening = false return end
-        if not IsEntityDead(ped) then HoldDown(ped) end
-        KneelAt(ped)
-        local me = PlayerPedId()
-        if LoadDict(MedicAnim.vitals[1]) then -- (what everyone else sees)
-            TaskPlayAnim(me, MedicAnim.vitals[1], MedicAnim.vitals[2], 4.0, -4.0, -1, 1, 0.0, false, false, false)
+        if not inside then
+            if not IsEntityDead(ped) then HoldDown(ped) end
+            KneelAt(ped)
+            local me = PlayerPedId()
+            if LoadDict(MedicAnim.vitals[1]) then -- (what everyone else sees)
+                TaskPlayAnim(me, MedicAnim.vitals[1], MedicAnim.vitals[2], 4.0, -4.0, -1, 1, 0.0, false, false, false)
+            end
         end
-        local kit = set_bag_down(ped)
-        local cam = overhead(ped)
+        local kit = not inside and set_bag_down(ped) or nil
+        local cam = inside and in_the_back(ped) or overhead(ped)
         Wait(450) -- (the camera's there: what's on screen can be worked out now)
         local parts = {}
         for _, p in ipairs(PARTS) do
             local s = project(spot(ped, p))
             if s then parts[#parts + 1] = { id = p[1], label = p[2], x = s.x, y = s.y } end
         end
-        scr, opening = { ped = ped, net = net, cam = cam }, false
+        scr, opening = { ped = ped, net = net, cam = cam, inside = inside }, false
         SetNuiFocus(true, true)
-        SendNUIMessage({ type = 'ems', open = true, parts = parts, bag = project(kit), tools = E.tools })
+        SendNUIMessage({ type = 'ems', open = true, parts = parts, bag = kit and project(kit), tools = E.tools, inside = inside })
         TriggerServerEvent('c3r:ems:start', net, hit_part(ped), IsEntityDead(ped) or IsPedDeadOrDying(ped, true), shot(ped))
         while scr do -- (the medic would stand in the way: the overhead view is of the patient)
             SetEntityLocallyInvisible(PlayerPedId())
@@ -543,7 +658,7 @@ local function close_screen()
     NoPause()
     RenderScriptCams(false, true, 400, true, true)
     DestroyCam(s.cam, false)
-    ClearPedTasks(PlayerPedId())
+    if not s.inside then ClearPedTasks(PlayerPedId()) end
     TriggerServerEvent('c3r:ems:leave', s.net)
     if bag_out then hold_bag() end
 end
@@ -556,7 +671,7 @@ RegisterNetEvent('c3r:ems:view', function(net, view, result)
         CreateThread(function() if ControlPed(ped) then RevivePed(ped) end end)
     end
     local cpr = view.cpr ~= nil
-    if cpr ~= (scr.cpr or false) then -- (on the chest, or back to watching them: what everyone else sees)
+    if cpr ~= (scr.cpr or false) and not scr.inside then -- (on the chest, or back to watching them: what everyone else sees)
         scr.cpr = cpr
         local anim = cpr and MedicAnim.cpr or MedicAnim.vitals
         CreateThread(function()
@@ -625,6 +740,9 @@ local function end_of_shift()
         DeleteEntity(t.ped)
     end
     Stable = {}
+    ride = nil
+    if partner and DoesEntityExist(partner) then DeleteEntity(partner) end
+    partner = nil
     if have_truck() then DeleteEntity(truck) end
     truck = nil
     ClearPrompt('ems_e')
@@ -636,6 +754,7 @@ AddStateBagChangeHandler('c3rService', ('player:%d'):format(GetPlayerServerId(Pl
         if service == 'ambulance' then
             dress()
             bring_truck()
+            bring_partner()
         elseif truck or was then
             end_of_shift()
             undress()
@@ -653,5 +772,6 @@ AddEventHandler('onResourceStop', function(res)
     drop_prop(bag)
     drop_prop(stretcher)
     clear_hospital()
+    if partner and DoesEntityExist(partner) then DeleteEntity(partner) end
     if have_truck() then DeleteEntity(truck) end
 end)

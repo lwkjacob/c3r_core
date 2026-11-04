@@ -463,6 +463,9 @@
         #ems-state .say.ok { color: var(--green); }
         #ems-state .hint { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .15); color: #ffd27a; font-size: 13px; display: none; }
         #ems-state .hint.on { display: block; }
+        @keyframes ems-glow { 50% { box-shadow: 0 0 0 4px rgba(255, 210, 122, .45); } }
+        .ems-tool.hinted, .ems-tab.hinted, .ems-tag.hinted, #ems-btns button.hinted { border-color: #ffd27a; animation: ems-glow 1.2s ease-in-out infinite; }
+        #ems-hint-btn.on { background: rgba(255, 210, 122, .18); }
         .ems-side { position: absolute; top: 28px; width: 270px; padding: 12px 14px; border-radius: 12px; background: rgba(14, 18, 30, .92); color: #fff; }
         #ems-log { left: 28px; max-height: 46vh; overflow: auto; }
         #ems-mon { right: 28px; width: 392px; }
@@ -2150,13 +2153,25 @@
         else if (v.dead) { text = 'No signs of life.'; kind = 'alert'; }
         else if (v.arrest) { text = v.cpr != null ? `CPR: rhythm check in ${v.cpr} s.` : 'No pulse!'; kind = 'alert'; }
         else if (ems.part && emsHurt(ems.part)) text = emsFound(ems.part).filter((f) => !f.fixed).map((f) => f.text).join(' ');
-        else if (v.stable) { text = 'Stable. Get the stretcher from the ambulance.'; kind = 'ok'; }
+        else if (v.stable) { text = ems.inside ? 'Stable. Keep watching them on the way.' : 'Stable. Get the stretcher from the ambulance.'; kind = 'ok'; }
         else text = ems.part ? 'Pick a tool.' : 'Pick a body part, then a tool to assess it.';
         say.textContent = text;
         say.className = `say ${kind}`;
         const hint = $('ems-hint');
-        hint.textContent = v.hint || '';
+        hint.textContent = ems.inside && v.stable ? 'Stable. Keep an eye on the monitor until the hospital.' : (v.hint || '');
         hint.classList.toggle('on', ems.hint && !!v.hint);
+        $('ems-hint-btn').classList.toggle('on', ems.hint);
+        // the hint lights its tool, the pouch it's in, and the part to use it on
+        const lit = ems.hint && v.hint_tool, tool = lit && ems.tools.find((t) => t.id === v.hint_tool);
+        const part = tool && (tool.part ? v.hint_part : null);
+        document.querySelectorAll('#ems .hinted').forEach((el) => el.classList.remove('hinted'));
+        if (lit === 'pronounce') $('ems-pronounce').classList.add('hinted');
+        if (tool) {
+            const b = document.querySelector(`.ems-tool[data-t="${tool.id}"]`), tab = document.querySelector(`.ems-tab[data-tab="${tool.group}"]`);
+            if (b) b.classList.add('hinted');
+            if (tab && tool.group !== ems.tab) tab.classList.add('hinted');
+        }
+        if (part && part !== ems.part) document.querySelectorAll(`#ems-marks .ems-tag[data-p="${part}"]`).forEach((el) => el.classList.add('hinted'));
         const found = v.found || [];
         $('ems-found').innerHTML = found.length ? found.map((f) => `<div class="row${f.fixed ? ' fixed' : ''}"><b>${ems.parts[f.part] || f.part}${f.fixed ? ' · treated' : ''}</b><span>${f.text}</span></div>`).join('')
             : '<div class="none">Nothing found yet.</div>';
@@ -2198,7 +2213,7 @@
             return;
         }
         if (d.open) {
-            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, tab: 'assess', tools: d.tools || [] });
+            Object.assign(ems, { open: true, part: null, view: null, busy: false, say: null, tab: 'assess', tools: d.tools || [], inside: !!d.inside });
             emsLayout(d.parts || [], d.bag);
             emsKit();
             el.classList.add('open');

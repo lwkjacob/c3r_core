@@ -158,7 +158,8 @@ end
        injured? (on the ground hurt: E beside them is first aid, paramedics take them; 'aid' fires),
        weapon? ('WEAPON_PISTOL': what they use when told to 'aim' or 'shoot'; give it to `items` too, for a search),
        vitals? (what Check vitals says about an `injured` person, instead of the bleeding: an overdose, say),
-       injuries? ({ { 'lleg', 'bleed' } }: what a medic finds on an `injured` person, server/ems.lua),
+       conditions? ({ { 'hemorrhage', 'lleg' }, 'pain' }: what's wrong with an `injured` person, server/ems_body.lua),
+       injuries? (the short form: { { 'lleg', 'bleed' } }, a bleed, wound or break, with pain added),
        dead? (true: found dead, an animal in the road, say), runs? (true: pulled over at the wheel, they floor it),
        bail? (with runs: how often a chase ends with them running on foot, 0-1; Config.Flee.bail if not given),
        seated? (a vehicle key: they start at the wheel of it, engine running),
@@ -772,7 +773,7 @@ local function make_near(inc)
                 p.down = true
                 Entity(ent).state:set('c3r_down', true, true)
                 if spec.vitals then Entity(ent).state:set('c3r_vitals', spec.vitals, true) end
-                if spec.injuries then Ems.admit(net, spec.injuries, spec.vitals) end
+                if spec.conditions or spec.injuries then Ems.admit(net, spec.conditions or spec.injuries, spec.vitals) end
             end
             made = true
         end

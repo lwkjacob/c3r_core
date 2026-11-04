@@ -3,9 +3,9 @@
 
     Someone's gone down in public and a bystander rang it in. Same report and card every time; the bystander only knows
     what they saw. What's really wrong is one of three stories, and the treatment screen shows it:
-      heart     chest pain: their breathing and heart. The bystander saw them clutching their chest.
-      sugar     a diabetic with low blood sugar: the bracelet on their wrist says so.
-      airway    choking on their lunch: the half-eaten sandwich beside them.
+      heart     a heart attack: they say so when asked. No aspirin, and after a few minutes' warning it's VF.
+      sugar     a diabetic with low blood sugar: barely awake. The glucometer, and the bracelet on their wrist.
+      airway    choking on their lunch: look in their mouth, suction it. The half-eaten sandwich beside them.
 
     Points per location: walk them out in game with /c3rplace ems_collapse (it writes the location in below).
 ]]
@@ -16,8 +16,8 @@ local WITNESS_Q = {
     { id = 'c_long', label = 'How long have they been down?' },
 }
 
-local function people(c, injuries, vitals, what, know, clue)
-    c:person('patient', { at = 'patient', label = 'Patient', secret = 'clean', injured = true, age = { 28, 74 }, vitals = vitals, injuries = injuries })
+local function people(c, conditions, vitals, what, know, clue)
+    c:person('patient', { at = 'patient', label = 'Patient', secret = 'clean', injured = true, age = { 28, 74 }, vitals = vitals, conditions = conditions })
     c:person('witness', { at = 'witness', label = 'Bystander', secret = 'clean', demeanor = 'chatty', scene = 'WORLD_HUMAN_STAND_MOBILE',
         questions = WITNESS_Q, lines = { c_what = what, c_know = know, c_long = { 'A few minutes. I called straight away.' } } })
     c:clue('nearby', { at = 'nearby', label = clue[1], prop = clue[2], text = clue[3] })
@@ -66,7 +66,7 @@ Callout({
         heart = {
             weight = 3,
             setup = function(c)
-                people(c, { { 'thorax', 'breathing' } }, 'Grey and sweating, one hand on their chest.',
+                people(c, { 'cardiac' }, 'Grey and sweating, one hand on their chest.',
                     { 'They stopped, grabbed their chest and went down.' }, { "No. I just saw them fall." },
                     { 'Their bag', 'prop_ld_handbag', 'A work bag, spilled open. A box of heart tablets, nearly full.' })
                 Ems.wire(c, 'patient', function(how)
@@ -79,7 +79,7 @@ Callout({
         sugar = {
             weight = 2,
             setup = function(c)
-                people(c, { { 'head', 'sugar' } }, 'Confused, slurring, drenched in sweat.',
+                people(c, { 'hypoglycemia' }, 'Confused, slurring, drenched in sweat.',
                     { "They were talking nonsense, then they just sat down and went over. I thought they were drunk." },
                     { "No. They were swaying about before it happened." },
                     { 'A bracelet', 'h4_prop_h4_bracelet_01a', 'A medical bracelet, come off in the fall. Type 1 diabetic.' })
@@ -93,7 +93,7 @@ Callout({
         airway = {
             weight = 2,
             setup = function(c)
-                people(c, { { 'neck', 'airway' } }, 'Blue around the lips, hands at their throat.',
+                people(c, { 'airway' }, 'Blue around the lips, hands at their throat.',
                     { 'They were eating, then they went red and started grabbing at their neck.' },
                     { "A bit. They work round the corner." },
                     { 'Their lunch', 'prop_sandwich_01', 'A half-eaten sandwich, dropped where they stood.' })

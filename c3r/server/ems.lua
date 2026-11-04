@@ -41,7 +41,7 @@ end
 
 function Ems.stable(b) return Body.stable(b) end
 
--- A callout's patient (spec.injuries), before anyone's touched them.
+-- A callout's patient (spec.conditions, or the short form spec.injuries), before anyone's touched them.
 function Ems.admit(net, list, say)
     local p = Ems.new(list, say)
     Patients[net] = p
@@ -100,7 +100,8 @@ end
 
 local function send(src, net, b, result)
     local view = Body.view(b)
-    view.stock, view.say, view.hint = Stock[src] or fill_bag(src), b.say, Body.hint(b)
+    view.stock, view.say = Stock[src] or fill_bag(src), b.say
+    view.hint, view.hint_tool, view.hint_part = Body.hint(b)
     TriggerClientEvent('c3r:ems:view', src, net, view, result)
 end
 
@@ -145,6 +146,12 @@ end)
 RegisterNetEvent('c3r:ems:leave', function(net)
     local p = Patients[net]
     if p and p.medic == source then p.medic = nil end
+end)
+
+-- The AI partner sits with them while the medic drives: nothing drifts (client/ems.lua).
+RegisterNetEvent('c3r:ems:hold', function(net, on)
+    local p = beside(source, net) and Patients[net]
+    if p then p.held = on == true or nil end
 end)
 
 RegisterNetEvent('c3r:ems:restock', function() if ServiceOf(source) == 'ambulance' then fill_bag(source) end end)

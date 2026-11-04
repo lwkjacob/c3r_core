@@ -32,7 +32,7 @@ local KINDS = {
 }
 local FOUND_TEXT = {
     hemorrhage = 'Bright red blood, pumping from a wound.', fracture = 'Deformed, swollen and tender: broken.',
-    pain = 'They rate their pain eight out of ten.', airway = 'Gurgling. Their mouth is full of vomit.',
+    pain = 'They rate their pain eight out of ten.', airway = 'Gurgling. Their mouth and throat are blocked.',
     respiratory = 'Wheezes and crackles on both sides.', opioid = 'Pinpoint pupils and slow, shallow breaths.',
     hypoglycemia = 'Blood sugar is very low.', cardiac = 'Crushing chest pain, spreading down the left arm.',
     head = 'A boggy swelling on the scalp, and one pupil is bigger than the other.', bradycardia = 'A slow, weak pulse.',
@@ -634,45 +634,52 @@ end
 
 -- The next useful thing, in the order medics work: airway, breathing, circulation, the monitor, disability, the rest,
 -- drugs. Uses the truth, but says only what to check, never what's there.
-function Body.hint(b)
+function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and that part; 'pronounce': its button)
     local v = b.v
-    if b.dead then return 'They are gone. Pronounce them.' end
+    if b.dead then return 'They are gone. Pronounce them.', 'pronounce' end
     if b.arrest then
         local a = b.arrest
-        if not b.monitor then return 'No pulse: put the monitor or the defib pads on to see the rhythm.' end
-        if SHOCKABLE[a.rhythm] and not a.cpr_end then return 'Shockable rhythm: shock, then a cycle of CPR.' end
-        if not a.cpr_end then return 'No shockable rhythm: start CPR.' end
-        if (a.cprs > 0 or not SHOCKABLE[a.rhythm]) and (not a.epi or b.t - a.epi >= 240) then return 'Give epi: every three to five minutes.' end
+        if not b.monitor then return 'No pulse: put the defib pads on to see the rhythm.', 'defib' end
+        if SHOCKABLE[a.rhythm] and not a.cpr_end then return 'Shockable rhythm: shock, then a cycle of CPR.', 'defib' end
+        if not a.cpr_end then return 'No shockable rhythm: start CPR.', 'cpr' end
+        if (a.cprs > 0 or not SHOCKABLE[a.rhythm]) and (not a.epi or b.t - a.epi >= 240) then return 'Give epi: every three to five minutes.', 'epi' end
+        if a.t > 600 then return "A long time without a pulse. You can pronounce them.", 'pronounce' end
         return 'Keep the compressions going until the rhythm check.'
     end
-    if b.tube and not b.tube_checked then return 'Confirm the tube: listen to the chest and check the EtCO2.' end
-    if b.tube == 'wrong' then return 'The tube is in the wrong place: pull it and try again.' end
-    if not b.checked_airway and airway_blocked(b) then return 'Check their airway: look in their mouth.' end
-    if b.airway == 'fouled' then return 'Suction their airway.' end
-    if airway_blocked(b) then return 'Keep their airway open: an airway adjunct, an i-gel or a tube.' end
-    if v.rr < 8 and not b.bvm then return "They're barely breathing: bag them with the BVM." end
+    if b.tube and not b.tube_checked then return 'Confirm the tube: listen to the chest and watch the EtCO2.', 'stethoscope', 'thorax' end
+    if b.tube == 'wrong' then return 'The tube is in the wrong place: pull it and try again.', 'pull_tube' end
+    if not b.checked_airway and airway_blocked(b) then return 'Check their airway: look in their mouth.', 'look', 'head' end
+    if b.airway == 'fouled' then return 'Suction their airway.', 'suction' end
+    if airway_blocked(b) then return 'Keep their airway open: a nasal airway works awake or not.', 'npa' end
+    if v.rr < 8 and not b.bvm then return "They're barely breathing: bag them with the BVM.", 'bvm' end
     local r = cond(b, 'respiratory')
-    if r and not r.found then return 'Listen to their chest.' end
-    if v.spo2 < 94 and not b.o2 then return 'Put them on oxygen.' end
-    local h = cond(b, 'hemorrhage')
-    if h and not h.found then return 'Check for bleeding: cut the clothes away.' end
-    if h and not h.fixed then return 'Stop the bleeding: a tourniquet on a limb, a dressing on the body.' end
-    if 100 - b.blood > 20 and v.sys < 100 and not on(b, 'saline') then return 'Give saline for the blood loss.' end
-    if not b.monitor then return 'Put the monitor on.' end
-    if (cond(b, 'opioid') or cond(b, 'head')) and not b.pupils then return 'Check their pupils.' end
-    if v.gcs < 15 and not b.sugar_known then return 'Check their blood sugar.' end
-    local f = cond(b, 'fracture')
-    if f and not f.found then return 'Feel each limb for breaks.' end
-    if f and not f.fixed then return 'Splint the fracture.' end
+    if r and not r.found then return 'Listen to their chest.', 'stethoscope', 'thorax' end
+    if v.spo2 < 94 and not b.o2 then return 'Put them on oxygen.', 'oxygen' end
+    local h = open(b, 'hemorrhage')
+    if h and not h.found then return 'Check for bleeding: cut the clothes away.', 'shears', h.part end
+    if h then
+        if LIMBS[h.part] then return 'Stop the bleeding: a tourniquet, above the wound.', 'tourniquet', h.part end
+        return 'Stop the bleeding: pack it and press a dressing on.', 'dressing', h.part
+    end
+    if 100 - b.blood > 20 and v.sys < 100 and not on(b, 'saline') then return 'They have lost a lot of blood: give saline.', 'saline' end
+    if not b.monitor then return 'Put the monitor on.', 'monitor' end
+    if on(b, 'epi_bad') then return 'The epi has their heart racing. Let it settle, and be ready to shock.' end
+    if on(b, 'morphine_bad') and v.rr < 12 then return 'The morphine is slowing their breathing. Bag them if it drops further.', 'bvm' end
+    if (cond(b, 'opioid') or cond(b, 'head')) and not b.pupils then return 'Check their pupils.', 'penlight', 'head' end
+    if v.gcs < 15 and not b.sugar_known then return 'Not fully awake: check their blood sugar.', 'glucometer', 'lhand' end
+    local f = open(b, 'fracture')
+    if f and not f.found then return 'Feel each limb for breaks.', 'hands', f.part end
+    if f then return 'Splint the fracture.', 'splint', f.part end
     local c = cond(b, 'cardiac')
-    if (c or cond(b, 'pain')) and v.gcs >= 13 and not b.asked then return 'Ask them where it hurts.' end
+    if (c or cond(b, 'pain')) and v.gcs >= 13 and not b.asked then return 'Ask them where it hurts.', 'ask', 'head' end
     local o = open(b, 'opioid')
-    if o and not on(b, 'narcan') then return o.treated and 'The Narcan is wearing off: give another dose.' or 'Give Narcan.' end
-    if open(b, 'hypoglycemia') then return 'Give glucose.' end
-    if open(b, 'cardiac') then return 'Give aspirin.' end
-    if open(b, 'bradycardia') then return 'Their heart is too slow: give epi.' end
+    if o and not on(b, 'narcan') then return o.treated and 'The Narcan is wearing off: give another dose.' or 'Give Narcan.', 'narcan' end
+    if open(b, 'hypoglycemia') then return 'Give glucose.', 'glucose' end
+    if open(b, 'cardiac') then return 'Give aspirin.', 'aspirin' end
+    if open(b, 'bradycardia') then return 'Their heart is too slow: give epi.', 'epi' end
     if open(b, 'pain') then
-        return v.sys >= 100 and v.rr >= 12 and 'Give morphine for the pain.' or 'In pain, but their blood pressure or breathing is too low for morphine.'
+        if v.sys >= 100 and v.rr >= 12 then return 'Give morphine for the pain.', 'morphine' end
+        return 'In pain, but their blood pressure or breathing is too low for morphine.'
     end
     if Body.stable(b) then return 'Stable. Get the stretcher.' end
     return 'Keep watching the monitor.'

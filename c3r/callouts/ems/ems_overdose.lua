@@ -3,8 +3,9 @@
 
     Someone's found unconscious and a friend is with them, not saying much. Same report and card every time:
       heroin    an opioid overdose: pinpoint pupils, and the friend hid the needle.
-      pills     they meant to: an empty pill bottle and a note. Narcan helps; the friend didn't know.
-      mixed     heroin and drink: the overdose, and they've stopped protecting their airway.
+      pills     they meant to: an empty bottle of painkillers and a note. Narcan helps, and they've breathed some in:
+                crackles in the chest, oxygen. The friend didn't know.
+      mixed     heroin and drink: the overdose, and vomit in the airway to suction.
 
     Points per location: walk them out in game with /c3rplace ems_overdose (it writes the location in below).
 ]]
@@ -23,9 +24,9 @@ local function cracks(times, deny, admit, again)
     end
 end
 
-local function people(c, injuries, what, clue)
+local function people(c, conditions, what, clue)
     c:person('patient', { at = 'patient', label = 'Patient', secret = 'drugs', injured = true, age = { 19, 52 },
-        vitals = 'Unresponsive. Barely breathing.', injuries = injuries })
+        vitals = 'Unresponsive. Barely breathing.', conditions = conditions })
     c:person('friend', { at = 'friend', label = 'Friend', secret = 'nervous', demeanor = 'nervous', age = { 19, 52 }, scene = 'WORLD_HUMAN_STAND_IMPATIENT',
         questions = FRIEND_Q, lines = { c_what = what, c_long = { 'I do not know. I found them like this.' } } })
     c:clue('nearby', { at = 'nearby', label = clue[1], prop = clue[2], text = clue[3] })
@@ -74,7 +75,7 @@ Callout({
         heroin = {
             weight = 3,
             setup = function(c)
-                people(c, { { 'head', 'overdose' } },
+                people(c, { 'opioid' },
                     cracks(2, { 'I do not know! They just passed out.' }, { { "...Heroin. Twenty minutes ago. I hid the needle.", set = { c_admit = 'yes' } } }, { 'I told you. Heroin.' }),
                     { 'A needle', 'p_syringe_01_s', 'A needle and a burnt spoon, kicked out of sight.' })
                 Ems.wire(c, 'patient', function(how)
@@ -87,7 +88,7 @@ Callout({
         pills = {
             weight = 2,
             setup = function(c)
-                people(c, { { 'head', 'overdose' }, { 'thorax', 'breathing' } },
+                people(c, { 'opioid', 'respiratory' },
                     { "Nothing! They don't take anything. I don't understand." },
                     { 'A pill bottle', 'prop_cs_pills', 'An empty bottle of strong painkillers, and a folded note with a name on it.' })
                 Ems.wire(c, 'patient', function(how)
@@ -100,7 +101,7 @@ Callout({
         mixed = {
             weight = 2,
             setup = function(c)
-                people(c, { { 'head', 'overdose' }, { 'neck', 'airway' } },
+                people(c, { 'opioid', 'airway' },
                     cracks(2, { 'Just a few drinks, that is all.' }, { { "...And heroin. On top of the drink. I told them not to.", set = { c_admit = 'yes' } } }, { 'Drink and heroin. I said.' }),
                     { 'A bottle', 'prop_cs_beer_bot_01', 'An empty bottle, and a needle under it.' })
                 Ems.wire(c, 'patient', function(how)
