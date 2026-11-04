@@ -2007,10 +2007,11 @@
             for (let t = 0.05; t < dur; t += 0.12 + Math.random() * 0.15) hiss({ at: t, dur: 0.08, type: 'bandpass', freq: 250 + Math.random() * 350, q: 6, vol: 0.12 });
         }
         if (h.what === 'absent' || h.what === 'stomach' || !(h.rr > 0)) return;
+        const k = h.what === 'quiet' ? 0.35 : 1; // (one lung down: barely there)
         for (let t = 0.05; t < dur; t += breath) {
             const inn = breath * 0.4, out = breath * 0.5;
-            hiss({ at: t, dur: inn, type: 'lowpass', freq: 600, sweep: 900, vol: 0.06 });
-            hiss({ at: t + inn, dur: out, type: 'lowpass', freq: 800, sweep: 400, vol: 0.04 });
+            hiss({ at: t, dur: inn, type: 'lowpass', freq: 600, sweep: 900, vol: 0.06 * k });
+            hiss({ at: t + inn, dur: out, type: 'lowpass', freq: 800, sweep: 400, vol: 0.04 * k });
             if (h.what === 'chest') {
                 tone(520, out * 0.9, 0.02, 'sine', t + inn); // (the wheeze, breathing out)
                 for (let k = 0; k < 6; k++) click(t + Math.random() * inn, 900 + Math.random() * 900); // (crackles, breathing in)
@@ -2022,6 +2023,7 @@
         dressing: () => { hiss({ dur: 0.3, type: 'highpass', freq: 2500, vol: 0.12 }); hiss({ at: 0.4, dur: 0.9, type: 'bandpass', freq: 1500, q: 0.5, vol: 0.06, am: 9 }); },
         tourniquet: () => { velcro(0); for (let k = 0; k < 5; k++) click(0.7 + k * 0.22, 1800); velcro(1.9, 0.25); },
         splint: () => { velcro(0.1); velcro(0.9); },
+        chest_seal: () => { hiss({ dur: 0.35, type: 'highpass', freq: 3000, vol: 0.1 }); hiss({ at: 0.6, dur: 0.5, type: 'bandpass', freq: 900, q: 0.8, vol: 0.05, am: 6 }); },
         suction: (d) => { tone(110, d * 0.8, 0.04, 'sawtooth'); for (let t = 0.2; t < d * 0.8; t += 0.15 + Math.random() * 0.1) hiss({ at: t, dur: 0.1, type: 'bandpass', freq: 400, q: 5, vol: 0.1 }); },
         bvm: () => { hiss({ dur: 0.6, type: 'lowpass', freq: 400, sweep: 1200, vol: 0.12 }); hiss({ at: 1.2, dur: 0.6, type: 'lowpass', freq: 400, sweep: 1200, vol: 0.12 }); },
         oxygen: () => { click(0, 2200); hiss({ at: 0.1, dur: 1.6, type: 'highpass', freq: 3000, vol: 0.05 }); },

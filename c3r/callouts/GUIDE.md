@@ -357,6 +357,7 @@ monitor and, left long enough, can stop their heart (after alarms).
 | `cardiac` | | Asking them | Aspirin. Without it, after `Config.Ems.cardiac_minutes` and some alarms, VF. |
 | `head` | | Hands or pen light on the head | Nothing at the scene: keep the airway, get them to hospital |
 | `bradycardia` | | Pulse at the neck or wrist, or the monitor | Epinephrine |
+| `pneumothorax` | | Stethoscope or shears on the chest: an open chest wound | Chest seal, then oxygen |
 
 Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`.
 A name the server doesn't know stops the call with an error naming it. `callouts/ems/` has an example of each.

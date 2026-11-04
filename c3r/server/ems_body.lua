@@ -28,7 +28,7 @@ local KINDS = {
     hemorrhage = { serious = true, seen = true }, fracture = { serious = true, seen = true }, pain = { part = 'head' }, airway = { part = 'head', serious = true },
     respiratory = { part = 'thorax', serious = true }, opioid = { part = 'head', serious = true },
     hypoglycemia = { part = 'lhand', serious = true }, cardiac = { part = 'thorax', serious = true }, head = { part = 'head' },
-    bradycardia = { part = 'neck', serious = true },
+    bradycardia = { part = 'neck', serious = true }, pneumothorax = { part = 'thorax', serious = true },
 }
 local FOUND_TEXT = {
     hemorrhage = 'Bright red blood, pumping from a wound.', fracture = 'Deformed, swollen and tender: broken.',
@@ -36,6 +36,7 @@ local FOUND_TEXT = {
     respiratory = 'Wheezes and crackles on both sides.', opioid = 'Pinpoint pupils and slow, shallow breaths.',
     hypoglycemia = 'Blood sugar is very low.', cardiac = 'Crushing chest pain, spreading down the left arm.',
     head = 'A boggy swelling on the scalp, and one pupil is bigger than the other.', bradycardia = 'A slow, weak pulse.',
+    pneumothorax = 'Air sucking in and out of a chest wound, and no breath sounds on that side.',
 }
 local DRUGS = { morphine = true, epi = true, narcan = true, oxygen = true, glucose = true, saline = true, aspirin = true }
 local SHOCKABLE = { vf = true, vt = true }
@@ -54,12 +55,23 @@ local function open(b, kind)
     end
 end
 
+-- A dose already taking hold or working isn't set back by another: it lasts longer.
 local function give(b, name, onset, dur)
+    local e = b.effects[name]
+    if e and b.t < e.to then
+        e.to = math.max(e.to, b.t + onset + dur)
+        return
+    end
     b.effects[name] = { from = b.t + onset, to = b.t + onset + dur }
 end
 local function on(b, name)
     local e = b.effects[name]
     return e ~= nil and b.t >= e.from and b.t < e.to
+end
+-- given, and taking hold or working
+local function coming(b, name)
+    local e = b.effects[name]
+    return e ~= nil and b.t < e.to
 end
 
 local function secured(b) return b.airway_kit ~= nil and b.tube ~= 'wrong' end
@@ -73,7 +85,8 @@ local function pain(b)
         if c.kind == 'fracture' then p = p + (c.fixed and 0.3 or 0.6)
         elseif c.kind == 'pain' then p = p + 0.6
         elseif c.kind == 'cardiac' then p = p + 0.5
-        elseif c.kind == 'hemorrhage' then p = p + 0.3 end
+        elseif c.kind == 'hemorrhage' then p = p + 0.3 * (c.n or 1)
+        elseif c.kind == 'pneumothorax' then p = p + 0.3 end
     end
     if on(b, 'morphine') then p = p * 0.3 end
     return math.min(p, 1)
@@ -97,6 +110,7 @@ local function target(b)
     local q = 1
     if airway_blocked(b) then q = b.airway == 'fouled' and 0.45 or 0.55 end
     if open(b, 'respiratory') then q = math.min(q, 0.75) end
+    if open(b, 'pneumothorax') then rr, q = math.max(rr, 30), math.min(q, 0.7) end -- (one lung)
     if rr < 8 then q = math.min(q, rr / 8) end
     if b.bvm and not airway_blocked(b) then rr, q = 12, math.max(q, 0.95) end -- (breathed for)
     if b.tube == 'wrong' then q = 0 end -- (the bag fills their stomach)
@@ -109,6 +123,7 @@ local function target(b)
     local hr = 75 + p * 30
     if loss > 10 then hr = hr + (loss - 10) * 2.2 end
     if open(b, 'respiratory') then hr = hr + 15 end
+    if open(b, 'pneumothorax') then hr = hr + 20 end
     if open(b, 'hypoglycemia') then hr = hr + 15 end
     if open(b, 'cardiac') then hr = hr + 15 end
     if open(b, 'head') then hr = hr - 20 end
@@ -180,20 +195,41 @@ local function reversible(b)
 end
 
 -- list = { { kind, part } | kind }
+-- More wrong with them: list = { { kind, part } | kind }. The same wound again in the same place is one more wound
+-- there (c.n: it bleeds harder); anything else already there is left as it is. A new one starts unfixed.
+function Body.add(b, list)
+    for _, c in ipairs(list or {}) do
+        local kind, part = c, nil
+        if type(c) == 'table' then kind, part = c[1], c[2] end
+        if not KINDS[kind] then error('no condition "' .. tostring(kind) .. '"', 0) end
+        part = part or KINDS[kind].part
+        local had = cond(b, kind, part)
+        if had then
+            if kind == 'hemorrhage' then
+                had.n, had.fixed = (had.n or 1) + 1, nil
+                b.blood = b.blood - 8
+            end
+        else
+            b.cond[#b.cond + 1] = { kind = kind, part = part, found = KINDS[kind].seen }
+            if kind == 'hemorrhage' then b.blood = b.blood - 15 end -- (they've been bleeding since before the call)
+            if kind == 'airway' then b.airway = 'fouled' end
+        end
+    end
+    b.blood = math.max(b.blood, 45)
+    if (open(b, 'opioid') or open(b, 'head')) and b.airway ~= 'fouled' then b.airway = 'slack' end
+end
+
+-- Their heart stops where they lie (a shot to the head, say).
+function Body.stop(b)
+    if not b.arrest and not b.dead then arrest(b, 'dead') end
+end
+
 function Body.new(list, opts)
     opts = opts or {}
     local b = { t = 0, v = {}, cond = {}, blood = 100, exposed = {}, checked = {}, given = {}, effects = {}, low = {},
                 rand = opts.rand or math.random, airway = 'clear', monitor = false, o2 = false, bvm = false }
     for k, v in pairs(BASE) do b.v[k] = v end
-    for _, c in ipairs(list or {}) do
-        local kind, part = c, nil
-        if type(c) == 'table' then kind, part = c[1], c[2] end
-        if not KINDS[kind] then error('no condition "' .. tostring(kind) .. '"', 0) end
-        b.cond[#b.cond + 1] = { kind = kind, part = part or KINDS[kind].part, found = KINDS[kind].seen }
-        if kind == 'hemorrhage' then b.blood = b.blood - 15 end -- (they've been bleeding since before the call)
-        if kind == 'airway' then b.airway = 'fouled' end
-    end
-    if open(b, 'opioid') or open(b, 'head') then b.airway = b.airway == 'fouled' and 'fouled' or 'slack' end
+    Body.add(b, list)
     for k, v in pairs(target(b)) do b.v[k] = v end -- (the first look is already true)
     for k, v in pairs(target(b)) do b.v[k] = v end -- (twice: some targets read the vitals)
     set_rhythm(b)
@@ -230,11 +266,13 @@ function Body.tick(b, dt, hold)
     end
     if hold then return nil end
     -- bleeding
-    local h = open(b, 'hemorrhage')
-    if h then
-        local rate = cfg().bleed * (LIMBS[h.part] and 1 or 1.4) * (b.given.aspirin and 1.5 or 1)
-        b.blood = math.max(40, b.blood - rate * dt)
+    local rate = 0
+    for _, h in ipairs(b.cond) do
+        if h.kind == 'hemorrhage' and not h.fixed then
+            rate = rate + cfg().bleed * (LIMBS[h.part] and 1 or 1.4) * (1 + 0.5 * ((h.n or 1) - 1)) -- (more holes, faster)
+        end
     end
+    if rate > 0 then b.blood = math.max(40, b.blood - rate * (b.given.aspirin and 1.5 or 1) * dt) end
     local c = open(b, 'cardiac')
     if c and not b.given.aspirin then c.strain = (c.strain or 0) + dt end
     local t = target(b)
@@ -272,6 +310,7 @@ end
 
 function ASSESS.shears(b, part)
     b.exposed[part] = true
+    if part == 'thorax' and find(b, 'pneumothorax') then return 'found', FOUND_TEXT.pneumothorax end
     local c = find(b, 'hemorrhage', part)
     if c then return 'found', FOUND_TEXT.hemorrhage end
     return 'nothing', 'Clothes cut away. No wound here.'
@@ -290,7 +329,7 @@ function ASSESS.look(b, part)
 end
 
 -- b.heard: what's in the earpieces (server/ems.lua sends it, the screen plays it): 'normal' | 'chest' (wheezes and
--- crackles) | 'gurgle' | 'stomach' | 'absent'
+-- crackles) | 'quiet' (one side gone) | 'gurgle' | 'stomach' | 'absent'
 function ASSESS.stethoscope(b, part)
     b.heard = nil
     if part ~= 'thorax' then return 'nothing', 'Listen to the chest.' end
@@ -306,6 +345,10 @@ function ASSESS.stethoscope(b, part)
     if b.airway == 'fouled' then
         b.heard = 'gurgle'
         return 'found', 'Gurgling in the airway.'
+    end
+    if find(b, 'pneumothorax') then
+        b.heard = 'quiet'
+        return 'found', FOUND_TEXT.pneumothorax
     end
     if find(b, 'respiratory') then
         b.heard = 'chest'
@@ -377,6 +420,14 @@ function FIX.dressing(b, part)
     if LIMBS[part] then return 'wrong', 'It soaks straight through. A bleed like this needs a tourniquet.' end
     c.fixed = true
     return 'done', 'Packed and dressed. The bleeding has stopped.'
+end
+
+function FIX.chest_seal(b, part)
+    if part ~= 'thorax' then return 'wrong', 'A chest seal goes over a wound to the chest.' end
+    local c = cond(b, 'pneumothorax')
+    if not (c and c.found) then return 'nothing', 'No open chest wound found.' end
+    c.fixed = true
+    return 'done', 'Chest seal on. Their breathing eases.'
 end
 
 function FIX.splint(b, part)
@@ -602,7 +653,10 @@ local function round(x) return math.floor(x + 0.5) end
 function Body.view(b)
     local found = {}
     for _, c in ipairs(b.cond) do
-        if c.found then found[#found + 1] = { kind = c.kind, part = c.part, text = FOUND_TEXT[c.kind], fixed = c.fixed == true or c.treated == true } end
+        if c.found then
+            local text = FOUND_TEXT[c.kind] .. ((c.n or 1) > 1 and (' %d wounds.'):format(c.n) or '')
+            found[#found + 1] = { kind = c.kind, part = c.part, text = text, fixed = c.fixed == true or c.treated == true }
+        end
     end
     local v = b.v
     local view = { found = found, arrest = b.arrest ~= nil, dead = b.dead == true, stable = Body.stable(b),
@@ -654,6 +708,9 @@ function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and 
     if v.rr < 8 and not b.bvm then return "They're barely breathing: bag them with the BVM.", 'bvm' end
     local r = cond(b, 'respiratory')
     if r and not r.found then return 'Listen to their chest.', 'stethoscope', 'thorax' end
+    local pn = open(b, 'pneumothorax')
+    if pn and not pn.found then return 'Listen to their chest.', 'stethoscope', 'thorax' end
+    if pn then return 'An open chest wound: seal it.', 'chest_seal', 'thorax' end
     if v.spo2 < 94 and not b.o2 then return 'Put them on oxygen.', 'oxygen' end
     local h = open(b, 'hemorrhage')
     if h and not h.found then return 'Check for bleeding: cut the clothes away.', 'shears', h.part end
@@ -661,7 +718,7 @@ function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and 
         if LIMBS[h.part] then return 'Stop the bleeding: a tourniquet, above the wound.', 'tourniquet', h.part end
         return 'Stop the bleeding: pack it and press a dressing on.', 'dressing', h.part
     end
-    if 100 - b.blood > 20 and v.sys < 100 and not on(b, 'saline') then return 'They have lost a lot of blood: give saline.', 'saline' end
+    if 100 - b.blood > 20 and v.sys < 100 and not coming(b, 'saline') then return 'They have lost a lot of blood: give saline.', 'saline' end
     if not b.monitor then return 'Put the monitor on.', 'monitor' end
     if on(b, 'epi_bad') then return 'The epi has their heart racing. Let it settle, and be ready to shock.' end
     if on(b, 'morphine_bad') and v.rr < 12 then return 'The morphine is slowing their breathing. Bag them if it drops further.', 'bvm' end
@@ -673,7 +730,7 @@ function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and 
     local c = cond(b, 'cardiac')
     if (c or cond(b, 'pain')) and v.gcs >= 13 and not b.asked then return 'Ask them where it hurts.', 'ask', 'head' end
     local o = open(b, 'opioid')
-    if o and not on(b, 'narcan') then return o.treated and 'The Narcan is wearing off: give another dose.' or 'Give Narcan.', 'narcan' end
+    if o and not coming(b, 'narcan') then return o.treated and 'The Narcan is wearing off: give another dose.' or 'Give Narcan.', 'narcan' end
     if open(b, 'hypoglycemia') then return 'Give glucose.', 'glucose' end
     if open(b, 'cardiac') then return 'Give aspirin.', 'aspirin' end
     if open(b, 'bradycardia') then return 'Their heart is too slow: give epi.', 'epi' end

@@ -531,6 +531,47 @@ local PARTS = {
 local HIT = { [58271] = 'lleg', [51826] = 'rleg', [45509] = 'larm', [40269] = 'rarm', [11816] = 'abdomen', [24816] = 'abdomen', [24818] = 'thorax' }
 for _, p in ipairs(PARTS) do HIT[p[3]] = p[1] end
 
+-- What hurt them, from the weapon the damage came from: a fall, a car, a blast, fire, a blade, a gun, or a blow.
+-- UNVERIFIED: CEventNetworkEntityDamage's args (1: the victim, 7: the weapon) aren't in the official docs; with no
+-- weapon there, the ped's own record decides (HAS_PED_BEEN_DAMAGED_BY_WEAPON: 0 a weapon, 1 melee, 2 any).
+local function h32(x) return math.type(x) == 'integer' and x % 4294967296 or nil end
+local function named(list, cause, into) for _, n in ipairs(list) do into[h32(GetHashKey(n))] = cause end end
+local BY_WEAPON, BY_GROUP = {}, {}
+named({ 'WEAPON_FALL' }, 'fall', BY_WEAPON)
+named({ 'WEAPON_RUN_OVER_BY_CAR', 'WEAPON_RAMMED_BY_CAR' }, 'vehicle', BY_WEAPON)
+named({ 'WEAPON_EXPLOSION', 'WEAPON_GRENADE', 'WEAPON_STICKYBOMB', 'WEAPON_PIPEBOMB', 'WEAPON_PROXMINE', 'WEAPON_RPG',
+        'WEAPON_GRENADELAUNCHER', 'WEAPON_HOMINGLAUNCHER', 'WEAPON_COMPACTLAUNCHER' }, 'explosion', BY_WEAPON)
+named({ 'WEAPON_FIRE', 'WEAPON_MOLOTOV', 'WEAPON_FLARE' }, 'burn', BY_WEAPON)
+named({ 'WEAPON_KNIFE', 'WEAPON_SWITCHBLADE', 'WEAPON_DAGGER', 'WEAPON_MACHETE', 'WEAPON_BOTTLE', 'WEAPON_HATCHET',
+        'WEAPON_BATTLEAXE', 'WEAPON_STONE_HATCHET' }, 'stab', BY_WEAPON)
+named({ 'GROUP_PISTOL', 'GROUP_SMG', 'GROUP_RIFLE', 'GROUP_MG', 'GROUP_SHOTGUN', 'GROUP_SNIPER' }, 'gunshot', BY_GROUP)
+named({ 'GROUP_MELEE', 'GROUP_UNARMED' }, 'blunt', BY_GROUP)
+named({ 'GROUP_HEAVY', 'GROUP_THROWN' }, 'explosion', BY_GROUP)
+local FALL = GetHashKey('WEAPON_FALL')
+
+local function cause_of(ped, weapon)
+    weapon = h32(weapon)
+    if weapon and weapon ~= 0 then
+        local c = BY_WEAPON[weapon] or BY_GROUP[h32(GetWeapontypeGroup(weapon))]
+        if c then return c end
+    end
+    if HasPedBeenDamagedByWeapon(ped, FALL, 0) then return 'fall' end
+    if HasPedBeenDamagedByWeapon(ped, 0, 1) then return 'blunt' end
+    if HasPedBeenDamagedByWeapon(ped, 0, 2) then return 'gunshot' end
+    return nil -- (a taser, say: nothing a medic treats)
+end
+
+AddEventHandler('gameEventTriggered', function(name, args)
+    if name ~= 'CEventNetworkEntityDamage' then return end
+    local ped = args[1]
+    if not ped or ped == 0 or not DoesEntityExist(ped) or not IsEntityAPed(ped) or IsPedAPlayer(ped)
+        or not NetworkGetEntityIsNetworked(ped) or not NetworkHasControlOfEntity(ped) then return end -- (the game that owns them says)
+    local cause = cause_of(ped, args[7])
+    if not cause then return end
+    local ok, bone = GetPedLastDamageBone(ped)
+    TriggerServerEvent('c3r:ems:hit', PedToNet(ped), ok and HIT[bone] or nil, cause)
+end)
+
 -- Shot, not hit with something (2: any weapon; 1: melee).
 local function shot(ped) return HasPedBeenDamagedByWeapon(ped, 0, 2) and not HasPedBeenDamagedByWeapon(ped, 0, 1) end
 

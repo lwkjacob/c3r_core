@@ -12,6 +12,7 @@ local OLD = { bleed = 'hemorrhage', wound = 'hemorrhage', fracture = 'fracture',
 local LIMBS = { larm = true, rarm = true, lhand = true, rhand = true, lleg = true, rleg = true, lfoot = true, rfoot = true }
 
 local Patients = {} -- [net id] = a body (Body.new), plus medic, started, stabilised, say
+local Hits = {}     -- [net id] = { { part, cause } }: what hurt them, as it happened (client/ems.lua)
 local Stock = {}    -- [src] = { [tool] = count }: what's left in their bag
 
 -- list: conditions ({ kind, part } | kind), or the first form ({ part, kind }). say: a line the screen always shows.
@@ -29,6 +30,39 @@ function Ems.new(list, say, dead)
     local b = Body.new(conds, { dead = dead })
     b.say = say
     return b
+end
+
+-- What each hit did: { part | nil, cause } -> conditions, and whether one of them killed them outright. A gunshot to the
+-- head kills; to the chest it collapses the lung; to the neck there's blood in the airway; a limb may break. A blow or
+-- a fall to the head is a head injury, to a limb a break. A car or a blast: bleeding, breaks and the head.
+local BREAKS = 0.4 -- (how often a bullet breaks the bone, or a blow a limb)
+function Ems.wounds(hits, rand)
+    rand = rand or math.random
+    local list, killed = {}, false
+    local function add(x) list[#list + 1] = x end
+    for _, h in ipairs(hits) do
+        local part, cause = h[1], h[2]
+        if cause == 'gunshot' or cause == 'stab' then
+            local at = part or 'abdomen'
+            if at == 'head' and cause == 'gunshot' then killed = true end
+            add({ 'hemorrhage', at })
+            if at == 'thorax' then add('pneumothorax') end
+            if at == 'neck' then add('airway') end
+            if at == 'head' then add('head') end
+            if LIMBS[at] and cause == 'gunshot' and rand() < BREAKS then add({ 'fracture', at }) end
+        elseif cause == 'blunt' or cause == 'fall' then
+            if part == 'head' or part == 'neck' then add('head')
+            elseif LIMBS[part] and (cause == 'fall' or rand() < BREAKS) then add({ 'fracture', part }) end
+        elseif cause == 'vehicle' or cause == 'explosion' then
+            add({ 'hemorrhage', LIMBS[part] and part or 'abdomen' })
+            if LIMBS[part] then add({ 'fracture', part }) end
+            if part == 'head' or cause == 'explosion' then add('head') end
+        elseif cause == 'burn' then
+            add('respiratory') -- (the smoke)
+        end
+        add('pain')
+    end
+    return list, killed
 end
 
 -- Someone with no callout behind them: what got them is what's wrong with them.
@@ -110,7 +144,12 @@ RegisterNetEvent('c3r:ems:start', function(net, part, dead, shot)
     if not beside(src, net) then return end
     local p = Patients[net]
     if not p then
-        p = Ems.guess(type(part) == 'string' and part or nil, dead == true, shot == true)
+        if Hits[net] then -- (what happened to them, hit by hit)
+            local list, killed = Ems.wounds(Hits[net])
+            p = Ems.new(list, nil, dead == true or killed)
+        else
+            p = Ems.guess(type(part) == 'string' and part or nil, dead == true, shot == true)
+        end
         Patients[net] = p
     elseif dead == true and not p.arrest and not p.dead then
         p = Ems.new({}, p.say, true) -- (a call's patient who died before anyone got there)
@@ -118,6 +157,27 @@ RegisterNetEvent('c3r:ems:start', function(net, part, dead, shot)
     end
     p.medic, p.started = src, p.started or os.time()
     send(src, net, p)
+end)
+
+-- A hit, from the game that owns them: kept, and if they're already a patient, it's on their body now.
+local PART = { head = 1, neck = 1, thorax = 1, abdomen = 1, larm = 1, rarm = 1, lhand = 1, rhand = 1, lleg = 1, rleg = 1, lfoot = 1, rfoot = 1 }
+local CAUSE = { gunshot = 1, stab = 1, blunt = 1, fall = 1, vehicle = 1, explosion = 1, burn = 1 }
+RegisterNetEvent('c3r:ems:hit', function(net, part, cause)
+    local src = source
+    if math.type(net) ~= 'integer' or not CAUSE[cause] or (part ~= nil and not PART[part]) then return end
+    local ent = NetworkGetEntityFromNetworkId(net)
+    if not ent or ent == 0 or not DoesEntityExist(ent) or NetworkGetEntityOwner(ent) ~= src then return end
+    local list = Hits[net] or {}
+    if #list >= 12 then return end -- (enough to go on: a magazine emptied into someone is no worse on paper)
+    list[#list + 1] = { part, cause }
+    Hits[net] = list
+    local p = Patients[net]
+    if p then
+        local more, killed = Ems.wounds({ { part, cause } })
+        Body.add(p, more)
+        if killed then Body.stop(p) end
+        p.stabilised = nil
+    end
 end)
 
 local SPENT = { done = true, harm = true, rosc = true, no_rosc = true } -- (what uses one up)
@@ -162,7 +222,7 @@ RegisterNetEvent('c3r:ems:pronounce', function(net)
     local p = beside(src, net) and Patients[net]
     if not p or not (p.dead or p.arrest) then return end -- (no pulse, and they've called it)
     Callouts.aid(src, net, 'pronounced')
-    Patients[net] = nil
+    Patients[net], Hits[net] = nil, nil
 end)
 
 local Aboard = {} -- [medic src] = true: a patient in the back (not free for a police request)
@@ -186,7 +246,7 @@ RegisterNetEvent('c3r:ems:deliver', function(net)
     local fixed = 0
     for _, c in ipairs(p.cond) do if c.found then fixed = fixed + 1 end end
     Callouts.aid(src, net, 'delivered')
-    Patients[net] = nil
+    Patients[net], Hits[net] = nil, nil
     Aboard[src] = nil
     TriggerEvent('c3r:stat', src, 'patients', 1)
     TriggerClientEvent('c3r:ems:handover', src, { minutes = mins, treated = fixed,
@@ -297,11 +357,20 @@ AddEventHandler('playerDropped', function() gone(source) end)
 -- ─── the clock ────────────────────────────────────────────────────────────────
 
 -- ponytail: every open patient is walked once a second. There are a handful at most; index by medic if that changes.
+local swept = 0
 function Ems.tick_all()
+    swept = swept + 1
+    if swept >= 60 then -- (once a minute: the hurt nobody treated, gone from the world)
+        swept = 0
+        for net in pairs(Hits) do
+            local ent = NetworkGetEntityFromNetworkId(net)
+            if not Patients[net] and (not ent or ent == 0 or not DoesEntityExist(ent)) then Hits[net] = nil end
+        end
+    end
     for net, p in pairs(Patients) do
         local ent = NetworkGetEntityFromNetworkId(net)
         if not ent or ent == 0 or not DoesEntityExist(ent) then
-            Patients[net] = nil
+            Patients[net], Hits[net] = nil, nil
         elseif p.started then
             local what = Body.tick(p, 1, p.held)
             if what == 'dead' then

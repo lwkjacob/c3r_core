@@ -26,6 +26,7 @@ Config.Ems.tools = {
     { id = 'shears', label = 'Trauma shears', icon = 'bandage', group = 'assess', part = true },
     { id = 'tourniquet', label = 'Tourniquet', icon = 'bandage', group = 'treat', part = true, count = 2 },
     { id = 'dressing', label = 'Trauma dressing', icon = 'bandage', group = 'treat', part = true, count = 4 },
+    { id = 'chest_seal', label = 'Chest seal', icon = 'bandage', group = 'treat', part = true, count = 2 },
     { id = 'splint', label = 'Splint', icon = 'bandage', group = 'treat', part = true, count = 2 },
     { id = 'monitor', label = 'Monitor', icon = 'pulse', group = 'treat' },
     { id = 'cpr', label = 'CPR', icon = 'cpr', group = 'treat' },
