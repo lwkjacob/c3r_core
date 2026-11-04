@@ -152,8 +152,11 @@ end)
 local function near_truck()
     if not have_truck() then return false end
     local min, max = GetModelDimensions(GetEntityModel(truck))
-    local reach = math.max(max.y - min.y, max.x - min.x) / 2 + 2.5 + (stretcher and fit and fit.len or 0.0)
-    return #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(truck)) < reach
+    local at = GetEntityCoords(PlayerPedId())
+    local p = GetOffsetFromEntityGivenWorldCoords(truck, at.x, at.y, at.z)
+    local dx = math.max(min.x - p.x, p.x - max.x, 0.0) -- (how far outside its outline, across and along)
+    local dy = math.max(min.y - p.y, p.y - max.y, 0.0)
+    return math.sqrt(dx * dx + dy * dy) < 1.5 + (stretcher and fit and fit.len or 0.0)
 end
 
 local function back_doors(open)
@@ -416,7 +419,7 @@ local function unload_patient()
 end
 
 local function hand_over()
-    TriggerServerEvent('c3r:ems:deliver', lying.net) -- (they stay until it's answered: the server has to find them)
+    TriggerServerEvent('c3r:ems:deliver', lying.net, hospital and hospital.name) -- (they stay until it's answered: the server has to find them)
 end
 
 RegisterNetEvent('c3r:ems:handover', function(r)
@@ -521,7 +524,7 @@ CreateThread(function()
         if label ~= shown then
             shown = label
             if a then Prompt('ems_e', 'info', label, ('Press %s.'):format(KeyName('+c3r_interact', 'E')))
-            elseif label then Prompt('ems_e', 'info', label, ('Hold %s for the bag, the stretcher and the patient.'):format(KeyName('+c3r_radial', 'G')))
+            elseif label then Prompt('ems_e', 'info', label, ('Press %s for the bag, the stretcher and the patient.'):format(KeyName('+c3r_radial', 'G')))
             else ClearPrompt('ems_e') end
         end
         Wait(300)
@@ -696,7 +699,7 @@ function EmsTreat(ped)
     if scr or opening then return end
     local inside = aboard ~= nil and aboard.ped == ped -- (on the cot in the back: the kit's all there)
     if have_truck() and not bag_out and not inside then
-        return Prompt('ems', 'info', 'No bag', ('Hold %s at your vehicle for your medical bag.'):format(KeyName('+c3r_radial', 'G')), 5000)
+        return Prompt('ems', 'info', 'No bag', ('Press %s at your vehicle for your medical bag.'):format(KeyName('+c3r_radial', 'G')), 5000)
     end
     opening = true
     CreateThread(function()
@@ -825,12 +828,16 @@ RegisterNetEvent('c3r:ems:offer', function(o)
         return
     end
     ask = { id = o.id, at = vector3(o.at.x, o.at.y, o.at.z), from = o.from, until_t = GetGameTimer() + o.ms }
+    local police = o.want == 'police' -- (a medic asking an officer for help on scene)
     local street = GetStreetNameFromHashKey((GetStreetNameAtCoord(ask.at.x, ask.at.y, ask.at.z)))
-    SendNUIMessage({ type = 'callout', offer = { name = 'Ambulance requested', street = street,
-        distance = #(GetEntityCoords(PlayerPedId()) - ask.at), report = ('%s needs an ambulance at their scene.'):format(o.from),
+    SendNUIMessage({ type = 'callout', offer = { name = police and 'Police assistance requested' or 'Ambulance requested', street = street,
+        distance = #(GetEntityCoords(PlayerPedId()) - ask.at),
+        report = police and ('Paramedic %s needs police at their scene.'):format(o.from) or ('%s needs an ambulance at their scene.'):format(o.from),
         priority = 1, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = o.ms } })
-    local said = pcall(function() exports.lwk_control:sayCall('ems_request', ask.at, ('Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end)
-    if not said then Notify(('~b~DISPATCH~s~ Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end
+    local text = police and ('All units, paramedics request police assistance on %s.'):format(street)
+        or ('Medic units, %s requests an ambulance on %s.'):format(o.from, street)
+    local said = pcall(function() exports.lwk_control:sayCall(police and 'police_request' or 'ems_request', ask.at, text) end)
+    if not said then Notify('~b~DISPATCH~s~ ' .. text) end
 end)
 
 RegisterNetEvent('c3r:ems:assigned', function(j, why)
@@ -841,11 +848,11 @@ RegisterNetEvent('c3r:ems:assigned', function(j, why)
         SetBlipColour(job.blip, 1)
         SetBlipRoute(job.blip, true)
         BeginTextCommandSetBlipName('STRING')
-        AddTextComponentSubstringPlayerName('Ambulance request')
+        AddTextComponentSubstringPlayerName(j.want == 'police' and 'Medic needs police' or 'Ambulance request')
         EndTextCommandSetBlipName(job.blip)
         return Prompt('ems', 'ok', 'Responding', ('To %s. It is on your map.'):format(j.from), 6000)
     end
-    if why == 'cancelled' then Prompt('ems', 'info', 'Stood down', 'The officer no longer needs an ambulance.', 6000)
+    if why == 'cancelled' then Prompt('ems', 'info', 'Stood down', 'They no longer need you.', 6000)
     elseif why == 'arrived' then Prompt('ems', 'ok', 'On scene', 'Find the patient.', 5000) end
 end)
 
@@ -868,7 +875,7 @@ function EmsDecline()
     if not job then return false end
     clear_job()
     TriggerServerEvent('c3r:ems:drop')
-    Prompt('ems', 'info', 'Request dropped', 'An ambulance crew goes instead.', 5000)
+    Prompt('ems', 'info', 'Request dropped', 'An AI unit goes instead.', 5000)
     return true
 end
 

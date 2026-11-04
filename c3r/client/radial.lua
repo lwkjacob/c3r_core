@@ -1,10 +1,10 @@
 --[[
-    c3r — client: the vehicle's radial menu. Hold the radial key (G) on foot at any car: search it, call a
+    c3r — client: the vehicle's radial menu. Press the radial key (G) on foot at any car: search it, call a
     tow, run its plate, order everyone out or back in, call backup. Sat in a car (the officer's own), or with no car
     at hand, it's the dispatch wheel: any unit, or in a chase, pursuit backup and air (and the rest under Services ▸).
     Every wheel has Backup ▸. A car that isn't stopped becomes a quiet stop first
     (stop.lua's RequestVehicle). On a traffic stop it's only for the car pulled over. Point at an option and
-    click it, or let go of the key. The stopped car's felony stop is run from cover: from Config.PaRange, and from
+    click it; the key again closes it. The stopped car's felony stop is run from cover: from Config.PaRange, and from
     the officer's own (stopped) patrol car.
 ]]
 
@@ -64,6 +64,12 @@ local SERVICES = {
     { 'mechanic', 'Mechanic', 'wrench' }, { 'roadservice', 'Road service', 'wrench' },
     { 'animalrescue', 'Animal control', 'paw' }, { 'taxi', 'Taxi', 'car' }, { 'dot', 'DOT crew', 'wrench' },
 }
+-- A medic's: police first (a free officer, else a patrol unit to stand by), and the services a scene might need.
+local MEDIC_SERVICES = {
+    { 'cover', 'Police assistance', 'siren' }, { 'fire', 'Fire department', 'flame' }, { 'coroner', 'Coroner', 'file' },
+    { 'mechanic', 'Mechanic', 'wrench' }, { 'dot', 'DOT crew', 'wrench' },
+}
+local function services() return OnPatrol() and SERVICES or MEDIC_SERVICES end
 local CHASE = {
     { 'light', 'Backup: code 1', 'siren' }, { 'medium', 'Backup: code 2', 'siren' }, { 'heavy', 'Backup: code 3', 'siren' },
     { 'air', 'Air support', 'heli' }, { 'cancel_pursuit', 'Cancel backup', 'radio' },
@@ -86,10 +92,10 @@ local BACKUP = { label = 'Backup', icon = 'radio', to = 'backup' }
 -- The sub-levels: Backup ▸ (every unit but the tow, which the car wheel has itself; Pursuit ▸ first in a chase),
 -- and the dispatch wheel's Services ▸ in a chase.
 local function levels()
-    local backup = backup_items(SERVICES, 'tow')
+    local backup = backup_items(services(), 'tow')
     if ChaseOn() then table.insert(backup, 1, { label = 'Pursuit', icon = 'siren', to = 'pursuit' }) end
     return { backup = { title = 'Backup', items = backup }, pursuit = { title = 'Pursuit', items = backup_items(CHASE) },
-             services = { title = 'Services', items = backup_items(SERVICES) } }
+             services = { title = 'Services', items = backup_items(services()) } }
 end
 
 -- The first half go on the left of the wheel, the rest on the right.
@@ -101,7 +107,7 @@ local function items(t)
         return ems
     end
     if t.backup then
-        if not ChaseOn() then return backup_items(SERVICES) end
+        if not ChaseOn() or not OnPatrol() then return backup_items(services()) end
         local list = backup_items(CHASE)
         list[#list + 1] = { label = 'Services', icon = 'radio', to = 'services' }
         return list
@@ -182,17 +188,28 @@ RegisterCommand('+c3r_radial', function()
         end)
     end
     local plate = (t.veh and GetVehicleNumberPlateText(t.veh) or ''):match('^%s*(.-)%s*$') -- which car this is, in the middle of the wheel
-    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = not driving, items = items(t), key = KeyName('+c3r_radial', 'G'),
+    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = items(t), key = KeyName('+c3r_radial', 'G'),
                      title = t.backup and 'Dispatch' or plate ~= '' and plate or nil, levels = levels() })
 end, false)
-RegisterCommand('-c3r_radial', function() end, false) -- letting go is seen by the page (it has the keyboard)
-RegisterKeyMapping('+c3r_radial', 'Vehicle radial menu, hold (c3r)', 'keyboard', Config.RadialKey)
+RegisterCommand('-c3r_radial', function() end, false)
+RegisterKeyMapping('+c3r_radial', 'Vehicle radial menu (c3r)', 'keyboard', Config.RadialKey)
+
+-- The PA by hand (client/pa.lua): orders for whoever the officer has their gun on, clicked like the E wheel.
+function OpenPaWheel(ped, list)
+    if open or IsNuiFocused() then return end
+    open, target = true, { pa = ped }
+    SetNuiFocus(true, true)
+    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = list, key = KeyName('+c3r_interact', 'E'),
+                     title = 'PA' })
+    return true
+end
 
 RegisterNUICallback('radial', function(d, cb)
     cb({})
     local t = target
     close()
     if not t or type(d.action) ~= 'string' then return end
+    if d.action == 'pa' then return PaAt(t.pa, d.arg) end
     if d.action == 'backup' then return CallBackup(d.arg) end
     if d.action == 'ems' then return EmsWheelAction(d.arg) end
     if not t.veh or not DoesEntityExist(t.veh) then return end

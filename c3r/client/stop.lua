@@ -269,6 +269,18 @@ end
 -- Walking up to anyone (menu.lua's E with no stop on): someone sitting in a car that's standing still is a stop
 -- of that car where it is; someone on foot is a stop of just them. pa: an order shouted from a distance, gun on them
 -- (client/pa.lua): they do that, and no menu.
+local cuff_on_start -- { ped, until }: who CuffDowned asked for, cuffed as soon as the stop on them starts (if it does soon)
+
+-- Someone on the ground (client/medical.lua's wheel): cuffed where they lie. Not on this stop: they become it.
+function CuffDowned(ped)
+    local s = Stop
+    local o = s and NetworkGetEntityIsNetworked(ped) and s.occ[PedToNet(ped)]
+    if o then return TriggerServerEvent('c3r:stop:act', 'cuff', 'down', o.net) end
+    if s then return Prompt('stop', 'info', 'Busy', 'Finish the stop you are on first.', 4000) end
+    cuff_on_start = { ped = ped, ['until'] = GetGameTimer() + 5000 }
+    RequestContact(ped)
+end
+
 function RequestContact(ped, pa)
     if not DoesEntityExist(ped) or (not pa and (Stop or asking)) then return end
     if LocalPlayer.state.c3rService == 'ambulance' -- (a medic talks to the people on their call, no one else)
@@ -685,6 +697,18 @@ local function watch(s)
             TriggerServerEvent('c3r:stop:act', 'cancel')
             return
         end
+        for net, o in pairs(s.occ) do -- out of a car with nobody telling them (pulled out by the officer): out, as if told
+            local inside = DoesEntityExist(o.ped) and IsPedInAnyVehicle(o.ped, false)
+            -- (only the game moving them: another officer's copy of `out` lags behind their orders)
+            if o.was_in and not inside and not o.out and not o.fleeing and not o.transported and o.doing ~= 'surrender'
+                and not s.assist and not o.away and DoesEntityExist(o.ped) and NetworkHasControlOfEntity(o.ped)
+                and not IsEntityDead(o.ped) then
+                o.out, o.seated, Custody[net] = true, nil, nil
+                o.anchor = GetEntityCoords(o.ped)
+                TriggerServerEvent('c3r:stop:act', 'pulled', nil, net)
+            end
+            o.was_in = inside
+        end
         local chasing = s.pursuit -- (or walking someone by the cuffs: they're with the officer, wherever that is)
         for _, o in pairs(s.occ) do
             -- (a prisoner the transport took is no longer the officer's to walk)
@@ -800,9 +824,14 @@ local function start_foot(people, hint, categories)
                 occ = { [p.net] = o }, stopped = true, assist = hint.assist }
     Stop = s
     ClearPrompt('target')
+    local cuff_now = cuff_on_start and cuff_on_start.ped == ped and GetGameTimer() < cuff_on_start['until']
+    cuff_on_start = nil
     if s.assist then return Assisting(s) end
     CreateThread(function()
         if not claim(s) or Stop ~= s then return end
+        if cuff_now then -- (down: cuffed where they lie, not stood up for a chat)
+            return TriggerServerEvent('c3r:stop:act', 'cuff', 'down', p.net)
+        end
         TriggerEvent('c3r:stop:task', hint.order or 'stay', p.net) -- (order: told from a distance, they do that instead)
         if not hint.order then OpenMenuFor(p.net) end
     end)
@@ -945,6 +974,20 @@ local function sit_down(ped)
     cuffed_idle(ped)
 end
 
+-- Cuffed where they lay (hurt, or tased): face down, the cuffed idle on top so the hands stay behind the back.
+local PRONE = { 'amb@world_human_sunbathe@male@front@base', 'base' } -- UNVERIFIED: the sunbathing scenario's face-down loop
+local function lie_cuffed(ped)
+    if not load_dict(PRONE[1]) then return end
+    TaskPlayAnim(ped, PRONE[1], PRONE[2], 4.0, -4.0, -1, 1, 0.0, false, false, false)
+    cuffed_idle(ped)
+end
+local function on_ground(ped) return IsPedRagdoll(ped) or IsPedInWrithe(ped) or IsPedInjured(ped) or IsDowned(ped) end
+-- (on the ped itself, a state bag: whichever officer's game has them next knows they're lying there)
+local function prone(ped) return NetworkGetEntityIsNetworked(ped) and Entity(ped).state.c3r_prone == true end
+local function set_prone(ped, on)
+    if NetworkGetEntityIsNetworked(ped) and prone(ped) ~= on then Entity(ped).state:set('c3r_prone', on or nil, true) end
+end
+
 -- Stood still and facing the officer once a task is done with them.
 local function settle(s, o, mine)
     if not current(s, o, mine) then return end
@@ -1020,9 +1063,26 @@ function TASKS.sobriety(s, o, mine, arg)
 end
 
 function TASKS.cuff(s, o, mine)
-    if IsPedInAnyVehicle(o.ped, false) or not load_dict('mp_arrest_paired') then return end
+    if IsPedInAnyVehicle(o.ped, false) then return end
     local me = PlayerPedId()
     o.following = false
+    if on_ground(o.ped) then -- down: the officer kneels and cuffs them where they lie
+        Patients[o.ped] = nil -- (a prisoner now, not first aid's to hold, whoever's game held them)
+        FreezeEntityPosition(o.ped, false)
+        TaskTurnPedToFaceEntity(me, o.ped, 800)
+        Wait(800)
+        TaskStartScenarioInPlace(me, 'CODE_HUMAN_MEDIC_KNEEL', 0, true)
+        Wait(3000)
+        ClearPedTasks(me)
+        if not current(s, o, mine) then return end -- (told something else meanwhile: that wins)
+        ClearPedTasksImmediately(o.ped) -- (out of the ragdoll or writhe; hurt badly enough, they'd only go down again)
+        if GetEntityHealth(o.ped) < 150 then SetEntityHealth(o.ped, 150) end
+        o.cuffed, o.anchor = true, nil
+        set_prone(o.ped, true)
+        SetEnableHandcuffs(o.ped, true)
+        return lie_cuffed(o.ped)
+    end
+    if not load_dict('mp_arrest_paired') then return end
     ClearPedTasks(o.ped)
     -- the cuffing, as one move: they're held in front of the officer, back turned, for the length of it
     AttachEntityToEntity(o.ped, me, 11816, -0.1, 0.45, 0.0, 0.0, 0.0, 20.0, false, false, false, false, 20, false)
@@ -1333,7 +1393,7 @@ RegisterNetEvent('c3r:felony', function(after_chase)
     end)
     Prompt('stop', 'alert', after_chase and 'They gave up: felony stop' or 'Felony stop',
         ('From cover, one at a time: hold %s (PA) and say "walk backwards toward me", "get on your knees", '
-        .. '"passenger, step out of the vehicle". Or hold %s. Then walk up and cuff them.'):format(PaKeyName(), KeyName('+c3r_radial', 'G')), 14000)
+        .. '"passenger, step out of the vehicle". Or press %s. Then walk up and cuff them.'):format(PaKeyName(), KeyName('+c3r_radial', 'G')), 14000)
 end)
 
 -- ─── running ──────────────────────────────────────────────────────────────────
@@ -1434,7 +1494,12 @@ local function run_task(name, net, arg)
     end
     o.task, o.doing, o.anchor = mine, name, nil
     CreateThread(function()
-        if control(o.ped) then run(s, o, mine, arg) else log('task %s: no control of the %s', name, o.role) end
+        if not control(o.ped) then return log('task %s: no control of the %s', name, o.role) end
+        if name ~= 'cuff' and prone(o.ped) then -- face down in cuffs: up off the ground first
+            set_prone(o.ped, false)
+            ClearPedTasksImmediately(o.ped)
+        end
+        run(s, o, mine, arg)
     end)
 end
 RegisterNetEvent('c3r:stop:task', run_task)
@@ -1568,6 +1633,7 @@ body = function(s)
                 end
                 if o.cuffed then
                     if o.sitting and not IsEntityPlayingAnim(ped, SIT[1], SIT[2], 3) then sit_down(ped)
+                    elseif prone(ped) and not IsEntityPlayingAnim(ped, PRONE[1], PRONE[2], 3) then lie_cuffed(ped)
                     elseif not IsEntityPlayingAnim(ped, 'mp_arresting', 'idle', 3) then cuffed_idle(ped) end
                 elseif o.out and not o.fleeing and not o.felony then
                     if WALKS[o.look] and not o.walk then
@@ -2008,7 +2074,7 @@ CreateThread(function()
         local s = Stop
         if s and now_in then lead_on(s) end
         if s and was_in and not now_in then
-            Prompt('stop', 'info', 'Traffic stop', ('Walk up and press %s to talk to them. Hold %s at their car for the vehicle.')
+            Prompt('stop', 'info', 'Traffic stop', ('Walk up and press %s to talk to them. Press %s at their car for the vehicle.')
                 :format(KeyName('+c3r_interact', 'E'), KeyName('+c3r_radial', 'G')), 7000)
             if s.manual and not s.auto and not s.stopped and IsPedInVehicle(s.ped, s.veh, false) then
                 CreateThread(function()

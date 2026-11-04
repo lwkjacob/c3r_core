@@ -183,6 +183,12 @@ RegisterNetEvent('c3r:ems:start', function(net, part, dead, shot)
         Patients[net] = p
     end
     p.medic, p.started = src, p.started or os.time()
+    if not p.person then
+        local who = Subject(net)
+        p.person = who and who.person
+        local inc = Callouts.of(src)
+        p.call, p.street = inc and inc.def.name, inc and inc.loc and inc.loc.street
+    end
     send(src, net, p)
 end)
 
@@ -207,6 +213,51 @@ RegisterNetEvent('c3r:ems:hit', function(net, part, cause)
     end
 end)
 
+-- ─── the patient care report ─────────────────────────────────────────────────
+-- Each patient keeps a log of what was done for them, and the first and last full set of vitals. At the handover (or
+-- when they're pronounced) it goes out as c3r:patientReport (docs/contract.md): lwk_mdt writes the report from it.
+
+local PART_NAME = { head = 'head', neck = 'neck', thorax = 'chest', abdomen = 'abdomen', larm = 'left arm', rarm = 'right arm',
+                    lhand = 'left hand', rhand = 'right hand', lleg = 'left leg', rleg = 'right leg', lfoot = 'left foot', rfoot = 'right foot' }
+local FIX_ON = { tourniquet = true, dressing = true, splint = true } -- (the ones done to a part: the report names it)
+local DONE = { -- what the report says for each thing done
+    tourniquet = 'Tourniquet applied', dressing = 'Wound packed and dressed', splint = 'Splinted', chest_seal = 'Chest seal applied',
+    suction = 'Airway suctioned', opa = 'Oral airway inserted', npa = 'Nasal airway inserted', igel = 'i-gel inserted',
+    laryngoscope = 'Laryngoscopy', tube = 'Intubated', pull_tube = 'Endotracheal tube removed', cpr = 'CPR cycle started',
+    defib = 'Defibrillated', monitor = 'Cardiac monitor attached', morphine = 'Morphine administered',
+    epi = 'Epinephrine administered', narcan = 'Naloxone (Narcan) administered', oxygen = 'Oxygen applied',
+    glucose = 'Glucose administered', saline = 'Saline IV started', aspirin = 'Aspirin administered', bvm = 'Bag-valve mask',
+}
+local RHYTHM_NAME = { vf = 'ventricular fibrillation', vt = 'ventricular tachycardia', asystole = 'asystole', pea = 'PEA',
+                      sinus = 'sinus rhythm', tachy = 'sinus tachycardia', brady = 'sinus bradycardia' }
+
+local function care(p, text)
+    p.care = p.care or {}
+    if #p.care < 80 then p.care[#p.care + 1] = { t = os.time(), text = text } end
+end
+
+-- The vitals now, as the medic knows them (the cuff's last reading for the blood pressure).
+local function vitals(p)
+    local v = p.v
+    return { t = os.time(), hr = p.arrest and 0 or math.floor(v.hr + 0.5), sys = p.nibp and p.nibp[1], dia = p.nibp and p.nibp[2],
+             spo2 = p.arrest and 0 or math.floor(v.spo2 + 0.5), rr = math.floor(v.rr + 0.5), etco2 = math.floor(v.etco2 + 0.5),
+             gcs = math.floor(v.gcs + 0.5), rhythm = RHYTHM_NAME[p.rhythm] or p.rhythm }
+end
+
+-- The report, sent once: how = 'transported' | 'pronounced'.
+local function report(src, p, how, hospital)
+    if p.reported then return end
+    p.reported = true
+    local found = {}
+    for _, c in ipairs(Body.view(p).found) do found[#found + 1] = { part = PART_NAME[c.part] or c.part, text = c.text, treated = c.fixed } end
+    TriggerEvent('c3r:patientReport', src, {
+        person = p.person, complaint = p.call or 'Patient found injured', says = p.say, street = p.street,
+        contact = p.started, left_scene = p.left_scene, ended = os.time(), outcome = how, hospital = hospital,
+        findings = found, first = p.first_vitals, last = p.monitor and vitals(p) or nil,
+        care = p.care or {}, arrested = p.had_arrest == true, rosc = p.had_rosc == true,
+    })
+end
+
 local SPENT = { done = true, harm = true, rosc = true, no_rosc = true } -- (what uses one up)
 local ASSESS = { hands = true, look = true, ask = true, pulse = true, stethoscope = true, penlight = true, glucometer = true, shears = true }
 RegisterNetEvent('c3r:ems:use', function(net, part, tool)
@@ -216,8 +267,18 @@ RegisterNetEvent('c3r:ems:use', function(net, part, tool)
     local stock = Stock[src] or fill_bag(src)
     if not stock[tool] then return end
     if stock[tool] == 0 then return send(src, net, p, { kind = 'empty', text = 'None left. Restock at the ambulance.', ms = 0 }) end
+    local had_monitor = p.monitor
     local how, text = Body.act(p, tool, part)
     if SPENT[how] and stock[tool] > 0 then stock[tool] = stock[tool] - 1 end
+    if (SPENT[how] and DONE[tool] and tool ~= 'monitor') or (tool == 'monitor' and not had_monitor) then
+        local line = DONE[tool] .. (part and PART_NAME[part] and FIX_ON[tool] and (', ' .. PART_NAME[part]) or '')
+        if tool == 'defib' and how == 'done' then line = 'Defibrillator pads applied' end
+        if how == 'rosc' then line = line .. ': return of spontaneous circulation' end
+        if tool == 'bvm' then line = p.bvm and 'Ventilated with a bag-valve mask' or 'BVM ventilation stopped' end
+        care(p, line)
+    elseif how == 'not_shockable' then
+        care(p, 'Rhythm analysed: no shock advised')
+    end
     local ms = (how == 'wrong' or how == 'nothing' or how == 'not_shockable') and cfg().wrong_ms
         or ASSESS[tool] and cfg().assess_ms or cfg().use_ms
     -- (a harmful dose looks like any other: the monitor is what tells them)
@@ -248,6 +309,8 @@ RegisterNetEvent('c3r:ems:pronounce', function(net)
     local src = source
     local p = beside(src, net) and Patients[net]
     if not p or not (p.dead or p.arrest) then return end -- (no pulse, and they've called it)
+    care(p, 'Pronounced dead')
+    report(src, p, 'pronounced')
     Callouts.aid(src, net, 'pronounced')
     Patients[net], Hits[net] = nil, nil
 end)
@@ -259,15 +322,21 @@ RegisterNetEvent('c3r:ems:load', function(net)
     local p = beside(source, net) and Patients[net]
     if p and Ems.stable(p) then
         Aboard[source] = true
+        p.left_scene = os.time()
+        care(p, 'Loaded for transport')
         Callouts.aid(source, net, 'hospital')
     end
 end)
 
 -- Through the doors: the call hears, and the medic gets their summary.
-RegisterNetEvent('c3r:ems:deliver', function(net)
+RegisterNetEvent('c3r:ems:deliver', function(net, hospital)
     local src = source
     local p = beside(src, net) and Patients[net]
     if not p then return end
+    local where
+    for _, h in ipairs(Config.Hospitals or {}) do if h.name == hospital then where = h.name end end -- (one of ours, by name)
+    care(p, 'Care handed over at ' .. (where and (where .. ' hospital') or 'hospital'))
+    report(src, p, 'transported', where)
     local mins = math.max(1, math.floor((os.time() - (p.started or os.time())) / 60 + 0.5))
     local fast, fair = cfg().grade[1], cfg().grade[2]
     local fixed = 0
@@ -280,100 +349,105 @@ RegisterNetEvent('c3r:ems:deliver', function(net)
         grade = mins <= fast and 'Excellent work.' or mins <= fair and 'Good work.' or 'They made it. It could have been quicker.' })
 end)
 
--- ─── a police unit asking for an ambulance (client/backup.lua) ───────────────
--- A free medic first: on shift, not on a call, no patient aboard, not already answering one. The first to accept takes
--- it and joins the officer's call. Nobody within accept_seconds, or the medic gone before they get there: the AI crew,
--- at the scene. Offer and job go to the medic's game as c3r:ems:offer and c3r:ems:assigned (nil: it's gone).
+-- ─── one service asking the other for help (client/backup.lua) ─────────────────
+-- An officer asks for an ambulance, or a medic for police. A free player of that service first: on shift, not on a
+-- call, not already answering one (a medic: no patient aboard). The first to accept takes it and joins the asker's
+-- call. Nobody within accept_seconds, or the helper gone before they get there: the AI unit, at the scene. Offer and job
+-- go to the helper's game as c3r:ems:offer and c3r:ems:assigned (nil: it's gone).
 
-local Asks = {} -- [officer src] = { at, left (s to accept), offered = { medic src }, medic? }
+local Asks = {} -- [asker src] = { want ('ambulance' | 'police'), at, left (s to accept), offered = { src }, helper? }
 
 local function answering(src)
-    for _, a in pairs(Asks) do if a.medic == src then return true end end
+    for _, a in pairs(Asks) do if a.helper == src then return true end end
     return false
 end
 
-local function free_medics()
+local function free_helpers(want, asker)
     local out = {}
     for _, id in ipairs(GetPlayers()) do
         id = tonumber(id)
-        if id and ServiceOf(id) == 'ambulance' and not Callouts.of(id) and not Aboard[id] and not answering(id) then out[#out + 1] = id end
+        if id and id ~= asker and ServiceOf(id) == want and not Callouts.of(id) and not (want == 'ambulance' and Aboard[id])
+            and not answering(id) then out[#out + 1] = id end
     end
     return out
 end
 
--- Off the medics' screens, and the officer's game sends the AI crew. why: 'timeout' | 'dropped'
-local function to_ai(officer, why)
-    local a = Asks[officer]
+-- Off the helpers' screens, and the asker's game sends the AI unit. why: 'timeout' | 'dropped'
+local function to_ai(asker, why)
+    local a = Asks[asker]
     if not a then return end
-    Asks[officer] = nil
-    if a.medic then TriggerClientEvent('c3r:ems:assigned', a.medic, nil, why)
+    Asks[asker] = nil
+    if a.helper then TriggerClientEvent('c3r:ems:assigned', a.helper, nil, why)
     else for _, m in ipairs(a.offered) do TriggerClientEvent('c3r:ems:offer', m, nil) end end
-    TriggerClientEvent('c3r:ems:request:ai', officer, why)
+    TriggerClientEvent('c3r:ems:request:ai', asker, why)
 end
 
-RegisterNetEvent('c3r:ems:request', function(at)
+-- want: what they're asking for ('ambulance' from an officer, 'police' from a medic).
+RegisterNetEvent('c3r:ems:request', function(at, want)
     local src = source
-    if ServiceOf(src) ~= 'police' or Asks[src] or type(at) ~= 'vector3' and not (type(at) == 'table' and tonumber(at.x)) then return end
+    want = want == 'police' and 'police' or 'ambulance'
+    if ServiceOf(src) ~= (want == 'police' and 'ambulance' or 'police') or Asks[src]
+        or type(at) ~= 'vector3' and not (type(at) == 'table' and tonumber(at.x)) then return end
     at = vector3(at.x + 0.0, at.y + 0.0, at.z + 0.0)
-    local free = free_medics()
+    local free = free_helpers(want, src)
     if #free == 0 then return TriggerClientEvent('c3r:ems:request:ai', src, 'none') end
     local secs = cfg().accept_seconds or 20
-    Asks[src] = { at = at, left = secs, offered = free }
+    Asks[src] = { want = want, at = at, left = secs, offered = free }
     for _, m in ipairs(free) do
-        TriggerClientEvent('c3r:ems:offer', m, { id = src, at = at, from = GetPlayerName(src), ms = secs * 1000 })
+        TriggerClientEvent('c3r:ems:offer', m, { id = src, at = at, from = GetPlayerName(src), ms = secs * 1000, want = want })
     end
 end)
 
-RegisterNetEvent('c3r:ems:accept', function(officer)
+RegisterNetEvent('c3r:ems:accept', function(asker)
     local src = source
-    local a = Asks[officer]
+    local a = Asks[asker]
     local mine = false
     for _, m in ipairs(a and a.offered or {}) do mine = mine or m == src end
-    if not a or a.medic or not mine or ServiceOf(src) ~= 'ambulance' then -- (someone else took it, or it's gone)
+    if not a or a.helper or not mine or ServiceOf(src) ~= a.want then -- (someone else took it, or it's gone)
         return TriggerClientEvent('c3r:ems:offer', src, nil)
     end
-    a.medic = src
+    a.helper = src
     for _, m in ipairs(a.offered) do if m ~= src then TriggerClientEvent('c3r:ems:offer', m, nil) end end
-    TriggerClientEvent('c3r:ems:assigned', src, { id = officer, at = a.at, from = GetPlayerName(officer) })
-    TriggerClientEvent('c3r:ems:request:accepted', officer, GetPlayerName(src))
-    local inc = Callouts.of(officer)
+    TriggerClientEvent('c3r:ems:assigned', src, { id = asker, at = a.at, from = GetPlayerName(asker), want = a.want })
+    TriggerClientEvent('c3r:ems:request:accepted', asker, GetPlayerName(src))
+    local inc = Callouts.of(asker)
     if inc then Callouts.respond(src, inc.id) end
 end)
 
--- The officer called it off (or went off shift): off the medics' screens.
-local function called_off(officer)
-    local a = Asks[officer]
+-- The asker called it off (or went off shift): off the helpers' screens.
+local function called_off(asker)
+    local a = Asks[asker]
     if not a then return end
-    Asks[officer] = nil
-    if a.medic then TriggerClientEvent('c3r:ems:assigned', a.medic, nil, 'cancelled')
+    Asks[asker] = nil
+    if a.helper then TriggerClientEvent('c3r:ems:assigned', a.helper, nil, 'cancelled')
     else for _, m in ipairs(a.offered) do TriggerClientEvent('c3r:ems:offer', m, nil) end end
 end
 RegisterNetEvent('c3r:ems:request:cancel', function() called_off(source) end)
 
--- The medic gave it up before getting there.
+-- The helper gave it up before getting there.
 RegisterNetEvent('c3r:ems:drop', function()
-    for officer, a in pairs(Asks) do if a.medic == source then to_ai(officer, 'dropped') end end
+    for asker, a in pairs(Asks) do if a.helper == source then to_ai(asker, 'dropped') end end
 end)
 
--- Once a second: the time to accept, and the medic getting there.
+-- Once a second: the time to accept, and the helper getting there.
 function Ems.tick_asks()
-    for officer, a in pairs(Asks) do
-        if not a.medic then
+    for asker, a in pairs(Asks) do
+        if not a.helper then
             a.left = a.left - 1
-            if a.left <= 0 then to_ai(officer, 'timeout') end
-        elseif #(GetEntityCoords(GetPlayerPed(a.medic)) - a.at) < 40.0 then
-            Asks[officer] = nil
-            TriggerClientEvent('c3r:ems:assigned', a.medic, nil, 'arrived')
-            TriggerClientEvent('c3r:ems:request:arrived', officer, GetPlayerName(a.medic))
+            if a.left <= 0 then to_ai(asker, 'timeout') end
+        elseif #(GetEntityCoords(GetPlayerPed(a.helper)) - a.at) < 40.0 then
+            Asks[asker] = nil
+            TriggerClientEvent('c3r:ems:assigned', a.helper, nil, 'arrived')
+            TriggerClientEvent('c3r:ems:request:arrived', asker, GetPlayerName(a.helper))
         end
     end
 end
 
--- Off shift or gone: an officer's request goes with them; a medic's job goes to the AI crew.
+-- Off shift or gone: their own request goes with them; one they took goes to the AI unit.
 local function gone(src)
     Stock[src], Aboard[src] = nil, nil
     called_off(src)
-    for officer, a in pairs(Asks) do if a.medic == src then to_ai(officer, 'dropped') end end
+    for asker, a in pairs(Asks) do if a.helper == src then to_ai(asker, 'dropped') end end
 end
 
 AddEventHandler('c3r:duty', function(src, on, service)
@@ -400,6 +474,17 @@ function Ems.tick_all()
             Patients[net], Hits[net] = nil, nil
         elseif p.started then
             local what = Body.tick(p, 1, p.held)
+            if p.started and not p.first_vitals and p.nibp then p.first_vitals = vitals(p) end -- (the first full set: the cuff's in)
+            if what == 'arrest' then
+                p.had_arrest = true
+                care(p, 'Patient went into cardiac arrest: ' .. (RHYTHM_NAME[p.rhythm] or p.rhythm))
+            elseif what == 'rosc' then
+                p.had_rosc = true
+                care(p, 'Return of spontaneous circulation')
+            elseif what == 'dead' then
+                care(p, 'No response to resuscitation')
+            end
+            if p.note and what ~= 'rosc' then care(p, p.note.text) end
             if what == 'dead' then
                 local owner = NetworkGetEntityOwner(ent)
                 if owner and owner > 0 then TriggerClientEvent('c3r:ems:kill', owner, net) end

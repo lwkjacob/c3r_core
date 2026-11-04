@@ -97,6 +97,8 @@ local function items(p)
           desc = 'Hold the wound so they stop bleeding out until paramedics arrive.' },
         { action = 'narcan', label = 'Give Narcan', icon = 'medic', off = dead and 'No pulse' or nil,
           desc = 'Reverses an opioid overdose for a while. It does nothing for anything else.' },
+        { action = 'cuff', label = 'Handcuff', icon = 'cuffs', off = dead and 'No pulse' or nil,
+          desc = 'Cuffed where they lie: face down, hands behind their back.' },
         BackupActive('ambulance') and { action = 'cancel_ambulance', label = 'Cancel ambulance', icon = 'medic', desc = 'Call it off.' }
             or { action = 'ambulance', label = 'Call ambulance', icon = 'medic', desc = 'Paramedics treat them and take them to hospital.' },
         BackupActive('coroner') and { action = 'cancel_coroner', label = 'Cancel coroner', icon = 'file', desc = 'Call it off.' }
@@ -240,6 +242,7 @@ function DO.narcan(p)
     if not (NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_vitals) then Prompt('medical', 'info', 'Narcan given', 'No change.', 6000) end
 end
 
+function DO.cuff(p) CuffDowned(p) end
 function DO.ambulance() CallBackup('ambulance') end
 function DO.coroner() CallBackup('coroner') end
 function DO.cancel_ambulance() CallBackup('cancel:ambulance') end

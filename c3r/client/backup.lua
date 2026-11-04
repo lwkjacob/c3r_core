@@ -743,23 +743,29 @@ local function send_unit(kind, def, at, started_on)
     return true
 end
 
-local amb = nil -- an ambulance asked of the player medics (server/ems.lua): { at, started_on }
+local asked = nil -- help asked of the other service's players first (server/ems.lua): { kind, at, started_on }
+
+local function medic() return LocalPlayer.state.c3rService == 'ambulance' end
+-- Asked of players first: an officer's ambulance, a medic's police (a patrol unit to stand by, the AI fallback).
+local function asks_players(kind) return (kind == 'ambulance' and not medic()) or (kind == 'cover' and medic()) end
 
 local function request(kind)
     if not on_duty() then return false, 'off_duty' end
+    if kind == 'police' and medic() then kind = 'cover' end -- (a medic asking for police wants help on scene, not a transport)
     if not KINDS[kind] then return false, 'not_available' end
     if kind == 'tow' then return request_tow() end
-    if active(kind) or (kind == 'ambulance' and amb) then return false, 'already_en_route' end
+    if active(kind) or (asked and asked.kind == kind) then return false, 'already_en_route' end
     local def = B.units[kind]
     if not def or not models_ok(def) then return false, 'not_available' end
     local why = CHECK[kind] and CHECK[kind]()
     if why then return false, why end
     local at = scene()
     if kind == 'dot' or kind == 'animalrescue' or kind == 'fire' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
-    if kind == 'ambulance' then -- (a free player medic first: the server answers, and the AI crew is the fallback)
+    if asks_players(kind) then -- (a free player first: the server answers, and the AI unit is the fallback)
+        if asked then return false, 'already_en_route' end
         if not spawn_point(at) then return false, 'no_route' end
-        amb = { at = at, started_on = Stop }
-        TriggerServerEvent('c3r:ems:request', at)
+        asked = { kind = kind, at = at, started_on = Stop }
+        TriggerServerEvent('c3r:ems:request', at, kind == 'cover' and 'police' or 'ambulance')
     else
         local ok, no = send_unit(kind, def, at, Stop)
         if not ok then return false, no end
@@ -772,17 +778,23 @@ exports('requestService', request)
 
 -- No medic free, none took it in time, or the one who did gave up: the AI crew, to where it was asked for.
 RegisterNetEvent('c3r:ems:request:ai', function(why)
-    local a = amb
-    amb = nil
+    local a = asked
+    asked = nil
     if not a or not on_duty() then return end
-    if why ~= 'none' then say('No paramedic available. An ambulance crew is on its way.') end
-    local def = B.units.ambulance
-    if not (def and send_unit('ambulance', def, a.at, a.started_on)) then say('Ambulance unable to reach you.') end
+    local police = a.kind == 'cover'
+    if why ~= 'none' then
+        say(police and 'No officer available. A patrol unit is on its way.' or 'No paramedic available. An ambulance crew is on its way.')
+    end
+    local def = B.units[a.kind]
+    if not (def and send_unit(a.kind, def, a.at, a.started_on)) then say((police and 'Patrol unit' or 'Ambulance') .. ' unable to reach you.') end
 end)
-RegisterNetEvent('c3r:ems:request:accepted', function(name) say(('Paramedic %s is responding to your location.'):format(name)) end)
+RegisterNetEvent('c3r:ems:request:accepted', function(name)
+    say(('%s %s is responding to your location.'):format(asked and asked.kind == 'cover' and 'Officer' or 'Paramedic', name))
+end)
 RegisterNetEvent('c3r:ems:request:arrived', function(name)
-    amb = nil
-    Prompt('backup', 'ok', 'Ambulance', ('%s is on scene.'):format(name), 5000)
+    local police = asked and asked.kind == 'cover'
+    asked = nil
+    Prompt('backup', 'ok', police and 'Police' or 'Ambulance', ('%s is on scene.'):format(name), 5000)
 end)
 
 local function cancel(kind)
@@ -791,8 +803,9 @@ local function cancel(kind)
         if ok then tow_asked = -60000 end
         return ok, why
     end
-    if kind == 'ambulance' and amb then -- (still with the medics)
-        amb = nil
+    if kind == 'police' and medic() then kind = 'cover' end
+    if asked and asked.kind == kind then -- (still with the other service's players)
+        asked = nil
         TriggerServerEvent('c3r:ems:request:cancel')
         return true
     end
@@ -1086,7 +1099,7 @@ end
 -- On its way or at work: the wheels offer "Cancel ..." instead. (A tow can't be called back.)
 function BackupActive(kind)
     if kind == 'tow' then return TowPending() or GetGameTimer() - tow_asked < 15000 end
-    if kind == 'ambulance' and amb then return true end
+    if asked and asked.kind == kind then return true end
     return active(kind) ~= nil
 end
 
@@ -1097,7 +1110,7 @@ CreateThread(function()
     while true do
         Wait(1000)
         tick = tick + 1
-        if amb and not on_duty() then amb = nil end -- (the server forgets it too)
+        if asked and not on_duty() then asked = nil end -- (the server forgets it too)
         if next(units) and not on_duty() then
             local list = {}
             for _, u in pairs(units) do list[#list + 1] = u end

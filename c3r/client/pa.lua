@@ -144,6 +144,101 @@ function AimedPed()
     return #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(ped)) < Config.PaRange and ped or nil
 end
 
+-- ─── the PA by hand: aim at someone, E, click the order (when the voice PA isn't heard right) ──────────────
+
+-- Who the officer has their gun on, on foot and in earshot: anyone on foot, or one of this stop's people in its car
+-- (aimed at the car: the first of them still inside, driver first). Not anyone cuffed, down or running.
+local function pa_target()
+    local me = PlayerId()
+    if not LocalPlayer.state.c3rDuty or not OnPatrol() or IsPedInAnyVehicle(PlayerPedId(), false)
+        or not IsPedArmed(PlayerPedId(), 4) then return nil end -- (a gun: not a fist's lock-on)
+    local ok, e = GetEntityPlayerIsFreeAimingAt(me)
+    if not ok or e == 0 then ok, e = GetPlayerTargetEntity(me) end
+    if not ok or e == 0 then return nil end
+    local s = Stop
+    if IsEntityAVehicle(e) then
+        if not (s and e == s.veh) then return nil end
+        local list = people(s, function(o) return in_car(s, o) end)
+        e = list[1] and list[1].ped
+        if not e then return nil end
+    end
+    if not IsEntityAPed(e) or IsPedAPlayer(e) or IsEntityDead(e) or IsDowned(e) then return nil end
+    local o = s and NetworkGetEntityIsNetworked(e) and s.occ[PedToNet(e)]
+    if (o and (o.cuffed or o.fleeing)) or (not o and IsPedInAnyVehicle(e, false)) then return nil end
+    if not o and s and not Casual(s) then return nil end -- (a stop on: only its people; a stranger would end it)
+    local d = #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(e))
+    return d > 3.0 and d < Config.PaRange and e or nil -- (close enough to cuff: E is for that)
+end
+
+local function pa_orders(ped)
+    local s = Stop
+    local o = s and NetworkGetEntityIsNetworked(ped) and s.occ[PedToNet(ped)]
+    local list = {}
+    local function add(arg, label, icon) list[#list + 1] = { action = 'pa', arg = arg, label = label, icon = icon } end
+    if o and IsPedInAnyVehicle(ped, false) then
+        add('out', 'Step out of the vehicle', 'out')
+        add('handsup', 'Hands up', 'handsup')
+        return list
+    end
+    add('handsup', 'Hands up', 'handsup')
+    if o and s.felony then -- one step at a time: only the next one (FelonySteps)
+        if o.felony == 'out' then add('back', 'Walk back toward me', 'walk')
+        elseif o.felony == 'back' then add('kneel', 'On your knees', 'handsup') end
+        return list
+    end
+    add('kneel', 'On your knees', 'handsup')
+    add('turn', 'Turn around', 'walk')
+    if o and not s.foot then add('in', 'Back in the vehicle', 'in') end
+    if o then add('stay', 'Stay right there', 'hand') end
+    return list
+end
+
+-- One order, picked on the wheel (client/radial.lua).
+function PaAt(ped, cmd)
+    if not ped or not DoesEntityExist(ped) or IsEntityDead(ped) then return end
+    local s = Stop
+    local o = s and NetworkGetEntityIsNetworked(ped) and s.occ[PedToNet(ped)]
+    if not o then
+        local action = ({ handsup = 'handsup', kneel = 'kneel', turn = 'turn' })[cmd]
+        if action and not (s and not s.foot) then RequestContact(ped, action) end -- (a car stop on: they're not part of it)
+        return
+    end
+    local f = s.felony
+    local action = ({ out = f and 'fel_out' or 'exit', back = 'fel_back', kneel = f and 'fel_kneel' or 'kneel', handsup = 'handsup',
+                      turn = 'turn', ['in'] = 'back', stay = 'stay' })[cmd]
+    if action then act(action, o) end
+end
+
+local pa_ped -- who E would open the PA on now
+-- (menu.lua's E: the PA wheel first, while aiming at someone) -> true when it opened
+function PaAim()
+    if not pa_ped or not DoesEntityExist(pa_ped) then return false end
+    return OpenPaWheel(pa_ped, pa_orders(pa_ped)) == true
+end
+
+CreateThread(function()
+    while true do
+        pa_ped = not IsNuiFocused() and pa_target() or nil
+        if pa_ped then
+            local h = GetPedBoneCoords(pa_ped, 31086, 0.0, 0.0, 0.0) -- SKEL_Head
+            local on, x, y = GetScreenCoordFromWorldCoord(h.x, h.y, h.z + 0.5)
+            if on then
+                SetTextFont(4)
+                SetTextScale(0.0, 0.4)
+                SetTextCentre(true)
+                SetTextOutline()
+                SetTextColour(255, 255, 255, 230)
+                BeginTextCommandDisplayText('STRING')
+                AddTextComponentSubstringPlayerName(('Press ~b~%s~s~ to open the PA System'):format(KeyName('+c3r_interact', 'E')))
+                EndTextCommandDisplayText(x, y)
+            end
+            Wait(0)
+        else
+            Wait(150)
+        end
+    end
+end)
+
 -- cmds: a command or a list of them, in the order said. On a felony stop only the first runs: one order at a time.
 exports('pa', function(cmds)
     if not OnPatrol() then return false end

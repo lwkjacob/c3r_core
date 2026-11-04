@@ -71,7 +71,8 @@ Config.Ems.back_cam_height = 1.0    -- m above the patient in the back that the 
 -- Patients are handed over at the door (the marker) of the nearest of these, after stopping within hospital_radius m.
 -- Positions are approximate: move them to suit.
 Config.Ems.hospital_radius = 30.0
--- A police unit asking for an ambulance: free medics have accept_seconds to take it, then the AI crew goes.
+-- One service asking the other (an officer an ambulance, a medic police): free players have accept_seconds to take it,
+-- then the AI unit goes.
 Config.Ems.accept_seconds = 20
 Config.Hospitals = {
     { name = 'Pillbox Hill', x = 357.4, y = -593.4, z = 28.8 },

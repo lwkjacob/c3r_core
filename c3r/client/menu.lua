@@ -97,7 +97,8 @@ local function open_menu(s, o)
     browsing, open, target = nil, true, o
     SetNuiFocus(true, true)
     SendNUIMessage({ type = 'radial', open = true, kind = 'person', key = KeyName('+c3r_interact', 'E'),
-                     who = who(o), role = o.role, medic = not OnPatrol(), out = o.out == true, following = o.following == true, foot = s.foot == true,
+                     who = who(o), role = o.role, medic = not OnPatrol(), following = o.following == true, foot = s.foot == true,
+                     out = o.out == true or not IsPedInAnyVehicle(o.ped, false), -- (on foot is out, whatever another game last said)
                      cuffed = o.cuffed == true, escorted = o.escorted == true, seated = o.seated ~= nil, sitting = o.sitting == true,
                      categories = s.categories, questions = o.questions or {},
                      active = { police = BackupActive('police'), ambulance = BackupActive('ambulance'), cover = BackupActive('cover'),
@@ -157,8 +158,11 @@ RegisterCommand('+c3r_interact', function()
     if CalloutPlacing and CalloutPlacing() then return end -- (/c3rplace: E sets a point)
     if CalloutInspect and CalloutInspect() then return end -- evidence on a call, right beside you (client/callouts.lua)
     if EmsInteract and EmsInteract() then return end -- a medic's bag, stretcher and handover (client/ems.lua)
+    if PaAim() then return end -- gun on someone: the PA's orders (client/pa.lua)
     local down = LocalPlayer.state.c3rDuty and DownedNear()
-    if down then return (OnPatrol() and OpenMedical or EmsTreat)(down) end -- someone down beside you: first aid (client/medical.lua), or a medic's work
+    local held = false -- (cuffed on the ground: they're the stop's prisoner now, not first aid)
+    for _, o in pairs(s and s.occ or {}) do held = held or (o.ped == down and o.cuffed) end
+    if down and not held then return (OnPatrol() and OpenMedical or EmsTreat)(down) end -- someone down beside you: first aid (client/medical.lua), or a medic's work
     if not s then -- anyone at all: they become the stop
         if browsing then browsing = nil return end -- the key again: never mind
         local list = contacts()

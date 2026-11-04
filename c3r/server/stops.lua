@@ -444,6 +444,7 @@ local function start_foot(src, p)
         end
         local o = co.o
         o.role, o.seat, o.vehicle = 'pedestrian', nil, nil -- (they may have been pulled over first)
+        o.out_srv = car == 0 -- (on foot is out: every officer's menu offers the cuffs)
         local s = { src = src, key = key, occ = { [p.net] = o }, driver = o, car_items = {}, foot = true, callout = co.inc }
         ByVehicle[key], Stops[src] = src, s
         TriggerClientEvent('c3r:stop:started', src, nil, { { net = p.net, role = 'pedestrian', look = look(o.truth),
@@ -465,7 +466,7 @@ local function start_foot(src, p)
         return
     end
     local o = { net = p.net, role = 'pedestrian', person = g.person, truth = g.truth, items = g.items, answers = {}, facts = {},
-                cuffed = known and p.cuffed == true or nil } -- (their own prisoner, walked back up to)
+                cuffed = known and p.cuffed == true or nil, out_srv = car == 0 } -- (their own prisoner, walked back up to)
     if p.cuffed == true then g.truth.arrested = true end -- (in cuffs already, whoever they turn out to be: counted once)
     o.pockets = Generator.some(Data.pockets, math.random(1, 3))
     for _, item in ipairs(g.items) do table.insert(o.pockets, 1, item) end -- no car to stash it in: it's all on them
@@ -768,6 +769,7 @@ function ACT.exit(s, o)
     o.out_srv = true
     move(s, o, 'exit')
 end
+function ACT.pulled(s, o) o.out_srv = true end -- pulled out of the car by an officer: out, nothing said
 local back_in = order('Go ahead and get back in the vehicle.', 'back', 'back')
 function ACT.back(s, o) o.out_srv = false back_in(s, o) end
 ACT.follow = order('Come with me, please. Walk this way.', 'follow', 'follow')
@@ -876,10 +878,10 @@ function ACT.sobriety(s, o)
     note(s, ('Field sobriety, %s: %s (%s)'):format(label(o), text, impaired and 'impaired' or 'passed'))
 end
 
-function ACT.cuff(s, o)
+function ACT.cuff(s, o, arg) -- arg 'down': on the ground, cuffed where they lie (no running from there)
     if o.cuffed then return end
-    say(s, 'Turn around and put your hands behind your back.', 'officer')
-    if runs(s, o) then return end
+    say(s, arg == 'down' and 'Stay down. Hands behind your back.' or 'Turn around and put your hands behind your back.', 'officer')
+    if arg ~= 'down' and runs(s, o) then return end
     say(s, Dialogue.answer('cuff', o), o)
     o.cuffed, o.cuffed_by = true, Stats.officer(s.src)
     move(s, o, 'cuff')
@@ -982,7 +984,7 @@ ACT.release = ending('release', "You're free to go. Drive safe.") -- (on foot, o
 local CAR_ACTS = { search_car = true, tow = true, felony = true } -- done at the car, not to a person
 -- Said, or written down: nobody is moved, so whoever's game has the person keeps them. Anything else moves them,
 -- and hands them to the acting officer's game first.
-local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true, shots = true,
+local TALK = { greet = true, ask = true, licence = true, breath = true, drugs = true, cite = true, warn = true, release = true, shots = true, pulled = true,
                search_car = true, tow = true, felony = true }
 -- Shouted (the PA, or a felony stop's orders): heard from Config.PaRange. Everything else is said face to face.
 local SHOUTED = { exit = true, back = true, handsup = true, kneel = true, turn = true, stay = true, felony = true, shots = true, fel_out = true, fel_back = true, fel_kneel = true }
