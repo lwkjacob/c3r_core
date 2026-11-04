@@ -212,6 +212,7 @@ ConfigMenu = {
             { 'Ems.bleed', 'An untreated limb bleed loses a second', unit = 'pct', adv = true, help = 'Of their blood. A wound to the body loses 1.4 times as much.' },
             { 'Ems.misplace', 'A tube goes into the wrong place', unit = 'pct', adv = true, help = 'The stethoscope and the EtCO2 show it.' },
             { 'Ems.dead_minutes', 'In arrest, they are gone after', unit = 'minutes' },
+            { 'Ems.accept_seconds', 'A medic has this long to take a police request', unit = 's', help = 'Then the AI ambulance crew goes.' },
             { 'Ems.cardiac_minutes', 'A heart attack with no aspirin gets worse after', unit = 'minutes', adv = true },
             { 'Ems.cpr_seconds', 'A cycle of CPR before the rhythm check', unit = 's', help = 'Two minutes in life.' },
             { 'Ems.use_ms', 'A tool that helps takes', unit = 'ms' },

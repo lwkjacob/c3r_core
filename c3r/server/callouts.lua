@@ -1123,6 +1123,8 @@ function Callouts.create(near, only, story, service)
     return inc
 end
 
+function Callouts.of(src) return OnCall[src] end -- the call they're on, if any
+
 function Callouts.open_list() local l = {} for _, inc in pairs(Open) do l[#l + 1] = inc end return l end
 
 -- Respond: to call id, or (nil) the nearest open one. -> true | nil, reason

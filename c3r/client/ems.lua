@@ -726,6 +726,70 @@ RegisterNUICallback('emsPronounce', function(_, cb)
     close_screen()
 end)
 
+-- ─── a police unit asking for an ambulance (server/ems.lua) ───────────────────
+
+local ask, job = nil, nil -- the request on the card: { id, at, from, until_t }; the one taken: { id, at, from, blip }
+
+local function clear_job()
+    if job and job.blip and DoesBlipExist(job.blip) then RemoveBlip(job.blip) end
+    job = nil
+end
+
+RegisterNetEvent('c3r:ems:offer', function(o)
+    if not o then
+        if ask then
+            ask = nil
+            SendNUIMessage({ type = 'callout', offer = false })
+        end
+        return
+    end
+    ask = { id = o.id, at = vector3(o.at.x, o.at.y, o.at.z), from = o.from, until_t = GetGameTimer() + o.ms }
+    local street = GetStreetNameFromHashKey((GetStreetNameAtCoord(ask.at.x, ask.at.y, ask.at.z)))
+    SendNUIMessage({ type = 'callout', offer = { name = 'Ambulance requested', street = street,
+        distance = #(GetEntityCoords(PlayerPedId()) - ask.at), report = ('%s needs an ambulance at their scene.'):format(o.from),
+        priority = 1, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = o.ms } })
+    pcall(function() exports.lwk_control:say(nil, ('Medic units, %s requests an ambulance on %s.'):format(o.from, street)) end)
+end)
+
+RegisterNetEvent('c3r:ems:assigned', function(j, why)
+    clear_job()
+    if j then
+        job = { id = j.id, at = vector3(j.at.x, j.at.y, j.at.z), from = j.from }
+        job.blip = AddBlipForCoord(job.at.x, job.at.y, job.at.z)
+        SetBlipColour(job.blip, 1)
+        SetBlipRoute(job.blip, true)
+        BeginTextCommandSetBlipName('STRING')
+        AddTextComponentSubstringPlayerName('Ambulance request')
+        EndTextCommandSetBlipName(job.blip)
+        return Prompt('ems', 'ok', 'Responding', ('To %s. It is on your map.'):format(j.from), 6000)
+    end
+    if why == 'cancelled' then Prompt('ems', 'info', 'Stood down', 'The officer no longer needs an ambulance.', 6000)
+    elseif why == 'arrived' then Prompt('ems', 'ok', 'On scene', 'Find the patient.', 5000) end
+end)
+
+-- client/callouts.lua's Y: take the request on the card. -> true when there was one
+function EmsRespond()
+    if not ask or GetGameTimer() > ask.until_t then return false end
+    TriggerServerEvent('c3r:ems:accept', ask.id)
+    ask = nil
+    SendNUIMessage({ type = 'callout', offer = false })
+    return true
+end
+
+-- client/callouts.lua's X: let the card go, or give up a request taken (the AI crew goes instead). -> true when it did
+function EmsDecline()
+    if ask and GetGameTimer() < ask.until_t then
+        ask = nil
+        SendNUIMessage({ type = 'callout', offer = false })
+        return true
+    end
+    if not job then return false end
+    clear_job()
+    TriggerServerEvent('c3r:ems:drop')
+    Prompt('ems', 'info', 'Request dropped', 'An ambulance crew goes instead.', 5000)
+    return true
+end
+
 -- ─── the shift ────────────────────────────────────────────────────────────────
 
 local function end_of_shift()
@@ -740,7 +804,8 @@ local function end_of_shift()
         DeleteEntity(t.ped)
     end
     Stable = {}
-    ride = nil
+    ride, ask = nil, nil
+    clear_job()
     if partner and DoesEntityExist(partner) then DeleteEntity(partner) end
     partner = nil
     if have_truck() then DeleteEntity(truck) end

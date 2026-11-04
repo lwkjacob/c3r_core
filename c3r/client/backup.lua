@@ -722,20 +722,10 @@ RegisterNetEvent('c3r:stop:towRefused', function()
     say('Unable to send a tow truck right now.')
 end)
 
-local function request(kind)
-    if not on_duty() then return false, 'off_duty' end
-    if not KINDS[kind] then return false, 'not_available' end
-    if kind == 'tow' then return request_tow() end
-    if active(kind) then return false, 'already_en_route' end
-    local def = B.units[kind]
-    if not def or not models_ok(def) then return false, 'not_available' end
-    local why = CHECK[kind] and CHECK[kind]()
-    if why then return false, why end
-    local at = scene()
-    if kind == 'dot' or kind == 'animalrescue' or kind == 'fire' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
+-- The AI crew: from out of sight to `at`, its job there, then away.
+local function send_unit(kind, def, at, started_on)
     local node, h = spawn_point(at)
     if not node then return false, 'no_route' end
-    local started_on = Stop
     local u = new_unit(kind)
     CreateThread(function()
         if not spawn(u, def, node, h) then return end
@@ -750,17 +740,61 @@ local function request(kind)
         end
         leave(u)
     end)
+    return true
+end
+
+local amb = nil -- an ambulance asked of the player medics (server/ems.lua): { at, started_on }
+
+local function request(kind)
+    if not on_duty() then return false, 'off_duty' end
+    if not KINDS[kind] then return false, 'not_available' end
+    if kind == 'tow' then return request_tow() end
+    if active(kind) or (kind == 'ambulance' and amb) then return false, 'already_en_route' end
+    local def = B.units[kind]
+    if not def or not models_ok(def) then return false, 'not_available' end
+    local why = CHECK[kind] and CHECK[kind]()
+    if why then return false, why end
+    local at = scene()
+    if kind == 'dot' or kind == 'animalrescue' or kind == 'fire' then at = CallSpot(200.0) or at end -- (the road, not whoever I'm talking to)
+    if kind == 'ambulance' then -- (a free player medic first: the server answers, and the AI crew is the fallback)
+        if not spawn_point(at) then return false, 'no_route' end
+        amb = { at = at, started_on = Stop }
+        TriggerServerEvent('c3r:ems:request', at)
+    else
+        local ok, no = send_unit(kind, def, at, Stop)
+        if not ok then return false, no end
+    end
     note('requested', kind)
     return true
 end
 
 exports('requestService', request)
 
+-- No medic free, none took it in time, or the one who did gave up: the AI crew, to where it was asked for.
+RegisterNetEvent('c3r:ems:request:ai', function(why)
+    local a = amb
+    amb = nil
+    if not a or not on_duty() then return end
+    if why ~= 'none' then say('No paramedic available. An ambulance crew is on its way.') end
+    local def = B.units.ambulance
+    if not (def and send_unit('ambulance', def, a.at, a.started_on)) then say('Ambulance unable to reach you.') end
+end)
+RegisterNetEvent('c3r:ems:request:accepted', function(name) say(('Paramedic %s is responding to your location.'):format(name)) end)
+RegisterNetEvent('c3r:ems:request:arrived', function(name)
+    amb = nil
+    Prompt('backup', 'ok', 'Ambulance', ('%s is on scene.'):format(name), 5000)
+end)
+
 local function cancel(kind)
     if kind == 'tow' then -- (until the car's on the flatbed: client/stop.lua TowCancel)
         local ok, why = TowCancel(GetGameTimer() - tow_asked < 15000)
         if ok then tow_asked = -60000 end
         return ok, why
+    end
+    if kind == 'ambulance' and amb then -- (still with the medics)
+        amb = nil
+        TriggerServerEvent('c3r:ems:request:cancel')
+        return true
     end
     local u = active(kind)
     if not u then return false, 'not_en_route' end
@@ -1052,6 +1086,7 @@ end
 -- On its way or at work: the wheels offer "Cancel ..." instead. (A tow can't be called back.)
 function BackupActive(kind)
     if kind == 'tow' then return TowPending() or GetGameTimer() - tow_asked < 15000 end
+    if kind == 'ambulance' and amb then return true end
     return active(kind) ~= nil
 end
 
@@ -1062,6 +1097,7 @@ CreateThread(function()
     while true do
         Wait(1000)
         tick = tick + 1
+        if amb and not on_duty() then amb = nil end -- (the server forgets it too)
         if next(units) and not on_duty() then
             local list = {}
             for _, u in pairs(units) do list[#list + 1] = u end

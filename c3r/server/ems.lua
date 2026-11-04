@@ -165,10 +165,15 @@ RegisterNetEvent('c3r:ems:pronounce', function(net)
     Patients[net] = nil
 end)
 
+local Aboard = {} -- [medic src] = true: a patient in the back (not free for a police request)
+
 -- On the stretcher and into the ambulance.
 RegisterNetEvent('c3r:ems:load', function(net)
     local p = beside(source, net) and Patients[net]
-    if p and Ems.stable(p) then Callouts.aid(source, net, 'hospital') end
+    if p and Ems.stable(p) then
+        Aboard[source] = true
+        Callouts.aid(source, net, 'hospital')
+    end
 end)
 
 -- Through the doors: the call hears, and the medic gets their summary.
@@ -182,14 +187,111 @@ RegisterNetEvent('c3r:ems:deliver', function(net)
     for _, c in ipairs(p.cond) do if c.found then fixed = fixed + 1 end end
     Callouts.aid(src, net, 'delivered')
     Patients[net] = nil
+    Aboard[src] = nil
     TriggerClientEvent('c3r:ems:handover', src, { minutes = mins, treated = fixed,
         grade = mins <= fast and 'Excellent work.' or mins <= fair and 'Good work.' or 'They made it. It could have been quicker.' })
 end)
 
-AddEventHandler('c3r:duty', function(src, on, service)
-    if on and service == 'ambulance' then fill_bag(src) else Stock[src] = nil end
+-- ─── a police unit asking for an ambulance (client/backup.lua) ───────────────
+-- A free medic first: on shift, not on a call, no patient aboard, not already answering one. The first to accept takes
+-- it and joins the officer's call. Nobody within accept_seconds, or the medic gone before they get there: the AI crew,
+-- at the scene. Offer and job go to the medic's game as c3r:ems:offer and c3r:ems:assigned (nil: it's gone).
+
+local Asks = {} -- [officer src] = { at, left (s to accept), offered = { medic src }, medic? }
+
+local function answering(src)
+    for _, a in pairs(Asks) do if a.medic == src then return true end end
+    return false
+end
+
+local function free_medics()
+    local out = {}
+    for _, id in ipairs(GetPlayers()) do
+        id = tonumber(id)
+        if id and ServiceOf(id) == 'ambulance' and not Callouts.of(id) and not Aboard[id] and not answering(id) then out[#out + 1] = id end
+    end
+    return out
+end
+
+-- Off the medics' screens, and the officer's game sends the AI crew. why: 'timeout' | 'dropped'
+local function to_ai(officer, why)
+    local a = Asks[officer]
+    if not a then return end
+    Asks[officer] = nil
+    if a.medic then TriggerClientEvent('c3r:ems:assigned', a.medic, nil, why)
+    else for _, m in ipairs(a.offered) do TriggerClientEvent('c3r:ems:offer', m, nil) end end
+    TriggerClientEvent('c3r:ems:request:ai', officer, why)
+end
+
+RegisterNetEvent('c3r:ems:request', function(at)
+    local src = source
+    if ServiceOf(src) ~= 'police' or Asks[src] or type(at) ~= 'vector3' and not (type(at) == 'table' and tonumber(at.x)) then return end
+    at = vector3(at.x + 0.0, at.y + 0.0, at.z + 0.0)
+    local free = free_medics()
+    if #free == 0 then return TriggerClientEvent('c3r:ems:request:ai', src, 'none') end
+    local secs = cfg().accept_seconds or 20
+    Asks[src] = { at = at, left = secs, offered = free }
+    for _, m in ipairs(free) do
+        TriggerClientEvent('c3r:ems:offer', m, { id = src, at = at, from = GetPlayerName(src), ms = secs * 1000 })
+    end
 end)
-AddEventHandler('playerDropped', function() Stock[source] = nil end)
+
+RegisterNetEvent('c3r:ems:accept', function(officer)
+    local src = source
+    local a = Asks[officer]
+    local mine = false
+    for _, m in ipairs(a and a.offered or {}) do mine = mine or m == src end
+    if not a or a.medic or not mine or ServiceOf(src) ~= 'ambulance' then -- (someone else took it, or it's gone)
+        return TriggerClientEvent('c3r:ems:offer', src, nil)
+    end
+    a.medic = src
+    for _, m in ipairs(a.offered) do if m ~= src then TriggerClientEvent('c3r:ems:offer', m, nil) end end
+    TriggerClientEvent('c3r:ems:assigned', src, { id = officer, at = a.at, from = GetPlayerName(officer) })
+    TriggerClientEvent('c3r:ems:request:accepted', officer, GetPlayerName(src))
+    local inc = Callouts.of(officer)
+    if inc then Callouts.respond(src, inc.id) end
+end)
+
+-- The officer called it off (or went off shift): off the medics' screens.
+local function called_off(officer)
+    local a = Asks[officer]
+    if not a then return end
+    Asks[officer] = nil
+    if a.medic then TriggerClientEvent('c3r:ems:assigned', a.medic, nil, 'cancelled')
+    else for _, m in ipairs(a.offered) do TriggerClientEvent('c3r:ems:offer', m, nil) end end
+end
+RegisterNetEvent('c3r:ems:request:cancel', function() called_off(source) end)
+
+-- The medic gave it up before getting there.
+RegisterNetEvent('c3r:ems:drop', function()
+    for officer, a in pairs(Asks) do if a.medic == source then to_ai(officer, 'dropped') end end
+end)
+
+-- Once a second: the time to accept, and the medic getting there.
+function Ems.tick_asks()
+    for officer, a in pairs(Asks) do
+        if not a.medic then
+            a.left = a.left - 1
+            if a.left <= 0 then to_ai(officer, 'timeout') end
+        elseif #(GetEntityCoords(GetPlayerPed(a.medic)) - a.at) < 40.0 then
+            Asks[officer] = nil
+            TriggerClientEvent('c3r:ems:assigned', a.medic, nil, 'arrived')
+            TriggerClientEvent('c3r:ems:request:arrived', officer, GetPlayerName(a.medic))
+        end
+    end
+end
+
+-- Off shift or gone: an officer's request goes with them; a medic's job goes to the AI crew.
+local function gone(src)
+    Stock[src], Aboard[src] = nil, nil
+    called_off(src)
+    for officer, a in pairs(Asks) do if a.medic == src then to_ai(officer, 'dropped') end end
+end
+
+AddEventHandler('c3r:duty', function(src, on, service)
+    if on and service == 'ambulance' then fill_bag(src) else gone(src) end
+end)
+AddEventHandler('playerDropped', function() gone(source) end)
 
 -- ─── the clock ────────────────────────────────────────────────────────────────
 
@@ -219,6 +321,8 @@ end
 local function loop()
     local ok, err = pcall(Ems.tick_all)
     if not ok then print('[c3r] ems: ' .. tostring(err)) end
+    ok, err = pcall(Ems.tick_asks)
+    if not ok then print('[c3r] ems requests: ' .. tostring(err)) end
     SetTimeout(1000, loop)
 end
 SetTimeout(1000, loop)

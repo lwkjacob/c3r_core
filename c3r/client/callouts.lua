@@ -186,6 +186,7 @@ end)
 local function respond(id) TriggerServerEvent('c3r:callout:respond', id) end
 
 RegisterCommand('+c3r_respond', function()
+    if EmsRespond and not IsNuiFocused() and EmsRespond() then return end -- (a police unit asking for an ambulance: client/ems.lua)
     if call or not offer or GetGameTimer() > offer.until_t or IsNuiFocused() then return end
     respond(offer.id)
 end, false)
@@ -220,6 +221,7 @@ RegisterKeyMapping('+c3r_objective', 'Callout: hide / show the objective (c3r)',
 RegisterCommand('+c3r_leavecall', function()
     -- (X is also the taser's arc and the Stop Stick's let-go: not while either is in hand)
     if confirming or CalloutPlacing() or IsNuiFocused() or LocalPlayer.state.taser or LocalPlayer.state.stopstick then return end
+    if EmsDecline and EmsDecline() then return end -- (an ambulance request: let it go, or give it up: client/ems.lua)
     if not call and offer and GetGameTimer() < offer.until_t then -- an offer up: decline it (it stays open for others)
         offer = nil
         return SendNUIMessage({ type = 'callout', offer = false })
