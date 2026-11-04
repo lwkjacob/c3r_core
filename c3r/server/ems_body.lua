@@ -236,6 +236,9 @@ function Body.new(list, opts)
     if opts.dead then
         arrest(b, 'dead')
         b.long_dead = true
+    elseif opts.arrest then -- (just gone: what stopped their heart picks the rhythm)
+        arrest(b, cond(b, 'cardiac') and 'cardiac' or open(b, 'hemorrhage') and 'hypovolemia'
+            or (cond(b, 'opioid') or cond(b, 'airway') or cond(b, 'respiratory')) and 'hypoxia' or 'cardiac')
     end
     return b
 end

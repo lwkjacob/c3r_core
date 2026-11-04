@@ -162,6 +162,7 @@ c:person('host', { at = 'host', label = 'Host', male = true, home = true, secret
 | `injured` | `true`: on the ground hurt. E beside them opens first aid, paramedics take them, and `'aid'` fires. |
 | `vitals` | What **Check vitals** says about someone `injured`, instead of the bleeding. A medic's screen shows it too. |
 | `conditions` | What's really wrong with someone `injured`, for a medic to find and treat: `{ { 'hemorrhage', 'lleg' }, { 'fracture', 'lleg' }, 'pain' }`. See **Conditions** below. |
+| `arrest` | `true`: with `conditions`, found in cardiac arrest (just now: a fresh arrest, not one found dead). The rhythm follows the cause: `cardiac` VF or VT; an overdose, airway or breathing, asystole or PEA. |
 | `injuries` | The short form of `conditions` for a simple trauma call: `{ { 'lleg', 'bleed' }, { 'head', 'wound' } }` (part first). Kinds: `bleed` and `wound` (a hemorrhage), `fracture`, `airway`, `breathing` (respiratory), `overdose` (opioid), `sugar` (hypoglycemia). A bleed or break adds `pain`. |
 | `runs` | `true`: pulled over while driving (see `c:task(..., 'drive')`), they floor it and it's a chase. `bail = 0.3`: how often it ends with them on foot. |
 | `seated` | A vehicle key: they start at the wheel of it, engine running. Give them the car's point as `at`, and make the car `locked = false`. |
@@ -361,3 +362,6 @@ monitor and, left long enough, can stop their heart (after alarms).
 
 Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`.
 A name the server doesn't know stops the call with an error naming it. `callouts/ems/` has an example of each.
+
+A medics' call that's just the patient (and maybe a prop beside them) can be written in a few lines with
+`Callout(Ems.call({ ... }))`: `callouts/ems/ems_chestpain.lua` is an example, and `server/ems.lua` lists its fields.

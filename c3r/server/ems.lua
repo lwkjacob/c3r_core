@@ -16,7 +16,7 @@ local Hits = {}     -- [net id] = { { part, cause } }: what hurt them, as it hap
 local Stock = {}    -- [src] = { [tool] = count }: what's left in their bag
 
 -- list: conditions ({ kind, part } | kind), or the first form ({ part, kind }). say: a line the screen always shows.
-function Ems.new(list, say, dead)
+function Ems.new(list, say, dead, arrest)
     local conds, pain = {}, false
     for _, c in ipairs(list or {}) do
         if type(c) == 'table' and OLD[c[2]] then
@@ -27,9 +27,36 @@ function Ems.new(list, say, dead)
         end
     end
     if pain then conds[#conds + 1] = 'pain' end
-    local b = Body.new(conds, { dead = dead })
+    local b = Body.new(conds, { dead = dead, arrest = arrest })
     b.say = say
     return b
+end
+
+--[[ A medics' call that's just the patient, and sometimes something beside them that tells the story. Builds the
+     Callout() definition: `Callout(Ems.call({ ... }))` in the call's own file (so /c3rplace writes there). spec = {
+       id, name, voice?, priority?, weight?, age? ({ min, max }), reports = { ... },
+       locations = { { street, at, points = { patient = vector4, nearby = vector4 } } } (as /c3rplace writes them),
+       stories = { key = { weight?, conditions, says (what they look like or say), what (for the MDT: 'a heart attack'),
+                           clue? = { label, prop, text }, arrest? (found with no pulse), secret? } } } ]]
+function Ems.call(spec)
+    local stories = {}
+    for key, st in pairs(spec.stories) do
+        stories[key] = { weight = st.weight or 1, arrest = st.arrest, setup = function(c)
+            c:person('patient', { at = 'patient', label = 'Patient', secret = st.secret or 'clean', injured = true,
+                age = spec.age or { 18, 80 }, vitals = st.says, conditions = st.conditions, arrest = st.arrest })
+            if st.clue then c:clue('nearby', { at = 'nearby', label = st.clue[1], prop = st.clue[2], text = st.clue[3] }) end
+            Ems.card(c, 'patient')
+            Ems.wire(c, 'patient', function(how)
+                if how == 'hospital' then return ('%s, %s, was treated and taken to hospital.'):format(c:name('patient'), st.what) end
+                if how == 'pronounced' then return ('%s, %s, died at the scene.'):format(c:name('patient'), st.what) end
+                return 'The patient was gone before treatment finished.'
+            end)
+        end }
+    end
+    return { id = spec.id, service = 'ambulance', name = spec.name, voice = spec.voice, priority = spec.priority or 2,
+             weight = spec.weight or 1, enabled = true, reports = spec.reports,
+             points = { { 'patient', 'The patient, on the ground.' }, { 'nearby', 'Something beside them (only some stories use it).', optional = true } },
+             locations = spec.locations, stories = stories }
 end
 
 -- What each hit did: { part | nil, cause } -> conditions, and whether one of them killed them outright. A gunshot to the
@@ -76,8 +103,8 @@ end
 function Ems.stable(b) return Body.stable(b) end
 
 -- A callout's patient (spec.conditions, or the short form spec.injuries), before anyone's touched them.
-function Ems.admit(net, list, say)
-    local p = Ems.new(list, say)
+function Ems.admit(net, list, say, arrest)
+    local p = Ems.new(list, say, nil, arrest)
     Patients[net] = p
     local parts = {}
     for _, c in ipairs(p.cond) do if c.kind == 'hemorrhage' then parts[#parts + 1] = c.part end end

@@ -160,6 +160,7 @@ end
        vitals? (what Check vitals says about an `injured` person, instead of the bleeding: an overdose, say),
        conditions? ({ { 'hemorrhage', 'lleg' }, 'pain' }: what's wrong with an `injured` person, server/ems_body.lua),
        injuries? (the short form: { { 'lleg', 'bleed' } }, a bleed, wound or break, with pain added),
+       arrest? (true: with `conditions`, found with no pulse, the rhythm from what stopped their heart),
        dead? (true: found dead, an animal in the road, say), runs? (true: pulled over at the wheel, they floor it),
        bail? (with runs: how often a chase ends with them running on foot, 0-1; Config.Flee.bail if not given),
        seated? (a vehicle key: they start at the wheel of it, engine running),
@@ -773,7 +774,7 @@ local function make_near(inc)
                 p.down = true
                 Entity(ent).state:set('c3r_down', true, true)
                 if spec.vitals then Entity(ent).state:set('c3r_vitals', spec.vitals, true) end
-                if spec.conditions or spec.injuries then Ems.admit(net, spec.conditions or spec.injuries, spec.vitals) end
+                if spec.conditions or spec.injuries then Ems.admit(net, spec.conditions or spec.injuries, spec.vitals, spec.arrest) end
             end
             made = true
         end
