@@ -1574,9 +1574,11 @@ end)
 exports('openCalls', function(src)
     local list = {}
     for _, inc in pairs(Open) do
-        local r = record(inc)
-        list[#list + 1] = { id = r.id, name = r.name, street = r.street, priority = r.priority, units = count(inc.responders),
-                            joined = inc.responders[src] ~= nil }
+        if (inc.def.service or 'police') == (ServiceOf(src) or 'police') then -- (a medic's board: medical calls only)
+            local r = record(inc)
+            list[#list + 1] = { id = r.id, name = r.name, street = r.street, priority = r.priority, units = count(inc.responders),
+                                joined = inc.responders[src] ~= nil }
+        end
     end
     table.sort(list, function(a, b) return a.id < b.id end)
     return list

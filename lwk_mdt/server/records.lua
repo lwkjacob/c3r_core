@@ -145,18 +145,94 @@ end
 
 Records.KIND = {
     stop = 'Traffic stop', callout = 'Callout', pursuit = 'Vehicle pursuit', contact = 'Field contact', manual = 'Report',
-    call911 = '911 Call',
+    call911 = '911 Call', patient = 'Patient care',
 }
-Records.FORMS = { warning = 'Written Warning', citation = 'Citation', arrest = 'Arrest Report', incident = 'Incident Report' }
+Records.FORMS = { warning = 'Written Warning', citation = 'Citation', arrest = 'Arrest Report', incident = 'Incident Report',
+                  pcr = 'Patient Care Report' }
 Records.FORM_ORDER = { 'warning', 'citation', 'arrest', 'incident' } -- the order the form picker shows
 
 function Records.default_form(inc)
+    if inc.kind == 'patient' then return 'pcr' end
     return inc.kind == 'stop' and 'citation' or inc.kind == 'pursuit' and 'arrest' or 'incident'
+end
+
+-- c3r's patient report (c3r:patientReport) -> what's kept on the incident: every value checked, lists capped.
+local function vitals_set(v)
+    if type(v) ~= 'table' then return nil end
+    local n = function(x) return math.type(tonumber(x)) and tonumber(x) or (tonumber(x) and math.floor(tonumber(x) + 0.5)) or nil end
+    return { t = n(v.t), hr = n(v.hr), sys = n(v.sys), dia = n(v.dia), spo2 = n(v.spo2), rr = n(v.rr), etco2 = n(v.etco2),
+             gcs = n(v.gcs), rhythm = str(v.rhythm, 40) }
+end
+function Records.pcr(r)
+    r = type(r) == 'table' and r or {}
+    local out = { complaint = str(r.complaint, 60), says = str(r.says, 200), contact = tonumber(r.contact),
+                  left_scene = tonumber(r.left_scene), ended = tonumber(r.ended), hospital = str(r.hospital, 40),
+                  outcome = (r.outcome == 'transported' or r.outcome == 'pronounced') and r.outcome or nil,
+                  arrested = r.arrested == true, rosc = r.rosc == true, first = vitals_set(r.first), last = vitals_set(r.last),
+                  findings = {}, care = {} }
+    for _, f in ipairs(type(r.findings) == 'table' and r.findings or {}) do
+        if #out.findings < 20 and type(f) == 'table' and str(f.text, 160) then
+            out.findings[#out.findings + 1] = { part = str(f.part, 20), text = str(f.text, 160), treated = f.treated == true }
+        end
+    end
+    for _, c in ipairs(type(r.care) == 'table' and r.care or {}) do
+        if #out.care < 80 and type(c) == 'table' and str(c.text, 160) then
+            out.care[#out.care + 1] = { t = tonumber(c.t) or 0, text = str(c.text, 160) }
+        end
+    end
+    return out
+end
+
+local function vitals_text(v)
+    if not v then return nil end
+    local bits = { 'HR ' .. (v.hr or '-'), v.sys and ('BP %d/%d'):format(v.sys, v.dia or 0) or 'BP not taken',
+                   'SpO2 ' .. (v.spo2 or '-') .. '%', 'RR ' .. (v.rr or '-'), 'EtCO2 ' .. (v.etco2 or '-'), 'GCS ' .. (v.gcs or '-') }
+    return table.concat(bits, ', ') .. (v.rhythm and (', ' .. v.rhythm) or '') .. (v.t and (' (' .. os.date('%H:%M', v.t) .. ')') or '')
+end
+local function cap(s) return s and (s:sub(1, 1):upper() .. s:sub(2)) or s end
+
+-- A patient care report's narrative, CHART: Chief complaint, History, Assessment, Rx (treatment), Transport.
+function Records.pcr_narrative(inc, people, date_fmt)
+    local r, p = inc.pcr or {}, people[1]
+    local L = {}
+    local function add(s) L[#L + 1] = s end
+    add('C - CHIEF COMPLAINT: ' .. (r.complaint or inc.title or 'Unknown') .. '.')
+    add('')
+    local who = p and (Records.person_name(p) .. (p.dob and (', DOB ' .. p.dob) or '') .. (p.gender and (', ' .. p.gender:lower()) or ''))
+    add('H - HISTORY: ' .. (who or 'Unidentified patient') .. '. Patient contact at ' .. os.date('%H:%M', r.contact or inc.started)
+        .. (inc.location and (', ' .. inc.location) or '') .. ', on ' .. os.date(date_fmt or '%m/%d/%Y', inc.started) .. '.'
+        .. (r.says and (' On arrival: ' .. r.says) or ''))
+    add('')
+    add('A - ASSESSMENT:')
+    if #(r.findings or {}) == 0 then add('No injuries or illness found on assessment.') end
+    for _, f in ipairs(r.findings or {}) do add(cap(f.part or 'General') .. ': ' .. f.text) end
+    if r.first then add('Initial vitals: ' .. vitals_text(r.first) .. '.') end
+    if r.last then add('Final vitals: ' .. vitals_text(r.last) .. '.') end
+    if r.arrested then add('Patient was in cardiac arrest during care' .. (r.rosc and '; circulation was restored.' or '.')) end
+    add('')
+    add('R - TREATMENT:')
+    if #(r.care or {}) == 0 then add('None.') end
+    for _, c in ipairs(r.care or {}) do add(os.date('%H:%M', c.t) .. '  ' .. c.text) end
+    add('')
+    if r.outcome == 'pronounced' then
+        add('T - DISPOSITION: Pronounced dead at ' .. os.date('%H:%M', r.ended or inc.updated)
+            .. (r.arrested and ' after resuscitation was unsuccessful.' or '.'))
+    elseif r.outcome == 'transported' then
+        local mins = r.contact and r.ended and math.max(1, math.floor((r.ended - r.contact) / 60 + 0.5))
+        local scene = r.contact and r.left_scene and math.max(1, math.floor((r.left_scene - r.contact) / 60 + 0.5))
+        add('T - TRANSPORT: Transported to ' .. (r.hospital and (r.hospital .. ' hospital') or 'hospital') .. '. Care handed over at '
+            .. os.date('%H:%M', r.ended or inc.updated) .. (mins and (', ' .. mins .. ' min after patient contact') or '')
+            .. (scene and (' (' .. scene .. ' min on scene)') or '') .. '.')
+    else
+        add('T - TRANSPORT: ')
+    end
+    return table.concat(L, '\n')
 end
 
 -- The draft an officer starts from: who, what, where, then the timeline.
 -- people / vehicles: records in the order they joined the incident.
 function Records.narrative(inc, people, vehicles, date_fmt)
+    if inc.kind == 'patient' then return Records.pcr_narrative(inc, people, date_fmt) end
     local lines = {}
     local head = (Records.KIND[inc.kind] or 'Incident') .. (inc.title and (': ' .. inc.title) or '')
         .. ' handled by ' .. (inc.officer or 'unknown unit')

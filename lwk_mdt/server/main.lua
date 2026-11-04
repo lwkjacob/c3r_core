@@ -135,6 +135,14 @@ local function admin(src)
     return false
 end
 local function can_use(src) return not Config.AcePermission or IsPlayerAceAllowed(src, Config.AcePermission) end
+
+-- On shift as a medic in c3r: their MDT is patient care reports, and none of the police records (and police never see
+-- patient care reports).
+local function medic(src)
+    if GetResourceState('c3r') ~= 'started' then return false end
+    local ok, service = pcall(function() return exports.c3r:getService(src) end)
+    return ok and service == 'ambulance'
+end
 local function can_edit(src, inc) -- (units who joined a callout can add to its report too)
     if inc.author == license(src) or supervisor(src) then return true end
     for _, l in ipairs(inc.assist or {}) do if l == license(src) then return true end end
@@ -254,7 +262,7 @@ local function new_incident(src, kind, title)
         started = now, updated = now, status = 'open', people = {}, plates = {}, events = {}, charges = {}, total = 0,
     }
     Incidents[id] = inc
-    if kind ~= 'manual' then
+    if kind ~= 'manual' and kind ~= 'patient' then -- (a patient report is written at the end: nothing stays open)
         Open[src] = id
         TriggerClientEvent('lwk_mdt:where', src, id) -- the street name is only known on the client
     end
@@ -343,8 +351,34 @@ end)
 -- ─── c3r events ───────────────────────────────────────────────────────────
 -- Server-only events (c3r/docs/contract.md): the first argument is the officer.
 
-AddEventHandler('c3r:contact', function(src, ped) add_person(src, ped, 'Contact') end)
-AddEventHandler('c3r:vehicleContact', function(src, veh) add_vehicle(src, veh, 'Vehicle') end)
+AddEventHandler('c3r:contact', function(src, ped) if not medic(src) then add_person(src, ped, 'Contact') end end)
+AddEventHandler('c3r:vehicleContact', function(src, veh) if not medic(src) then add_vehicle(src, veh, 'Vehicle') end end)
+
+-- A medic handed a patient over or pronounced them: their patient care report, drafted (c3r docs/contract.md).
+AddEventHandler('c3r:patientReport', function(src, r)
+    src = tonumber(src)
+    if not src or type(r) ~= 'table' then return end
+    wait_loaded()
+    local pcr = Records.pcr(r)
+    local inc = new_incident(src, 'patient', pcr.complaint or 'Patient care')
+    inc.status, inc.form, inc.pcr = 'draft', 'pcr', pcr
+    inc.started = pcr.contact or inc.started
+    inc.location = str(r.street, 80)
+    local p = Records.person(r.person)
+    if p then
+        p = Records.merge(People[p.key], p)
+        p.last_seen = os.time()
+        p.contacts = Records.add_unique(p.contacts, inc.id)
+        People[p.key] = p
+        save('p', p.key, p)
+        inc.people[1] = p.key
+    end
+    for _, c in ipairs(pcr.care) do inc.events[#inc.events + 1] = { t = c.t, text = c.text } end
+    save_inc(inc)
+    if not inc.location then TriggerClientEvent('lwk_mdt:where', src, inc.id) end
+    TriggerClientEvent('lwk_mdt:drafted', src, inc.id)
+    log('patient care report #%d for %d', inc.id, src)
+end)
 
 AddEventHandler('c3r:stopStarted', function(src, ped, veh)
     start(src, 'stop', nil, 'Traffic stop initiated')
@@ -420,6 +454,7 @@ end
 -- A callout is one incident for every unit on it: the first one opens it (and writes the report); anyone after
 -- joins it, and their stops, contacts and notes go into it too.
 AddEventHandler('c3r:calloutAccepted', function(src, c)
+    if medic(src) then return end -- (a medic's report is the patient's, written at the handover)
     c = type(c) == 'table' and c or {}
     local id = math.type(c.id) == 'integer' and c.id or nil
     local joined = call_incident(id)
@@ -439,6 +474,7 @@ AddEventHandler('c3r:calloutAccepted', function(src, c)
 end)
 
 AddEventHandler('c3r:calloutArrived', function(src)
+    if medic(src) then return end
     local inc = current(src)
     if not inc then return end
     inc.on_scene = inc.on_scene or {} -- (per unit: one arriving doesn't put the others on scene)
@@ -464,7 +500,7 @@ end
 
 RegisterNetEvent('lwk_mdt:action', function(id, ctx)
     local src = source
-    if type(id) ~= 'string' then return end
+    if type(id) ~= 'string' or medic(src) then return end -- (a medic's radio isn't a police incident's timeline)
     ctx = type(ctx) == 'table' and ctx or {}
     local inc = current(src)
 
@@ -620,16 +656,18 @@ end
 function H.init(src)
     local me = license(src)
     local inc = current(src)
+    local ems = medic(src)
     Player(src).state:set('c3rNoPopup', not prefs(src).popups, true) -- (read by c3r's game)
     return {
         forms = (function() -- ordered list: a Lua map reaches the page in random key order
+            if ems then return { { id = 'pcr', label = Records.FORMS.pcr } } end
             local out = {}
             for _, id in ipairs(Records.FORM_ORDER) do out[#out + 1] = { id = id, label = Records.FORMS[id] } end
             return out
-        end)(), officer = officer(src),
+        end)(), officer = officer(src), medic = ems,
         current = inc and inc_summary(inc) or nil,
         drafts = sorted_reports(function(i) return i.author == me and i.status == 'draft' end),
-        calls = sorted_reports(function(i) return i.status == 'open' or i.status == 'pending' end), -- live calls only
+        calls = ems and {} or sorted_reports(function(i) return i.status == 'open' or i.status == 'pending' end), -- live calls only
         c3r = c3r_calls(src),
         admin = admin(src),
         units = units_board(), now = os.time(),
@@ -713,6 +751,15 @@ function H.search(src, a)
     for _, p in pairs(People) do
         if Records.match_person(p, terms) then people[#people + 1] = p end
     end
+    if medic(src) then -- (patients by name: who they are, nothing police hold on them)
+        table.sort(people, function(x, y) return (x.last_seen or 0) > (y.last_seen or 0) end)
+        local out = {}
+        for i = 1, math.min(#people, 25) do
+            local p = people[i]
+            out[i] = { key = p.key, first = p.first, last = p.last, dob = p.dob, gender = p.gender, last_seen = p.last_seen }
+        end
+        return { people = out, vehicles = {} }
+    end
     for _, v in pairs(Vehicles) do
         if Records.match_vehicle(v, a.q) then vehicles[#vehicles + 1] = v end
     end
@@ -728,9 +775,24 @@ function H.search(src, a)
     return { people = people, vehicles = vehicles }
 end
 
-function H.person(_, a)
+-- Their contacts of one kind: patient care reports for a medic, police reports otherwise.
+local function contacts_for(list, ems)
+    local mine = {}
+    for _, id in ipairs(list or {}) do
+        local inc = Incidents[id]
+        if inc and (inc.kind == 'patient') == ems then mine[#mine + 1] = id end
+    end
+    return contacts(mine)
+end
+
+function H.person(src, a)
     local p = People[str(a.key, 160) or '']
-    return p and { record = p, findings = Records.person_findings(p), contacts = contacts(p.contacts) } or nil
+    if not p then return nil end
+    if medic(src) then
+        return { record = { key = p.key, first = p.first, last = p.last, dob = p.dob, gender = p.gender, address = p.address,
+                            last_seen = p.last_seen }, findings = {}, contacts = contacts_for(p.contacts, true) }
+    end
+    return { record = p, findings = Records.person_findings(p), contacts = contacts_for(p.contacts, false) }
 end
 
 function H.vehicle(_, a)
@@ -769,19 +831,21 @@ function H.reports(src, a)
         drafts = function(i) return i.status == 'draft' end,
         signed = function(i) return i.status == 'signed' end,
     }
-    return sorted_reports(filters[a.filter] or function() return true end)
+    local f = filters[a.filter] or function() return true end
+    local ems = medic(src) -- (each sees their own kind: patient care reports, or police reports)
+    return sorted_reports(function(i) return (i.kind == 'patient') == ems and f(i) end)
 end
 
 function H.report(src, a)
     local inc = Incidents[tonumber(a.id) or -1]
-    if not inc then return nil end
+    if not inc or (inc.kind == 'patient') ~= medic(src) then return nil end
     local people, vehicles = records_of(inc)
     return {
         summary = inc_summary(inc), form = inc.form or Records.default_form(inc), charges = inc.charges,
         narrative = inc.narrative or Records.narrative(inc, people, vehicles, Config.DateFormat),
         auto = inc.narrative == nil, events = inc.events, people = people, vehicles = vehicles,
         can_edit = can_edit(src, inc), signed_by = inc.signed_by, signed_at = inc.signed_at,
-        coords = inc.coords, caller = inc.caller,
+        coords = inc.coords, caller = inc.caller, pcr = inc.pcr,
     }
 end
 
@@ -814,16 +878,21 @@ end)
 function H.save(src, a)
     local inc = Incidents[tonumber(a.id) or -1]
     if not inc or not can_edit(src, inc) then return { error = 'You can only edit your own reports.' } end
-    if Records.FORMS[a.form] then inc.form = a.form end
-    inc.charges, inc.total = Records.charges(a.charges, Config.Charges)
-    if inc.form == 'warning' then inc.total = 0 end
+    local patient = inc.kind == 'patient'
+    if patient then -- (no form to pick, nothing to charge)
+        inc.form, inc.charges, inc.total = 'pcr', {}, 0
+    else
+        if Records.FORMS[a.form] and a.form ~= 'pcr' then inc.form = a.form end
+        inc.charges, inc.total = Records.charges(a.charges, Config.Charges)
+        if inc.form == 'warning' then inc.total = 0 end
+    end
     if a.auto then inc.narrative = nil else inc.narrative = str(a.narrative, 6000) end
     if a.sign then
         if inc.narrative == nil then
             local people, vehicles = records_of(inc)
             inc.narrative = Records.narrative(inc, people, vehicles, Config.DateFormat) -- freeze it
         end
-        if inc.status ~= 'signed' then -- (once: a signed report edited and saved again changes nothing on anyone's record)
+        if inc.status ~= 'signed' and not patient then -- (once: a signed report edited and saved again changes nothing on anyone's record)
             local ids, reason = Records.wanted(inc, People)
             for _, id in ipairs(ids) do issue_warrant(id, reason) end
         end
@@ -861,8 +930,10 @@ end
 
 -- A blank report from a search result, with that person or vehicle attached.
 function H.new(src, a)
-    local inc = new_incident(src, 'manual')
+    local ems = medic(src)
+    local inc = new_incident(src, ems and 'patient' or 'manual', ems and 'Patient care' or nil)
     inc.status = 'draft'
+    if ems then inc.form, inc.pcr = 'pcr', Records.pcr({ contact = os.time() }) end
     local p, v = People[str(a.person, 160) or ''], Vehicles[Records.plate_key(a.plate) or '']
     if p then inc.people[1] = p.key p.contacts = Records.add_unique(p.contacts, inc.id) save('p', p.key, p) end
     if v then inc.plates[1] = v.plate v.contacts = Records.add_unique(v.contacts, inc.id) save('v', v.plate, v) end
@@ -1147,9 +1218,16 @@ end)
 
 AddEventHandler('playerDropped', function() Last911[source] = nil end)
 
+-- What only police can ask for (a medic's MDT has no vehicles, stats or police incidents).
+local POLICE_ONLY = { vehicle = true, owner = true, stats = true, attach = true, writeUp = true }
+local function handler(src, name)
+    if type(name) ~= 'string' or not H[name] or (POLICE_ONLY[name] and medic(src)) then return nil end
+    return H[name]
+end
+
 RegisterNetEvent('lwk_mdt:req', function(rid, name, args)
     local src = source
-    local h = type(name) == 'string' and H[name]
+    local h = handler(src, name)
     local res
     wait_loaded()
     if h and can_use(src) then
@@ -1248,7 +1326,7 @@ local function web_request(src, name, args)
         end
         return { error = 'Unknown button.' }
     end
-    local h = name ~= 'popout' and H[name]
+    local h = name ~= 'popout' and handler(src, name)
     if not h then return { error = 'Unknown request.' } end
     local r = h(src, args)
     if name == 'init' and r then r.quick, r.status = Config.Quick, Units[src].code end

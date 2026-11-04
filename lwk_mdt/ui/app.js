@@ -123,13 +123,27 @@ const CIV_TOOLS = [
     'sep',
     { id: 'close', label: 'Close', key: 'Esc', run: close },
 ];
+// A medic's MDT (on shift as Ambulance in c3r): calls and units, patients by name, patient care reports.
+const EMS_TOOLS = [
+    { id: 'back', label: 'Back', key: 'Alt+Left', run: goBack },
+    { id: 'fwd', label: 'Forward', key: 'Alt+Right', run: goFwd },
+    { id: 'home', label: 'Home', key: 'Alt+Home', run: () => go(homeScreen) },
+    'sep',
+    { id: 'query', label: 'Patients', key: 'Ctrl+J', run: () => go(queryScreen) },
+    { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'all')) },
+    { id: 'drafts', label: 'Drafts', key: 'Ctrl+D', run: () => go((t) => reportsScreen(t, 'drafts')) },
+    { id: 'new', label: 'New PCR', key: 'Ctrl+N', run: () => newReport({}) },
+    'sep',
+    { id: 'popout', label: 'Pop Out', key: 'Ctrl+O', run: popOut },
+    { id: 'close', label: 'Close', key: 'Esc', run: close },
+];
 let tools = TOOLS;
 
 function buildToolbar() {
     $('#toolbar').innerHTML = tools.map((t) => (t === 'sep' ? '<span class="tsep"></span>'
         : `<button class="tile" id="t-${t.id}" title="${t.label} (${t.key})"><svg viewBox="0 0 24 24">${ICONS[t.id]}</svg>
            <span>${t.label}</span><small>${t.key}</small></button>`)).join('')
-        + `<div class="brand"><b>lwk</b><small>${CIV ? 'CITIZEN PORTAL' : 'MOBILE DATA'}</small></div>`;
+        + `<div class="brand"><b>lwk</b><small>${CIV ? 'CITIZEN PORTAL' : tools === EMS_TOOLS ? 'EMS DATA' : 'MOBILE DATA'}</small></div>`;
     tools.forEach((t) => t !== 'sep' && ($(`#t-${t.id}`).onclick = t.run));
 }
 buildToolbar();
@@ -194,6 +208,8 @@ async function refresh() {
     const res = await req('init');
     if (res.error) return;
     init = res;
+    const want = CIV ? tools : init.medic ? EMS_TOOLS : TOOLS; // (going on or off shift as a medic swaps the toolbar)
+    if (want !== tools) { tools = want; buildToolbar(); navButtons(); }
     if (res.now) skew = res.now - Date.now() / 1000;
     statusBar();
 }
@@ -354,6 +370,10 @@ function queryScreen(token, shown = lastQuery) {
             <div id="results"></div></div>
         <div class="qside"><div class="sect">Recent Queries <span class="grow"></span><button class="sbtn" id="qclear">Clear</button></div>
             <div class="pane" id="recent"></div></div></div>`;
+    if (init.medic) {
+        $('label[for=q]').textContent = 'Name:';
+        $('#qf').nextElementSibling.textContent = 'Last name, first name. A patient shows their earlier patient care reports.';
+    }
     const q = $('#q');
     q.value = lastQuery;
     q.focus();
@@ -384,6 +404,13 @@ async function runQuery(token, q) {
     if (stale(token) || $('#q')?.value !== q) return;
     sfx.ran();
     const vehicles = arr(res.vehicles), people = arr(res.people);
+    if (init.medic) {
+        $('#results').innerHTML = `<div class="sect">Patients (${people.length}) <small>double-click to open</small></div>
+            <div class="pane">${grid([['Name', '34%'], ['DOB', '120px'], ['Sex', '80px'], ['Last seen', '']],
+                people.map((p) => ({ open: `person:${p.key}`, cells: [[`${p.last || ''}, ${p.first || ''}`.toUpperCase(), 'cy'], [p.dob], [p.gender],
+                    [p.last_seen ? when(p.last_seen) : '']] })), 'No patients by that name.')}</div>`;
+        return wire($('#results'));
+    }
     $('#results').innerHTML = `<div class="sect">Vehicles (${vehicles.length}) <small>double-click to open</small></div>
         <div class="pane">${grid([['Plate', '90px'], ['Year', '52px'], ['Color', '12%'], ['Make', '14%'], ['Model', '14%'], ['Owner', ''], ['Flags', '22%']],
             vehicles.map((v) => ({ open: `vehicle:${v.plate}`, cells: [[v.plate, 'cy'], [v.year], [v.color], [v.make], [v.model], [v.owner],
@@ -429,6 +456,10 @@ function recordBar(title, onNew, attachArgs) {
 
 function contactsGrid(list) {
     list = arr(list);
+    if (init.medic) return `<div class="sect">Patient Care Reports (${list.length}) <small>double-click to open</small></div>
+        <div class="pane">${grid([['PCR#', '58px'], ['Complaint', '34%'], ['Medic', ''], ['Date', '130px']],
+            list.map((r) => ({ open: `report:${r.id}`, cells: [[r.id, 'cy'], [up(r.title || '')], [r.officer], [when(r.started)]] })),
+            'No earlier patient care reports.')}</div>`;
     return `<div class="sect">Prior Contacts (${list.length}) <small>double-click to open</small></div>
         <div class="pane">${grid(CALL_COLS, callRows(list), 'No prior contacts.')}</div>`;
 }
@@ -438,6 +469,17 @@ async function personScreen(token, key) {
     if (stale(token)) return;
     if (!res.record) return toast('Record not found.');
     const p = res.record;
+    if (init.medic) { // (who they are and their care history: nothing police hold)
+        setTitle('Patient');
+        view.innerHTML = `<div class="formbar"><h2>Patient: ${h(up(p.last))}, ${h(up(p.first))}</h2><span class="grow"></span>
+            <button class="btn" id="newpcr">New PCR</button></div><div id="rec"></div>`;
+        $('#newpcr').onclick = () => newReport({ person: p.key });
+        $('#rec').innerHTML = returnPane('PATIENT', [
+            field('NAM', `${p.last || ''}, ${p.first || ''}`, 34) + field('DOB', p.dob, 18) + field('SEX', p.gender),
+            field('ADR', p.address), field('LAST SEEN', when(p.last_seen)),
+        ], []) + contactsGrid(res.contacts);
+        return wire(view);
+    }
     setTitle('Person Return');
     recordBar(`Person: ${up(p.last)}, ${up(p.first)}`, () => newReport({ person: p.key }), { person: p.key });
     $('#rec').innerHTML = returnPane('QUERY RESPONSE - PERSON', [
@@ -503,6 +545,15 @@ async function reportsScreen(token, filter) {
     };
     const list = arr(await req('reports', { filter }));
     if (stale(token)) return;
+    if (init.medic) {
+        $('#rlist').innerHTML = grid([['PCR#', '58px'], ['Complaint', '22%'], ['Status', '62px'], ['Patient', ''], ['Location', '20%'], ['Medic', '12%'], ['Date', '120px']],
+            list.map((r) => {
+                const [st, sc] = STATUS[r.status] || [r.status, ''];
+                return { open: `report:${r.id}`, cells: [[r.id, 'cy'], [up(r.title || ''), 'cy'], [st, sc], [arr(r.people).join(', ') || 'Unidentified'],
+                    [r.location || ''], [r.officer], [when(r.started)]] };
+            }), 'No patient care reports.');
+        return wire($('#rlist'));
+    }
     $('#rlist').innerHTML = grid([['Call#', '58px'], ['Type', '14%'], ['Nature', '18%'], ['Form', '17%'], ['Status', '62px'], ['Involved', ''], ['Officer', '12%'], ['Date', '120px'], ['Total', '70px']],
         list.map((r) => {
             const [st, sc] = STATUS[r.status] || [r.status, ''];
@@ -540,8 +591,82 @@ async function statsScreen(token, sort = 'seconds') {
 // closing the MDT, until saved or deleted.
 const unsaved = {};
 
+const vitalsRow = (label, v) => v && { cells: [[label], [v.t ? hhmm(v.t) : '', 'cy'], [v.hr ?? '-'], [v.sys ? `${v.sys}/${v.dia}` : '---'],
+    [v.spo2 != null ? `${v.spo2}%` : '-'], [v.rr ?? '-'], [v.etco2 ?? '-'], [v.gcs ?? '-'], [v.rhythm || '']] };
+const OUTCOME = (pc) => (pc.outcome === 'pronounced' ? 'Pronounced dead'
+    : pc.outcome === 'transported' ? `Transported${pc.hospital ? ` to ${pc.hospital}` : ''}` : 'Not recorded');
+
+// A patient care report: who, the vitals, what was found, the narrative (CHART, from the care log until edited), and
+// every treatment with its time. No forms or charges.
+function pcrScreen(r) {
+    const s = r.summary, ro = !r.can_edit, pc = r.pcr || {};
+    const draft = !ro && unsaved[s.id];
+    let auto = draft ? draft.auto : r.auto;
+    setTitle(`Patient Care Report #${s.id}`);
+    view.innerHTML = `<div class="formbar"><h2>Patient Care Report #${h(s.id)} - ${h(up(s.title || ''))}</h2>
+            <span class="badge ${h(s.status)}">${h((STATUS[s.status] || [s.status])[0])}</span><span class="grow"></span>
+            ${ro ? '<span style="color:#666">Read only: only the author or a supervisor can change this report.</span>' : ''}</div>
+        <fieldset><legend>Call</legend><div class="info">
+            <div><b>Complaint:</b> ${h(s.title || '-')}</div><div><b>Location:</b> ${h(s.location || '-')}</div>
+            <div><b>Medic:</b> ${h(s.officer)}</div><div><b>Patient contact:</b> ${when(pc.contact || s.started)}</div>
+            <div><b>Outcome:</b> ${h(OUTCOME(pc))}</div>
+            <div><b>Signed:</b> ${r.signed_by ? `${h(r.signed_by)}, ${when(r.signed_at)}` : '-'}</div></div></fieldset>
+        <fieldset><legend>Patient</legend><div class="pane" id="inv" style="min-height:0">${grid([['Name', '34%'], ['DOB', '120px'], ['Sex', '']],
+            arr(r.people).map((p) => ({ open: `person:${p.key}`, cells: [[`${p.last || ''}, ${p.first || ''}`.toUpperCase(), 'cy'], [p.dob], [p.gender]] })),
+            'Unidentified patient.')}</div></fieldset>
+        <div class="cols">
+            <fieldset class="grow"><legend>Vitals</legend><div class="pane" style="min-height:0">${grid([['Set', '70px'], ['Time', '54px'], ['HR', ''], ['BP', ''],
+                ['SpO2', ''], ['RR', ''], ['EtCO2', ''], ['GCS', ''], ['Rhythm', '24%']],
+                [vitalsRow('Initial', pc.first), vitalsRow('Final', pc.last)].filter(Boolean), 'No monitor readings.')}</div></fieldset>
+            <fieldset class="grow"><legend>Findings</legend><div class="pane" style="min-height:0">${grid([['Area', '90px'], ['Finding', ''], ['', '70px']],
+                arr(pc.findings).map((f) => ({ cells: [[up(f.part || '')], [f.text], [f.treated ? 'TREATED' : 'OPEN', f.treated ? 'gy' : 'rd']] })),
+                'Nothing found.')}</div></fieldset>
+        </div>
+        <fieldset><legend>Narrative${auto ? ' (auto, written from the care log until edited)' : ''}</legend>
+            <textarea class="txt" id="narr" aria-label="Narrative" ${ro ? 'readonly' : ''}></textarea></fieldset>
+        ${ro ? '' : `<div class="dlgbtns"><button class="btn" id="rebuild" title="Replace the text with a fresh draft from the care log">Rebuild</button>
+            <span class="grow"></span><button class="btn" id="del">Delete</button>
+            <button class="btn" id="save">${s.status === 'signed' ? 'Save Changes' : 'Save Draft'}</button>
+            ${s.status === 'signed' ? '' : '<button class="btn default" id="sign">Sign</button>'}</div>`}
+        <fieldset><legend>Care Given</legend><div class="pane" id="tl" style="min-height:0">${grid([['Time', '64px'], ['Treatment', '']],
+            arr(pc.care).map((e) => ({ cells: [[hhmm(e.t), 'cy'], [e.text]] })), 'Nothing logged.')}</div></fieldset>`;
+    const narr = $('#narr');
+    narr.value = draft ? draft.narrative : r.narrative || '';
+    wire($('#inv'));
+    if (ro) return;
+    const keep = () => { unsaved[s.id] = { form: 'pcr', charges: [], narrative: narr.value, auto }; };
+    narr.oninput = () => { auto = false; keep(); };
+    const save = async (sign) => {
+        const res = await req('save', { id: s.id, form: 'pcr', charges: [], narrative: narr.value, auto, sign });
+        if (res.error) return toast(res.error);
+        delete unsaved[s.id];
+        (sign ? sfx.signed : sfx.saved)();
+        toast(sign ? `Patient care report #${s.id} signed.` : `Patient care report #${s.id} saved.`);
+        await refresh();
+        rerender();
+    };
+    $('#save').onclick = () => save(false);
+    if ($('#sign')) $('#sign').onclick = () => save(true);
+    $('#rebuild').onclick = () => { auto = true; save(false); };
+    $('#del').onclick = async (e) => {
+        const b = e.currentTarget;
+        if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Confirm Delete'; return; }
+        const res = await req('delete', { id: s.id });
+        if (res.error) return toast(res.error);
+        delete unsaved[s.id];
+        toast(`Patient care report #${s.id} deleted.`);
+        await refresh();
+        show(hist.length ? hist.pop() : homeScreen);
+        fwd.length = 0;
+        navButtons();
+    };
+}
+
 async function reportScreen(token, id, presetForm) {
     const r = await req('report', { id: Number(id) });
+    if (stale(token)) return;
+    if (r && r.pcr) return pcrScreen(r);
+    if (!r || !r.summary) return toast('Report not found.');
     const list = await chargeList();
     if (stale(token)) return;
     if (!r.summary) return toast('Report not found.');
