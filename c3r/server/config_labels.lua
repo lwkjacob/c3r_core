@@ -204,6 +204,7 @@ ConfigMenu = {
     { name = 'Ambulance', sections = {
         { title = 'The shift', rows = {
             { 'Ems.ace', 'Ambulance permission', blank = 'Anyone can go on duty', help = 'To limit it to a group, enter a name such as c3r.ambulance, then grant it in server.cfg with add_ace.' },
+            { 'Ems.bring_vehicle', 'Bring a vehicle on shift', help = 'Off: whatever they drive is their ambulance.' },
             { 'Ems.vehicle', 'Vehicle', help = MODEL },
             { 'Ems.uniform', 'Put players in uniform', help = 'Turn off on a server with its own clothing script.' },
             { 'Ems.ped', 'Uniform model', adv = true, help = "For a player who isn't an online character. " .. MODEL },

@@ -95,6 +95,11 @@ end
 -- The first half go on the left of the wheel, the rest on the right.
 local function items(t)
     local s = Stop
+    local ems = not OnPatrol() and EmsWheel and EmsWheel() -- (a medic at their vehicle: client/ems.lua)
+    if ems then
+        ems[#ems + 1] = BACKUP
+        return ems
+    end
     if t.backup then
         if not ChaseOn() then return backup_items(SERVICES) end
         local list = backup_items(CHASE)
@@ -189,6 +194,7 @@ RegisterNUICallback('radial', function(d, cb)
     close()
     if not t or type(d.action) ~= 'string' then return end
     if d.action == 'backup' then return CallBackup(d.arg) end
+    if d.action == 'ems' then return EmsWheelAction(d.arg) end
     if not t.veh or not DoesEntityExist(t.veh) then return end
     if d.action == 'run_plate' then return TriggerServerEvent('c3r:runPlate', GetVehicleNumberPlateText(t.veh)) end
     if d.action == 'felony' then return PaCommand('felony') end

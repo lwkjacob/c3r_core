@@ -1,17 +1,20 @@
 -- c3r config: the Ambulance role.
 
 -- /duty ambulance or the F11 card. ace = nil: anyone can; set one (e.g. 'c3r.ambulance') to limit it.
--- A shift brings the vehicle to the road beside you and puts you in uniform; ending it takes both back.
+-- A shift can bring a vehicle (bring_vehicle, below) and put you in uniform (uniform); ending it takes both back.
 Config.Ems = {
     ace = nil,
     vehicle = 'ambulance',
-    uniform = true,                 -- false: keep what you're wearing (a server with its own clothing script)
+    uniform = false,                -- true: the shift puts them in uniform (the ped below, or outfit_m / outfit_f)
     ped = 's_m_m_paramedic_01',     -- the uniform, for a player who isn't an online character
     -- An online character (mp_m_freemode_01, mp_f_freemode_01) keeps their face and only changes clothes, as a backup
     -- unit's crew does (config/backup.lua): outfit = { [11] = { 0, 0 } }, props = { [0] = { 1, 0 } }. Empty: no change.
     outfit_m = {},
     outfit_f = {},
 }
+-- bring_vehicle = false: no vehicle comes; whatever the medic drives is their ambulance for the shift (the bag and the
+-- stretcher come from its back). true: the shift brings `vehicle` to the road beside them, and takes it away after.
+Config.Ems.bring_vehicle = false
 
 -- What's in the bag, by pouch (group: assess, treat, airway, drugs), in order. count: how many, restocked at the
 -- ambulance; no count: it never runs out. part = true: used on a body part (pick one first); at: always on that part.

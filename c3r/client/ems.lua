@@ -10,7 +10,8 @@
 ]]
 
 local E = Config.Ems
-local truck, was = nil, nil -- the shift's ambulance; who they were before the uniform
+local truck, was = nil, nil -- the shift's ambulance (brought, or whatever they drive); who they were before the uniform
+local brought = false         -- truck is one the shift brought (and takes away again)
 local bag_out, bag = false, nil -- carrying the bag; its prop (nil if no model loaded: it still counts)
 local stretcher, fit = nil, nil -- the stretcher being pushed; how it sits, from its model's size
 local lying, aboard = nil, nil -- { ped, net }: on the stretcher; in the back
@@ -104,6 +105,7 @@ local function bring_truck()
     truck = CreateVehicle(m, at.x, at.y, at.z + 0.5, h, true, false)
     SetModelAsNoLongerNeeded(m)
     if truck == 0 then truck = nil return Notify('~b~C~w~3~r~R~s~ No ambulance available.') end
+    brought = true
     SetEntityAsMissionEntity(truck, true, true)
     SetNetworkIdCanMigrate(NetworkGetNetworkIdFromEntity(truck), false)
     SetVehicleOnGroundProperly(truck)
@@ -129,11 +131,29 @@ end
 
 local function partner_ok() return partner ~= nil and DoesEntityExist(partner) and not IsEntityDead(partner) and have_truck() end
 
-local function at_rear()
+-- Whatever the medic gets in and drives is their ambulance (not with a patient on the go): the partner moves into it.
+CreateThread(function()
+    while true do
+        Wait(1000)
+        local me = PlayerPedId()
+        local v = LocalPlayer.state.c3rService == 'ambulance' and not aboard and not lying and GetVehiclePedIsIn(me, false) or 0
+        if v ~= 0 and v ~= truck and GetPedInVehicleSeat(v, -1) == me then
+            truck = v
+            if partner and DoesEntityExist(partner) and not IsEntityDead(partner) then
+                if IsVehicleSeatFree(v, 0) then SetPedIntoVehicle(partner, v, 0) end
+            elseif IsVehicleSeatFree(v, 0) then
+                bring_partner()
+            end
+        end
+    end
+end)
+
+-- Beside their vehicle, any side (pushing the stretcher, its length further off). Any model: no doors or bones needed.
+local function near_truck()
     if not have_truck() then return false end
-    local min = GetModelDimensions(GetEntityModel(truck))
-    local r = GetOffsetFromEntityInWorldCoords(truck, 0.0, min.y - 0.8, 0.0)
-    return #(GetEntityCoords(PlayerPedId()).xy - r.xy) < 2.2
+    local min, max = GetModelDimensions(GetEntityModel(truck))
+    local reach = math.max(max.y - min.y, max.x - min.x) / 2 + 2.5 + (stretcher and fit and fit.len or 0.0)
+    return #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(truck)) < reach
 end
 
 local function back_doors(open)
@@ -369,13 +389,11 @@ CreateThread(function()
         Wait(500)
         if aboard and partner_ok() then
             if ride ~= 'drive' and GetPedInVehicleSeat(truck, -1) == PlayerPedId() then
+                ride = 'drive'
                 local seat = back_seat()
-                if seat then
-                    ride = 'drive'
-                    SetPedIntoVehicle(partner, truck, seat)
-                    TriggerServerEvent('c3r:ems:hold', aboard.net, true)
-                    Prompt('ems', 'info', 'Your partner', "I've got them in the back. Drive.", 6000)
-                end
+                if seat then SetPedIntoVehicle(partner, truck, seat) end -- (no seat in the back: they watch from the front)
+                TriggerServerEvent('c3r:ems:hold', aboard.net, true)
+                Prompt('ems', 'info', 'Your partner', "I've got them. Drive.", 6000)
             elseif ride == 'back' and hospital and #(GetEntityCoords(truck) - door(hospital)) < E.hospital_radius
                 and GetEntitySpeed(truck) < 1.0 then
                 ride = 'there'
@@ -439,34 +457,51 @@ local function action()
     end
     if stretcher then
         if lying then
-            if hospital then
-                if #(GetEntityCoords(me) - door(hospital)) < 3.5 then return { 'Hand over the patient', hand_over } end
-            elseif at_rear() then
-                return { 'Load the patient', load_patient }
-            end
+            if hospital and #(GetEntityCoords(me) - door(hospital)) < 3.5 then return { 'Hand over the patient', hand_over } end
             return nil
         end
         local t = stable_near()
         if t then return { 'Lift onto the stretcher', function() lift(t) end } end
-        if at_rear() then return { 'Put the stretcher back', put_stretcher_away } end
-        return nil
     end
-    if not at_rear() then return nil end
-    if aboard then
-        if hospital and #(GetEntityCoords(truck) - door(hospital)) < E.hospital_radius and GetEntitySpeed(truck) < 1.0 then
-            return { 'Unload the patient', unload_patient }
+    return nil
+end
+
+local function restock()
+    put_bag_away()
+    TriggerServerEvent('c3r:ems:restock')
+end
+local WHEEL = { bag = hold_bag, bag_away = restock, stretcher = take_stretcher, stretcher_away = put_stretcher_away,
+                load = load_patient, ride = ride_back, unload = unload_patient }
+
+-- client/radial.lua's G wheel, on foot beside their vehicle: what the vehicle's for. -> wheel items | nil
+function EmsWheel()
+    if scr or opening or not on_ems() or IsPedInAnyVehicle(PlayerPedId(), false) or not near_truck() then return nil end
+    local list = {}
+    local function add(arg, label, icon, off) list[#list + 1] = { action = 'ems', arg = arg, label = label, icon = icon, off = off } end
+    if stretcher then
+        if lying then
+            if not hospital then add('load', 'Load the patient', 'in') end
+        else
+            add('stretcher_away', 'Put the stretcher back', 'in')
         end
-        if ride ~= 'drive' then return { 'Ride in the back with them (or take the wheel)', ride_back } end
-        return nil
+    elseif aboard then
+        if hospital and #(GetEntityCoords(truck) - door(hospital)) < E.hospital_radius and GetEntitySpeed(truck) < 1.0 then
+            add('unload', 'Unload the patient', 'out')
+        elseif ride ~= 'drive' and back_seat() then
+            add('ride', 'Ride in the back with them', 'medic')
+        end
+    else
+        if bag_out then add('bag_away', 'Put the bag back and restock', 'medic') else add('bag', 'Medical bag', 'medic') end
+        add('stretcher', 'Stretcher', 'in', not next(Stable) and 'Nobody ready to move' or nil)
     end
-    if bag_out then
-        return { 'Put the bag back and restock', function()
-            put_bag_away()
-            TriggerServerEvent('c3r:ems:restock')
-        end }
+    return list[1] and list or nil
+end
+
+-- A wheel option picked: still there to do (the moment may have moved on), then done.
+function EmsWheelAction(arg)
+    for _, it in ipairs(EmsWheel() or {}) do
+        if it.arg == arg and not it.off and WHEEL[arg] then return CreateThread(WHEEL[arg]) end
     end
-    if next(Stable) then return { 'Get the stretcher', take_stretcher } end
-    return { 'Take the medical bag', hold_bag }
 end
 
 -- client/menu.lua's E. -> true when it did something
@@ -482,10 +517,12 @@ CreateThread(function()
     local shown
     while true do
         local a = on_ems() and action() or nil
-        local label = a and a[1] or nil
+        local label = a and a[1] or (on_ems() and EmsWheel() and 'Your vehicle') or nil
         if label ~= shown then
             shown = label
-            if label then Prompt('ems_e', 'info', label, ('Press %s.'):format(KeyName('+c3r_interact', 'E'))) else ClearPrompt('ems_e') end
+            if a then Prompt('ems_e', 'info', label, ('Press %s.'):format(KeyName('+c3r_interact', 'E')))
+            elseif label then Prompt('ems_e', 'info', label, ('Hold %s for the bag, the stretcher and the patient.'):format(KeyName('+c3r_radial', 'G')))
+            else ClearPrompt('ems_e') end
         end
         Wait(300)
     end
@@ -659,7 +696,7 @@ function EmsTreat(ped)
     if scr or opening then return end
     local inside = aboard ~= nil and aboard.ped == ped -- (on the cot in the back: the kit's all there)
     if have_truck() and not bag_out and not inside then
-        return Prompt('ems', 'info', 'No bag', 'Take your medical bag from the back of the ambulance.', 5000)
+        return Prompt('ems', 'info', 'No bag', ('Hold %s at your vehicle for your medical bag.'):format(KeyName('+c3r_radial', 'G')), 5000)
     end
     opening = true
     CreateThread(function()
@@ -853,8 +890,8 @@ local function end_of_shift()
     clear_job()
     if partner and DoesEntityExist(partner) then DeleteEntity(partner) end
     partner = nil
-    if have_truck() then DeleteEntity(truck) end
-    truck = nil
+    if brought and have_truck() then DeleteEntity(truck) end -- (their own vehicle stays theirs)
+    truck, brought = nil, false
     ClearPrompt('ems_e')
 end
 
@@ -863,9 +900,13 @@ AddStateBagChangeHandler('c3rService', ('player:%d'):format(GetPlayerServerId(Pl
     CreateThread(function()
         if service == 'ambulance' then
             dress()
-            bring_truck()
-            bring_partner()
-        elseif truck or was then
+            if E.bring_vehicle then
+                bring_truck()
+                bring_partner()
+            else
+                Prompt('ems', 'info', 'On shift', 'Get in any vehicle and drive it: it is your ambulance for the shift.', 8000)
+            end
+        elseif truck or was or partner then
             end_of_shift()
             undress()
         end
@@ -883,5 +924,5 @@ AddEventHandler('onResourceStop', function(res)
     drop_prop(stretcher)
     clear_hospital()
     if partner and DoesEntityExist(partner) then DeleteEntity(partner) end
-    if have_truck() then DeleteEntity(truck) end
+    if brought and have_truck() then DeleteEntity(truck) end
 end)
