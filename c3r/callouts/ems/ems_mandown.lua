@@ -37,6 +37,15 @@ Callout(Ems.call({
             patient = vector4(1385.67, 3601.34, 34.90, 52.1),
             nearby = vector4(1386.47, 3601.94, 34.90, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_mandown
+        { street = 'Algonquin Blvd', at = vector3(1693.40, 3759.50, 34.70), points = {
+            patient = vector4(1693.40, 3759.50, 34.70, 230.0),
+            nearby = vector4(1694.20, 3760.10, 34.70, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1931.50, 3730.00, 32.84), points = {
+            patient = vector4(1931.50, 3730.00, 32.84, 210.0),
+            nearby = vector4(1932.30, 3730.60, 32.84, 0.0),
+        } },
     },
     stories = {
         overdose = { weight = 3, secret = 'drugs', conditions = { 'opioid' },

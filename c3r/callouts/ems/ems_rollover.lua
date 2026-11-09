@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Single vehicle collision',
     voice = 'call_rollover', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     age = { 17, 70 },
     reports = {
         'Caller says a car has come off the road. The driver is out and hurt.',
@@ -40,6 +41,15 @@ Callout(Ems.call({
         { street = 'West Mirror Drive', at = vector3(890.96, -548.03, 58.16), points = {
             patient = vector4(890.96, -548.03, 58.16, 110.8),
             nearby = vector4(891.76, -547.43, 58.16, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_rollover
+        { street = 'Panorama Dr', at = vector3(1990.50, 3054.30, 47.20), points = {
+            patient = vector4(1990.50, 3054.30, 47.20, 150.0),
+            nearby = vector4(1991.30, 3054.90, 47.20, 0.0),
+        } },
+        { street = 'Senora Fwy', at = vector3(2678.90, 3280.60, 55.24), points = {
+            patient = vector4(2678.90, 3280.60, 55.24, 330.0),
+            nearby = vector4(2679.70, 3281.20, 55.24, 0.0),
         } },
     },
     stories = {

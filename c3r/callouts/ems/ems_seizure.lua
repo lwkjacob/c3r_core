@@ -40,6 +40,15 @@ Callout(Ems.call({
             patient = vector4(-0.40, 6513.03, 31.88, 140.8),
             nearby = vector4(0.40, 6513.63, 31.88, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_seizure
+        { street = 'Alhambra Dr', at = vector3(1931.50, 3730.00, 32.84), points = {
+            patient = vector4(1931.50, 3730.00, 32.84, 210.0),
+            nearby = vector4(1932.30, 3730.60, 32.84, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1853.00, 3689.50, 34.27), points = {
+            patient = vector4(1853.00, 3689.50, 34.27, 210.0),
+            nearby = vector4(1853.80, 3690.10, 34.27, 0.0),
+        } },
     },
     stories = {
         sugar = { weight = 2, conditions = { 'hypoglycemia' },

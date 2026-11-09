@@ -34,7 +34,8 @@ end
 
 --[[ A medics' call that's just the patient, and sometimes something beside them that tells the story. Builds the
      Callout() definition: `Callout(Ems.call({ ... }))` in the call's own file (so /c3rplace writes there). spec = {
-       id, name, voice?, priority?, weight?, age? ({ min, max }), reports = { ... },
+       id, name, voice?, priority?, weight?, age? ({ min, max }), trauma? (true: a hidden extra break, now and then),
+       reports = { ... },
        locations = { { street, at, points = { patient = vector4, nearby = vector4 } } } (as /c3rplace writes them),
        stories = { key = { weight?, conditions, says (what they look like or say), what (for the MDT: 'a heart attack'),
                            clue? = { label, prop, text }, arrest? (found with no pulse), secret? } } } ]]
@@ -42,8 +43,13 @@ function Ems.call(spec)
     local stories = {}
     for key, st in pairs(spec.stories) do
         stories[key] = { weight = st.weight or 1, arrest = st.arrest, setup = function(c)
+            local conditions = st.conditions
+            if spec.trauma and math.random() < 0.35 then -- (a wrist or ankle broken too: felt on the head-to-toe check)
+                conditions = { table.unpack(conditions) }
+                conditions[#conditions + 1] = { 'fracture', ({ 'lhand', 'rhand', 'lfoot', 'rfoot' })[math.random(4)] }
+            end
             c:person('patient', { at = 'patient', label = 'Patient', secret = st.secret or 'clean', injured = true,
-                age = spec.age or { 18, 80 }, vitals = st.says, conditions = st.conditions, arrest = st.arrest })
+                age = spec.age or { 18, 80 }, vitals = st.says, conditions = conditions, arrest = st.arrest })
             if st.clue then c:clue('nearby', { at = 'nearby', label = st.clue[1], prop = st.clue[2], text = st.clue[3] }) end
             Ems.card(c, 'patient')
             Ems.wire(c, 'patient', function(how)
@@ -80,6 +86,7 @@ function Ems.wounds(hits, rand)
         elseif cause == 'blunt' or cause == 'fall' then
             if part == 'head' or part == 'neck' then add('head')
             elseif LIMBS[part] and (cause == 'fall' or rand() < BREAKS) then add({ 'fracture', part }) end
+            if cause == 'fall' and rand() < 0.35 then add({ 'fracture', rand() < 0.5 and 'lhand' or 'rfoot' }) end -- (put a hand out, or landed badly)
         elseif cause == 'vehicle' or cause == 'explosion' then
             add({ 'hemorrhage', LIMBS[part] and part or 'abdomen' })
             if LIMBS[part] then add({ 'fracture', part }) end
@@ -100,7 +107,7 @@ function Ems.guess(part, dead, shot)
     return Ems.new({ { 'hemorrhage', (part == 'neck' or part == 'thorax') and part or 'abdomen' }, 'pain' }, nil, dead)
 end
 
-function Ems.stable(b) return Body.stable(b) end
+function Ems.stable(b) return Body.ready(b) end -- (ready to move: stable, and the workup done)
 
 -- A callout's patient (spec.conditions, or the short form spec.injuries), before anyone's touched them.
 function Ems.admit(net, list, say, arrest)
@@ -492,7 +499,7 @@ function Ems.tick_all()
             local note = p.note -- (a rhythm check at the end of a CPR cycle)
             p.note = nil
             if p.medic then send(p.medic, net, p, note and { kind = note.kind, text = note.text, ms = 0 }) end -- (the monitor moves every second)
-            if p.medic and not p.stabilised and Body.stable(p) then
+            if p.medic and not p.stabilised and Body.ready(p) then
                 p.stabilised = true
                 Callouts.aid(p.medic, net, 'stabilised')
             end

@@ -14,6 +14,7 @@ Callout(Ems.call({
     name = 'Pedestrian struck',
     voice = 'call_pedestrian', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     reports = {
         'Caller says a car hit someone and kept going.',
         'Pedestrian down in the road after being hit.',
@@ -38,6 +39,15 @@ Callout(Ems.call({
         { street = 'Paleto Blvd', at = vector3(-150.98, 6489.88, 29.32), points = {
             patient = vector4(-150.98, 6489.88, 29.32, 344.2),
             nearby = vector4(-150.18, 6490.48, 29.32, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_pedestrian
+        { street = 'Alhambra Dr', at = vector3(1961.50, 3740.50, 32.34), points = {
+            patient = vector4(1961.50, 3740.50, 32.34, 300.0),
+            nearby = vector4(1962.30, 3741.10, 32.34, 0.0),
+        } },
+        { street = 'Senora Fwy', at = vector3(2678.90, 3280.60, 55.24), points = {
+            patient = vector4(2678.90, 3280.60, 55.24, 330.0),
+            nearby = vector4(2679.70, 3281.20, 55.24, 0.0),
         } },
     },
     stories = {

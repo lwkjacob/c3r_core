@@ -217,6 +217,8 @@ ConfigMenu = {
             { 'Ems.accept_seconds', 'Players have this long to take a request', unit = 's', help = "An officer's ambulance or a medic's police: then the AI unit goes." },
             { 'Ems.cardiac_minutes', 'A heart attack with no aspirin gets worse after', unit = 'minutes', adv = true },
             { 'Ems.cpr_seconds', 'A cycle of CPR before the rhythm check', unit = 's', help = 'Two minutes in life.' },
+            { 'Ems.watch_seconds', 'Watch a stable patient this long before moving them', unit = 's' },
+            { 'Ems.vomit', 'Someone out cold with an open airway is sick, a minute', unit = 'pct', adv = true },
             { 'Ems.use_ms', 'A tool that helps takes', unit = 'ms' },
             { 'Ems.wrong_ms', 'A wrong tool costs', unit = 'ms' },
             { 'Ems.assess_ms', 'An assessment takes', unit = 'ms' },

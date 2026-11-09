@@ -39,6 +39,15 @@ Callout(Ems.call({
             patient = vector4(-73.23, 6603.38, 29.03, 97.9),
             nearby = vector4(-72.43, 6603.98, 29.03, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_burns
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
+        } },
+        { street = 'Senora Fwy', at = vector3(2678.90, 3280.60, 55.24), points = {
+            patient = vector4(2678.90, 3280.60, 55.24, 330.0),
+            nearby = vector4(2679.70, 3281.20, 55.24, 0.0),
+        } },
     },
     stories = {
         bbq = { weight = 2, conditions = { 'pain' },

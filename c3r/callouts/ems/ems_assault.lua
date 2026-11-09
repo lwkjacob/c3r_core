@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Assault victim',
     voice = 'call_assault', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     age = { 18, 60 },
     reports = {
         'Caller says someone has been attacked. The attacker ran off.',
@@ -40,6 +41,15 @@ Callout(Ems.call({
         { street = 'Algonquin Blvd', at = vector3(1355.17, 3614.37, 34.87), points = {
             patient = vector4(1355.17, 3614.37, 34.87, 65.8),
             nearby = vector4(1355.97, 3614.97, 34.87, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_assault
+        { street = 'Panorama Dr', at = vector3(1990.50, 3054.30, 47.20), points = {
+            patient = vector4(1990.50, 3054.30, 47.20, 150.0),
+            nearby = vector4(1991.30, 3054.90, 47.20, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1864.60, 3747.90, 33.03), points = {
+            patient = vector4(1864.60, 3747.90, 33.03, 30.0),
+            nearby = vector4(1865.40, 3748.50, 33.03, 0.0),
         } },
     },
     stories = {

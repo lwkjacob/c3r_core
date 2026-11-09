@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Fall from height',
     voice = 'call_height', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 1,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     age = { 20, 70 },
     reports = {
         'Caller says someone fell off a roof.',
@@ -40,6 +41,15 @@ Callout(Ems.call({
         { street = 'Paleto Blvd', at = vector3(-111.54, 6533.10, 29.81), points = {
             patient = vector4(-111.54, 6533.10, 29.81, 357.8),
             nearby = vector4(-110.74, 6533.70, 29.81, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_height
+        { street = 'Panorama Dr', at = vector3(1717.50, 3295.60, 41.20), points = {
+            patient = vector4(1717.50, 3295.60, 41.20, 105.0),
+            nearby = vector4(1718.30, 3296.20, 41.20, 0.0),
+        } },
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
         } },
     },
     stories = {

@@ -359,6 +359,7 @@ monitor and, left long enough, can stop their heart (after alarms).
 | `head` | | Hands or pen light on the head | Nothing at the scene: keep the airway, get them to hospital |
 | `bradycardia` | | Pulse at the neck or wrist, or the monitor | Epinephrine |
 | `pneumothorax` | | Stethoscope or shears on the chest: an open chest wound | Chest seal, then oxygen |
+| `dehydration` | | A fast, weak pulse (wrist or neck) | Saline IV |
 
 Parts: `head`, `neck`, `thorax`, `abdomen`, `larm`, `rarm`, `lhand`, `rhand`, `lleg`, `rleg`, `lfoot`, `rfoot`.
 A name the server doesn't know stops the call with an error naming it. `callouts/ems/` has an example of each.

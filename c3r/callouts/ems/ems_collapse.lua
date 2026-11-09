@@ -66,6 +66,17 @@ Callout({
             witness = vector4(6.01, 6511.58, 31.88, 97.7),
             nearby = vector4(0.70, 6520.50, 31.48, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_collapse
+        { street = 'Alhambra Dr', at = vector3(1853.00, 3689.50, 34.27), points = {
+            patient = vector4(1853.00, 3689.50, 34.27, 210.0),
+            witness = vector4(1856.00, 3691.50, 34.27, 30.0),
+            nearby = vector4(1853.80, 3690.10, 34.27, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1961.50, 3740.50, 32.34), points = {
+            patient = vector4(1961.50, 3740.50, 32.34, 300.0),
+            witness = vector4(1964.50, 3742.50, 32.34, 120.0),
+            nearby = vector4(1962.30, 3741.10, 32.34, 0.0),
+        } },
     },
 
     stories = {

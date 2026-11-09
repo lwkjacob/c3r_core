@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Sports injury',
     voice = 'call_sports', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 2,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     age = { 16, 60 },
     reports = {
         'Caller says someone got hurt while exercising.',
@@ -40,6 +41,15 @@ Callout(Ems.call({
         { street = 'Paleto Blvd', at = vector3(179.30, 6608.62, 31.87), points = {
             patient = vector4(179.30, 6608.62, 31.87, 339.6),
             nearby = vector4(180.10, 6609.22, 31.87, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_sports
+        { street = 'Panorama Dr', at = vector3(1717.50, 3295.60, 41.20), points = {
+            patient = vector4(1717.50, 3295.60, 41.20, 105.0),
+            nearby = vector4(1718.30, 3296.20, 41.20, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1853.00, 3689.50, 34.27), points = {
+            patient = vector4(1853.00, 3689.50, 34.27, 210.0),
+            nearby = vector4(1853.80, 3690.10, 34.27, 0.0),
         } },
     },
     stories = {

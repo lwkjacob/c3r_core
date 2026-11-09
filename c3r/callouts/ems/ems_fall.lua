@@ -70,6 +70,17 @@ Callout({
             with = vector4(-298.52, 6256.26, 31.53, 120.0),
             nearby = vector4(-302.52, 6253.26, 31.53, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_fall
+        { street = 'Panorama Dr', at = vector3(1717.50, 3295.60, 41.20), points = {
+            patient = vector4(1717.50, 3295.60, 41.20, 105.0),
+            with = vector4(1720.50, 3297.60, 41.20, 285.0),
+            nearby = vector4(1718.30, 3296.20, 41.20, 0.0),
+        } },
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            with = vector4(1978.60, 3820.80, 33.40, 300.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
+        } },
     },
 
     stories = {

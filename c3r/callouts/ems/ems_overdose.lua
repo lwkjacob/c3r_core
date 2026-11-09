@@ -75,6 +75,17 @@ Callout({
             friend = vector4(160.98, 6353.38, 31.45, 30.9),
             nearby = vector4(164.30, 6359.02, 31.40, 144.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_overdose
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            friend = vector4(1978.60, 3820.80, 33.40, 300.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
+        } },
+        { street = 'Alhambra Dr', at = vector3(1864.60, 3747.90, 33.03), points = {
+            patient = vector4(1864.60, 3747.90, 33.03, 30.0),
+            friend = vector4(1867.60, 3749.90, 33.03, 210.0),
+            nearby = vector4(1865.40, 3748.50, 33.03, 0.0),
+        } },
     },
 
     stories = {

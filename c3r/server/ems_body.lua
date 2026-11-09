@@ -29,6 +29,7 @@ local KINDS = {
     respiratory = { part = 'thorax', serious = true }, opioid = { part = 'head', serious = true },
     hypoglycemia = { part = 'lhand', serious = true }, cardiac = { part = 'thorax', serious = true }, head = { part = 'head' },
     bradycardia = { part = 'neck', serious = true }, pneumothorax = { part = 'thorax', serious = true },
+    dehydration = { part = 'head', serious = true },
 }
 local FOUND_TEXT = {
     hemorrhage = 'Bright red blood, pumping from a wound.', fracture = 'Deformed, swollen and tender: broken.',
@@ -37,6 +38,7 @@ local FOUND_TEXT = {
     hypoglycemia = 'Blood sugar is very low.', cardiac = 'Crushing chest pain, spreading down the left arm.',
     head = 'A boggy swelling on the scalp, and one pupil is bigger than the other.', bradycardia = 'A slow, weak pulse.',
     pneumothorax = 'Air sucking in and out of a chest wound, and no breath sounds on that side.',
+    dehydration = 'Hot, dry skin and a fast, weak pulse: badly dehydrated.',
 }
 local DRUGS = { morphine = true, epi = true, narcan = true, oxygen = true, glucose = true, saline = true, aspirin = true }
 local SHOCKABLE = { vf = true, vt = true }
@@ -125,6 +127,9 @@ local function target(b)
     if open(b, 'respiratory') then hr = hr + 15 end
     if open(b, 'pneumothorax') then hr = hr + 20 end
     if open(b, 'hypoglycemia') then hr = hr + 15 end
+    local dry = cond(b, 'dehydration') -- (until the saline's going in)
+    dry = dry and not (dry.fixed and b.effects.saline and b.t >= b.effects.saline.from)
+    if dry then hr = hr + 30 end
     if open(b, 'cardiac') then hr = hr + 15 end
     if open(b, 'head') then hr = hr - 20 end
     if open(b, 'bradycardia') then hr = 38 end
@@ -139,6 +144,7 @@ local function target(b)
     local sys = 120 + p * 20 - math.max(0, loss - 15) * 2.4
     if open(b, 'head') then sys = sys + 25 end
     if open(b, 'bradycardia') then sys = sys - 35 end
+    if dry then sys = sys - 30 end
     if on(b, 'epi') then sys = sys + 30 end
     if on(b, 'saline') then sys = sys + math.min(loss, 30) * 1.2 end
     if on(b, 'morphine_bad') then sys = sys - 25 end
@@ -147,6 +153,7 @@ local function target(b)
     local gcs = 15
     if opioid then gcs = 8 end
     if open(b, 'hypoglycemia') then gcs = math.min(gcs, 9) end
+    if dry then gcs = math.min(gcs, 13) end -- (muddled)
     if open(b, 'head') then gcs = math.min(gcs, 10) end
     if b.v.spo2 < 85 then gcs = gcs - 3 end
     if b.v.sys < 80 then gcs = gcs - 3 end
@@ -210,7 +217,8 @@ function Body.add(b, list)
                 b.blood = b.blood - 8
             end
         else
-            b.cond[#b.cond + 1] = { kind = kind, part = part, found = KINDS[kind].seen }
+            local small = kind == 'fracture' and (part == 'lhand' or part == 'rhand' or part == 'lfoot' or part == 'rfoot')
+            b.cond[#b.cond + 1] = { kind = kind, part = part, found = KINDS[kind].seen and not small } -- (a wrist or ankle: felt, not seen)
             if kind == 'hemorrhage' then b.blood = b.blood - 15 end -- (they've been bleeding since before the call)
             if kind == 'airway' then b.airway = 'fouled' end
         end
@@ -283,6 +291,15 @@ function Body.tick(b, dt, hold)
     set_rhythm(b)
     -- 30 s of a deadly number, then the heart stops
     local low = b.low
+    b.steady = Body.stable(b) and (b.steady or b.t) or nil -- (since when they've held: the reassessment)
+    -- out cold with nothing keeping the airway: now and then, they're sick
+    if b.v.gcs <= 8 and b.airway ~= 'fouled' and not secured(b) then
+        b.retch = (b.retch or 0) + dt
+        if b.retch >= 60 then
+            b.retch = 0
+            if b.rand() < (cfg().vomit or 0.25) then b.airway, b.checked_airway = 'fouled', nil end
+        end
+    end
     low.spo2 = b.v.spo2 < 70 and (low.spo2 or 0) + dt or nil
     low.sys = b.v.sys < 60 and (low.sys or 0) + dt or nil
     low.hr = b.v.hr > 170 and (low.hr or 0) + dt or nil
@@ -304,9 +321,10 @@ end
 
 local ASSESS = {}
 
+local REACHES = { larm = 'lhand', rarm = 'rhand', lleg = 'lfoot', rleg = 'rfoot' } -- (feeling down an arm or a leg)
 function ASSESS.hands(b, part)
     b.checked[part] = true
-    local c = find(b, 'fracture', part) or (part == 'head' and find(b, 'head'))
+    local c = find(b, 'fracture', part) or (REACHES[part] and find(b, 'fracture', REACHES[part])) or (part == 'head' and find(b, 'head'))
     if c then return 'found', FOUND_TEXT[c.kind] end
     return 'nothing', 'Nothing broken or swollen.'
 end
@@ -396,6 +414,7 @@ function ASSESS.pulse(b, part)
     if b.arrest then return 'found', 'No pulse.' end
     b.hand_hr = math.floor(b.v.hr + 0.5)
     if b.v.hr < 50 then find(b, 'bradycardia') end
+    if b.v.hr > 100 and find(b, 'dehydration') then return 'found', FOUND_TEXT.dehydration end
     local feel = b.v.sys < 90 and 'weak' or 'strong'
     return 'found', ('Pulse %d, %s.'):format(b.hand_hr, feel)
 end
@@ -615,6 +634,8 @@ end
 
 function DRUG.saline(b)
     give(b, 'saline', 30, 900)
+    local d = cond(b, 'dehydration')
+    if d then d.fixed = true end -- (fluids: what they were short of)
     return 'done', 'Saline running.'
 end
 
@@ -662,7 +683,7 @@ function Body.view(b)
         end
     end
     local v = b.v
-    local view = { found = found, arrest = b.arrest ~= nil, dead = b.dead == true, stable = Body.stable(b),
+    local view = { found = found, arrest = b.arrest ~= nil, dead = b.dead == true, stable = Body.ready(b),
                    airway = b.airway_kit, bvm = b.bvm, o2 = b.o2, hand_hr = b.hand_hr, given = {},
                    cpr = b.arrest and b.arrest.cpr_end and round(b.arrest.cpr_end - b.t) or nil }
     for drug, n in pairs(b.given) do
@@ -680,6 +701,23 @@ function Body.view(b)
 end
 
 -- Ready to move: no arrest, nothing serious left found-and-not-handled or not found, and holding numbers.
+-- What a medic does before moving them, once they're stable: a set of vitals with a blood pressure, a head-to-toe check
+-- (hands on the head, chest, belly and every limb), pain seen to if it's safe to, and a spell watching them hold.
+-- -> nil when done, else the step: 'vitals' | 'survey' (and the part) | 'pain' | 'watch' (and the seconds left)
+local SURVEY = { 'head', 'thorax', 'abdomen', 'larm', 'rarm', 'lleg', 'rleg' }
+function Body.workup(b)
+    if not b.nibp then return 'vitals' end
+    for _, part in ipairs(SURVEY) do if not b.checked[part] then return 'survey', part end end
+    local v = b.v
+    if pain(b) >= 0.5 and v.sys >= 100 and v.rr >= 12 and v.gcs >= 13 and not coming(b, 'morphine') then return 'pain' end
+    local left = (cfg().watch_seconds or 60) - (b.t - (b.steady or b.t))
+    if left > 0 then return 'watch', math.ceil(left) end
+    return nil
+end
+
+-- Ready for the stretcher: stable, and the workup done.
+function Body.ready(b) return Body.stable(b) and Body.workup(b) == nil end
+
 function Body.stable(b)
     if b.arrest or b.dead then return false end
     for _, c in ipairs(b.cond) do
@@ -727,6 +765,9 @@ function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and 
     if on(b, 'morphine_bad') and v.rr < 12 then return 'The morphine is slowing their breathing. Bag them if it drops further.', 'bvm' end
     if (cond(b, 'opioid') or cond(b, 'head')) and not b.pupils then return 'Check their pupils.', 'penlight', 'head' end
     if v.gcs < 15 and not b.sugar_known then return 'Not fully awake: check their blood sugar.', 'glucometer', 'lhand' end
+    local d = open(b, 'dehydration')
+    if d and not d.found then return 'Feel their pulse at the neck.', 'pulse', 'neck' end
+    if d then return 'Badly dehydrated: start a saline IV.', 'saline' end
     local f = open(b, 'fracture')
     if f and not f.found then return 'Feel each limb for breaks.', 'hands', f.part end
     if f then return 'Splint the fracture.', 'splint', f.part end
@@ -739,9 +780,17 @@ function Body.hint(b) -- -> text, tool?, part? (the screen lights that tool and 
     if open(b, 'bradycardia') then return 'Their heart is too slow: give epi.', 'epi' end
     if open(b, 'pain') then
         if v.sys >= 100 and v.rr >= 12 then return 'Give morphine for the pain.', 'morphine' end
-        return 'In pain, but their blood pressure or breathing is too low for morphine.'
+        if not Body.stable(b) then return 'In pain, but their blood pressure or breathing is too low for morphine.' end
     end
-    if Body.stable(b) then return 'Stable. Get the stretcher.' end
+    if Body.stable(b) then
+        local step, x = Body.workup(b)
+        local SAY = { head = 'head', thorax = 'chest', abdomen = 'belly', larm = 'left arm', rarm = 'right arm', lleg = 'left leg', rleg = 'right leg' }
+        if step == 'vitals' then return 'Stable for now. Wait for the first blood pressure reading.' end
+        if step == 'survey' then return ('Head-to-toe check: feel their %s for anything missed.'):format(SAY[x]), 'hands', x end
+        if step == 'pain' then return 'Still in a lot of pain: give morphine before you move them.', 'morphine' end
+        if step == 'watch' then return ('Reassess: watch their vitals hold before you move them (%d s).'):format(x) end
+        return 'Ready to move. Get the stretcher.'
+    end
     return 'Keep watching the monitor.'
 end
 

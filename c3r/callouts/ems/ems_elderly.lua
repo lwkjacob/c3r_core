@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Elderly fall',
     voice = 'call_elderly', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 2,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     age = { 70, 92 },
     reports = {
         'Caller says an elderly person has fallen and cannot get up.',
@@ -48,6 +49,15 @@ Callout(Ems.call({
         { street = 'Paleto Blvd', at = vector3(-1.78, 6547.26, 31.64), points = {
             patient = vector4(-1.78, 6547.26, 31.64, 198.1),
             nearby = vector4(-0.98, 6547.86, 31.64, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_elderly
+        { street = 'Alhambra Dr', at = vector3(1931.50, 3730.00, 32.84), points = {
+            patient = vector4(1931.50, 3730.00, 32.84, 210.0),
+            nearby = vector4(1932.30, 3730.60, 32.84, 0.0),
+        } },
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
         } },
     },
     stories = {

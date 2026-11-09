@@ -43,6 +43,15 @@ Callout(Ems.call({
             patient = vector4(880.22, -205.41, 71.98, 141.3),
             nearby = vector4(881.02, -204.81, 71.98, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_bite
+        { street = 'Zancudo Ave', at = vector3(1975.60, 3818.80, 33.40), points = {
+            patient = vector4(1975.60, 3818.80, 33.40, 120.0),
+            nearby = vector4(1976.40, 3819.40, 33.40, 0.0),
+        } },
+        { street = 'Algonquin Blvd', at = vector3(1693.40, 3759.50, 34.70), points = {
+            patient = vector4(1693.40, 3759.50, 34.70, 230.0),
+            nearby = vector4(1694.20, 3760.10, 34.70, 0.0),
+        } },
     },
     stories = {
         arm = { weight = 2, conditions = { { 'hemorrhage', 'rarm' }, 'pain' },

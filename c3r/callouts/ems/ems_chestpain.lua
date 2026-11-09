@@ -37,6 +37,15 @@ Callout(Ems.call({
             patient = vector4(-0.10, 6519.90, 31.48, 31.8),
             nearby = vector4(0.70, 6520.50, 31.48, 0.0),
         } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_chestpain
+        { street = 'Alhambra Dr', at = vector3(1853.00, 3689.50, 34.27), points = {
+            patient = vector4(1853.00, 3689.50, 34.27, 210.0),
+            nearby = vector4(1853.80, 3690.10, 34.27, 0.0),
+        } },
+        { street = 'Senora Fwy', at = vector3(2678.90, 3280.60, 55.24), points = {
+            patient = vector4(2678.90, 3280.60, 55.24, 330.0),
+            nearby = vector4(2679.70, 3281.20, 55.24, 0.0),
+        } },
     },
     stories = {
         heart = { weight = 3, conditions = { 'cardiac' },

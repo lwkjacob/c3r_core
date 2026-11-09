@@ -15,6 +15,7 @@ Callout(Ems.call({
     name = 'Cyclist down',
     voice = 'call_cyclist', -- (dispatch's line for it: lwk_control/tools/make_voice.py)
     priority = 2,
+    trauma = true, -- (now and then a wrist or ankle broken too: felt on the head-to-toe check)
     reports = {
         'Caller says a cyclist has come off their bike and is not getting up.',
         'Cyclist down at the side of the road.',
@@ -35,6 +36,15 @@ Callout(Ems.call({
         { street = 'Vinewood Boulevard', at = vector3(232.81, 210.23, 105.43), points = {
             patient = vector4(232.81, 210.23, 105.43, 159.1),
             nearby = vector4(233.61, 210.83, 105.43, 0.0),
+        } },
+        -- Sandy Shores, rough (placed from memory): check them in game, move any that are off with /c3rplace ems_cyclist
+        { street = 'Panorama Dr', at = vector3(1717.50, 3295.60, 41.20), points = {
+            patient = vector4(1717.50, 3295.60, 41.20, 105.0),
+            nearby = vector4(1718.30, 3296.20, 41.20, 0.0),
+        } },
+        { street = 'Panorama Dr', at = vector3(1990.50, 3054.30, 47.20), points = {
+            patient = vector4(1990.50, 3054.30, 47.20, 150.0),
+            nearby = vector4(1991.30, 3054.90, 47.20, 0.0),
         } },
     },
     stories = {

@@ -30,7 +30,7 @@ Config.Ems.tools = {
     { id = 'tourniquet', label = 'Tourniquet', icon = 'bandage', group = 'treat', part = true, count = 2 },
     { id = 'dressing', label = 'Trauma dressing', icon = 'bandage', group = 'treat', part = true, count = 4 },
     { id = 'chest_seal', label = 'Chest seal', icon = 'bandage', group = 'treat', part = true, count = 2 },
-    { id = 'splint', label = 'Splint', icon = 'bandage', group = 'treat', part = true, count = 2 },
+    { id = 'splint', label = 'Splint', icon = 'bandage', group = 'treat', part = true, count = 4 },
     { id = 'monitor', label = 'Monitor', icon = 'pulse', group = 'treat' },
     { id = 'cpr', label = 'CPR', icon = 'cpr', group = 'treat' },
     { id = 'defib', label = 'Defib', icon = 'pulse', group = 'treat' },
@@ -91,3 +91,7 @@ Config.Ems.misplace = 0.15
 Config.Ems.dead_minutes = 10
 Config.Ems.cardiac_minutes = 6
 Config.Ems.cpr_seconds = 30
+-- Before moving a stable patient: watch_seconds of their vitals holding. vomit: the chance each minute that someone out
+-- cold, with nothing keeping their airway, is sick.
+Config.Ems.watch_seconds = 60
+Config.Ems.vomit = 0.25
