@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "id": "example",
+      "name": "Example pack",
+      "author": "LWK DEVELOPMENT",
+      "version": "1.0.0",
+      "description": "One callout to open, play and copy. Shoplifting is never offered by itself: Test it from the creator, or /requestcall shoplift.",
+      "licence": "CC BY-NC-SA 4.0",
+      "callouts": ["shoplift"]
+    }
+  ]
+}
