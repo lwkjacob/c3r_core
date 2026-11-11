@@ -8,7 +8,7 @@ version '0.0.1'
 author 'LWK DEVELOPMENT'
 license 'CC-BY-NC-SA-4.0'
 
-shared_scripts { 'config/main.lua' }
+shared_scripts { 'config/main.lua', 'shared/config_live.lua' }
 client_scripts { 'client/main.lua', 'client/options.lua' }
 server_script 'server/main.lua'
 

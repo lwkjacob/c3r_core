@@ -4,16 +4,34 @@
     names in server/config_labels.lua, and writes a change back over just that value, so the comments and the layout
     stay as they were. Lists (the stations, a unit's crew...) can be added to, copying their last entry, and taken
     from. A change is live at once for everyone; a key or a command name only after a restart of c3r.
+    An official add-on with a tab in config_labels.lua (res = 'lwk_k9') is listed too while it's started: its files
+    as '<resource>/config/x.lua', and its changes go to it as c3r:configSet (resource, { { keys, value } }).
 ]]
 
 local RES = GetCurrentResourceName()
 
--- The config files, in the order fxmanifest.lua loads them.
+-- A file's id: c3r's own 'config/x.lua', an add-on's '<resource>/config/x.lua'. -> resource, its path there
+local function where(id)
+    local res, f = id:match('^([%w_%-]+)/(config/[%w_]+%.lua)$')
+    if res then return res, f end
+    return RES, id
+end
+
+-- The config files, in the order fxmanifest.lua loads them; then each started add-on's that has a tab here.
 local function config_files()
-    local out = {}
-    for i = 0, GetNumResourceMetadata(RES, 'shared_script') - 1 do
-        local f = GetResourceMetadata(RES, 'shared_script', i)
-        if f and f:match('^config/[%w_]+%.lua$') then out[#out + 1] = f end
+    local out, seen = {}, {}
+    local function of(res, prefix)
+        for i = 0, GetNumResourceMetadata(res, 'shared_script') - 1 do
+            local f = GetResourceMetadata(res, 'shared_script', i)
+            if f and f:match('^config/[%w_]+%.lua$') then out[#out + 1] = prefix .. f end
+        end
+    end
+    of(RES, '')
+    for _, tab in ipairs(ConfigMenu) do
+        if tab.res and not seen[tab.res] and GetResourceState(tab.res) == 'started' then
+            seen[tab.res] = true
+            of(tab.res, tab.res .. '/')
+        end
     end
     return out
 end
@@ -236,7 +254,27 @@ local function set(keys, v)
     if type(t) == 'table' then t[keys[#keys]] = v end
 end
 
-local changed = {} -- [file .. path] = { keys, value }: what's been changed since c3r started, for players joining later
+local changed = {} -- [file .. path] = { res, keys, value }: what's been changed since c3r started, for players joining later
+
+-- Changed values, live: c3r's own straight into Config here and in every game (c3r:config:set), an add-on's to it
+-- (c3r:configSet, here and in every game). to: one player (joining late), or nil for everyone.
+local function go_live(list, to)
+    local mine, others = {}, {}
+    for _, c in ipairs(list) do
+        if c.res == RES then
+            if not to then set(c.keys, c.value) end
+            mine[#mine + 1] = { keys = c.keys, value = c.value }
+        else
+            others[c.res] = others[c.res] or {}
+            table.insert(others[c.res], { keys = c.keys, value = c.value })
+        end
+    end
+    if mine[1] then TriggerClientEvent('c3r:config:set', to or -1, mine) end
+    for res, l in pairs(others) do
+        if not to then TriggerEvent('c3r:configSet', res, l) end
+        TriggerClientEvent('c3r:configSet', to or -1, res, l)
+    end
+end
 
 local function allowed(src) return src > 0 and IsPlayerAceAllowed(src, 'command.c3rconfig') end
 
@@ -268,9 +306,9 @@ end
 local function menu()
     local all, by, lists, used = {}, {}, {}, {}
     for _, f in ipairs(config_files()) do
-        local es, ls = parse(LoadResourceFile(RES, f) or '')
+        local es, ls = parse(LoadResourceFile(where(f)) or '')
         for _, e in ipairs(es) do
-            e.file = f
+            e.file, e.res = f, (where(f))
             all[#all + 1] = e
             by[f .. ':' .. e.path] = e
         end
@@ -285,7 +323,7 @@ local function menu()
                 local parts = PARTS[def.as] or { '' }
                 local pat = '^' .. (def[1] .. parts[1]):gsub('[%.%[%]]', '%%%0'):gsub('%*', '([%%w_]+)') .. '$'
                 for _, e in ipairs(all) do
-                    local caps = { e.path:match(pat) }
+                    local caps = e.res == (tab.res or RES) and { e.path:match(pat) } or {}
                     if caps[1] and not used[e] then
                         local es = {}
                         for i, part in ipairs(parts) do
@@ -298,7 +336,7 @@ local function menu()
             end
             if rows[1] then sections[#sections + 1] = { title = sec.title, help = sec.help, rows = rows } end
         end
-        tabs[#tabs + 1] = { name = tab.name, sections = sections }
+        if sections[1] or not tab.res then tabs[#tabs + 1] = { name = tab.name, sections = sections } end
     end
     local other = {}
     for _, e in ipairs(all) do
@@ -323,21 +361,21 @@ RegisterNetEvent('c3r:config:save', function(changes)
     local files, live, failed = {}, {}, {}
     for _, f in ipairs(config_files()) do files[f] = true end
     for _, c in ipairs(changes) do
-        local text = type(c) == 'table' and files[c.file] and LoadResourceFile(RES, c.file)
+        local text = type(c) == 'table' and files[c.file] and LoadResourceFile(where(c.file))
         local entry
         for _, e in ipairs(text and parse(text) or {}) do if e.path == c.path then entry = e break end end
         local ok, v = false, nil
         if entry then ok, v = accept(entry, c.value) end
         if ok then
-            SaveResourceFile(RES, c.file, text:sub(1, entry.s - 1) .. literal(text:sub(entry.s, entry.e), v) .. text:sub(entry.e + 1), -1)
-            set(entry.keys, v)
-            changed[c.file .. ':' .. entry.path] = { keys = entry.keys, value = v }
-            live[#live + 1] = { keys = entry.keys, value = v }
+            local res, path = where(c.file)
+            SaveResourceFile(res, path, text:sub(1, entry.s - 1) .. literal(text:sub(entry.s, entry.e), v) .. text:sub(entry.e + 1), -1)
+            changed[c.file .. ':' .. entry.path] = { res = res, keys = entry.keys, value = v }
+            live[#live + 1] = { res = res, keys = entry.keys, value = v }
         else
             failed[#failed + 1] = type(c) == 'table' and tostring(c.path) or '?'
         end
     end
-    if live[1] then TriggerClientEvent('c3r:config:set', -1, live) end
+    if live[1] then go_live(live) end
     print(('[c3r] %s changed %d config value(s) with /c3rconfig'):format(GetPlayerName(src) or src, #live))
     open(src, failed[1] and ('Not saved: ' .. table.concat(failed, ', ')) or ('Saved %d change%s.'):format(#live, #live == 1 and '' or 's'))
 end)
@@ -348,7 +386,7 @@ RegisterNetEvent('c3r:config:list', function(file, path, action, index)
     if not allowed(src) or type(file) ~= 'string' or type(path) ~= 'string' then return end
     local known = false
     for _, f in ipairs(config_files()) do known = known or f == file end
-    local text = known and LoadResourceFile(RES, file)
+    local text = known and LoadResourceFile(where(file))
     if not text then return end
     local list
     for _, l in ipairs(select(2, parse(text))) do if l.path == path then list = l break end end
@@ -356,14 +394,14 @@ RegisterNetEvent('c3r:config:list', function(file, path, action, index)
     local fresh = new and evaluate(new)
     local v = fresh and get(fresh, list.keys)
     if type(v) ~= 'table' then return open(src, 'Not saved: ' .. path) end
-    SaveResourceFile(RES, file, new, -1)
-    set(list.keys, v)
+    local res, at = where(file)
+    SaveResourceFile(res, at, new, -1)
     local prefix = file .. ':' .. path
     for k in pairs(changed) do -- (its entries' own changes are in it now, and may be about other entries)
         if k:sub(1, #prefix + 1) == prefix .. '[' or k:sub(1, #prefix + 1) == prefix .. '.' then changed[k] = nil end
     end
-    changed[prefix] = { keys = list.keys, value = v }
-    TriggerClientEvent('c3r:config:set', -1, { { keys = list.keys, value = v } })
+    changed[prefix] = { res = res, keys = list.keys, value = v }
+    go_live({ changed[prefix] })
     print(('[c3r] %s %s %s with /c3rconfig'):format(GetPlayerName(src) or src, action == 'add' and 'added to' or 'took from', path))
     open(src, action == 'add' and 'Added: a copy of the last one, to edit.' or 'Removed.')
 end)
@@ -372,5 +410,5 @@ end)
 RegisterNetEvent('c3r:config:sync', function()
     local list = {}
     for _, c in pairs(changed) do list[#list + 1] = c end
-    if list[1] then TriggerClientEvent('c3r:config:set', source, list) end
+    if list[1] then go_live(list, source) end
 end)

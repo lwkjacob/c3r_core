@@ -32,6 +32,10 @@ local STATE = {
 }
 
 local MODEL = 'A model name, from docs.fivem.net/docs/game-references.'
+local ANIMS = { rottweiler = 'Rottweiler', shepherd = 'Shepherd', retriever = 'Retriever and husky', small = 'Small dogs', cat = 'Cat' }
+local WHERE = { driver = 'Driver door', passenger = 'Front passenger door', rear_left = 'Rear left door', rear_right = 'Rear right door',
+                trunk = 'Trunk', person = 'On the person' }
+local K9_KEYS = { heel = 'Heel / out of the car', sit = 'Sit', down = 'Down', speak = 'Speak', car = 'In / out of the car', options = 'Dog options' }
 
 ConfigMenu = {
     fixed = { ['Ems.tools'] = true, ['Ems.grade'] = true }, -- lists with no add or remove: the game looks for these by name or place
@@ -280,6 +284,41 @@ ConfigMenu = {
             { 'Presence.states.*.text', '{name}', names = STATE },
             { 'Presence.states.*.icon', '{name}: small image', names = STATE, adv = true, help = 'Its name in Art Assets.' },
             { 'Presence.states.*.hover', '{name}: small image hover', names = STATE, adv = true, blank = 'None' },
+        } },
+    } },
+    -- add-ons: shown only while that resource is started (res); their values are written to its own config files
+    { name = 'K9', res = 'lwk_k9', sections = {
+        { title = 'General', rows = {
+            { 'Debug', 'Debug mode', help = 'Extra output in F8 for testing. Leave it off on a live server.' },
+        } },
+        { title = 'Keys', help = 'Click a key, then press the new one. Takes a restart of lwk_k9, and only reaches players who have not saved that key yet.', rows = {
+            { 'Keys.wheel', 'K9 wheel', as = 'key', help = 'Anywhere, on or off duty. On patrol the K9 slice is on the G wheel too.' },
+            { 'Keys.*', '{name}', names = K9_KEYS, as = 'key', blank = 'No key: players bind it themselves' },
+        } },
+        { title = 'Breeds', help = 'Police breeds can Sniff, Attack and Track for officers on duty as police. Add-on animals: stream the model, then add a breed with its model name.', rows = {
+            { 'Breeds[*].label', 'Breed' },
+            { 'Breeds[*].model', 'Model', help = MODEL },
+            { 'Breeds[*].police', 'Police dog' },
+            { 'Breeds[*].anims', 'Animations', opts = { { 'rottweiler', 'Rottweiler' }, { 'shepherd', 'Shepherd' }, { 'retriever', 'Retriever and husky' }, { 'small', 'Small dog' }, { 'cat', 'Cat' } }, add = 'Add a breed' },
+        } },
+        { title = 'Animations', adv = true, help = 'A scenario name, or an animation dictionary and clip.', rows = {
+            { 'Anims.*.*.scenario', '{name}: {n} scenario', names = ANIMS },
+            { 'Anims.*.*.dict', '{name}: {n} dictionary', names = ANIMS },
+            { 'Anims.*.*.anim', '{name}: {n} clip', names = ANIMS },
+        } },
+        { title = 'Sniff', help = 'The dog alerts on an item when its name has one of these words in it.', rows = {
+            { 'Smells[*]', 'Word {n}', add = 'Add a word' },
+            { 'Where.*', '{name}', names = WHERE, adv = true, help = 'How the card and the report say where it sat.' },
+        } },
+        { title = 'Attack', rows = {
+            { 'Bite.hold_seconds', 'Holds them for', unit = 's' },
+            { 'Bite.range', 'Called off past', unit = 'm', help = 'From you.' },
+            { 'Bite.min_health', 'Never takes them below this health', help = '200 is full, 100 is dead.' },
+        } },
+        { title = 'Track', rows = {
+            { 'Track.minutes', 'Oldest trail it follows', unit = 'minutes' },
+            { 'Track.pick_up', "Picks up a player's trail within", unit = 'm' },
+            { 'Track.wait_for', 'Waits when you are further behind than', unit = 'm' },
         } },
     } },
 }
