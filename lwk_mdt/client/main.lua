@@ -54,6 +54,7 @@ local function open_mdt(view)
     end
     is_open = true
     SetNuiFocus(true, true)
+    SetNuiFocusKeepInput(false) -- (another resource can leave it on: typing would reach the game, 1-3 the sirens)
     if not on_duty() then return SendNUIMessage({ type = 'open', civ = true }) end -- off shift: Citizen Portal
     TriggerServerEvent('lwk_mdt:callsign', callsign())
     SendNUIMessage({

@@ -164,7 +164,7 @@ body.web #t-popout, body.web #t-close, body.web .wbtn, body.web .tsep:last-of-ty
 .veil { position: absolute; inset: 0; z-index: 4; background: #0007; }
 .veil[hidden] { display: none; }
 .err { min-height: 16px; color: #c42b1c; }
-.radios.row { flex-direction: row; gap: 16px; }
+.radios.row { flex-direction: row; flex-wrap: wrap; gap: 6px 16px; }
 #gear { font-size: 15px; }
 body.civ #gear { display: none; }
 
@@ -321,6 +321,179 @@ body.command .pane, body.command .btn, body.command .txt, body.command fieldset,
 body.command .grid th { background: #142844; }
 body.command .grid tbody tr.sel td:not(.rh), body.command .grid tbody tr:focus td:not(.rh) { box-shadow: inset 3px 0 0 var(--m-blue); }
 
+/* ─── CAD: the classic layout dressed as a full-screen dispatch CAD. A blue title bar with the menus in it,
+   big square icon tiles, a blue link bar, black boards in bold upper case coloured by status, a blue status bar.
+   Our own design and badge. ─── */
+body:not(.cad) .cadonly, .seal { display: none; }
+body.cad #mdt { width: min(1440px, 90vw); height: min(840px, 88vh); background: #141414; border: 1px solid #0c2e62; box-shadow: 0 16px 50px #000c;
+                font: 600 13px Roboto, Arial, Helvetica, sans-serif; }
+body.cad .cadonly { display: flex; }
+body.cad .menubar .cadonly { display: block; }
+body.cad .titlebar { height: 26px; padding: 0 4px 0 0; background: #2d4f8e; border: none; }
+body.cad .appicon, body.cad .titlebar span.wbtn, body.cad #gear { display: none; }
+body.cad #title { text-align: center; color: #fff; font-weight: 700; }
+body.cad .titlebar::after { content: 'FLEX CAD'; order: 1; padding: 0 6px 0 30px; color: #fff; font-weight: 700; white-space: nowrap; }
+body.cad .wbtn.x { order: 2; width: 30px; height: 26px; color: #fff; font-size: 12px; cursor: pointer; }
+body.cad .menubar { position: absolute; top: 0; left: 0; z-index: 1; height: 26px; background: none; border: none; }
+body.cad .menubar button { color: #fff; padding: 0 10px; font-weight: 600; }
+body.cad .menubar button:hover:not(:disabled) { background: #ffffff22; border-color: transparent; }
+body.cad .menubar [data-act=query], body.cad .menubar [data-act=reports], body.cad .menubar [data-act=home]:not(.cadonly), body.cad .menubar button:disabled:not(:last-child) { display: none; }
+body.cad .toolbar { height: 96px; gap: 10px; padding: 0 10px; background: #1f3866; border: none; }
+body.cad .tile { width: 100px; height: 70px; gap: 6px; border: 1px solid #65779a; border-radius: 4px; background: #234074; box-shadow: none; }
+body.cad .tile:hover:not(:disabled) { background: #2d5190; }
+body.cad .tile:active:not(:disabled) { background: #1a3360; }
+body.cad .tile:disabled { filter: none; color: #7f97c4; }
+body.cad .tile:disabled svg { opacity: .5; }
+body.cad .tile svg { width: 26px; height: 26px; color: #fff; stroke: currentColor; stroke-width: 2.6; }
+body.cad .tile span { margin-top: 2px; font-size: 12px; font-weight: 700; letter-spacing: .2px; }
+body.cad .tile small { display: none; }
+body.cad #t-back svg, body.cad #t-fwd svg, body.cad #t-query svg, body.cad #t-reports svg { color: #ffb918; }
+body.cad #t-new svg, body.cad #t-people svg { color: #2ed131; }
+body.cad #t-stats svg, body.cad #t-car svg { color: #4693ff; }
+body.cad #t-close svg, body.cad #t-phone svg { color: #ff5a5a; }
+body.cad .tsep { width: 1px; height: 70px; margin: 0; background: #3a5384; box-shadow: none; }
+body.cad .brand { padding-right: 4px; }
+body.cad .brand b, body.cad .brand small { display: none; }
+body.cad .seal { display: block; width: 68px; height: 68px; }
+body.cad .subbar { height: 34px; gap: 10px; padding: 0 6px; background: #1a478b; border: none; }
+body.cad .sbtn { height: 26px; gap: 6px; padding: 0 6px; color: #fff; font-weight: 600; font-size: 14px; }
+body.cad .sbtn:hover:not(:disabled) { background: #ffffff1c; border-color: transparent; }
+body.cad .sbtn:disabled { color: #8fa6cf; }
+body.cad .sbtn i { width: 16px; height: 16px; border-radius: 0; box-shadow: none; background: var(--c);
+                   -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat;
+                   --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z'/%3E%3C/svg%3E"); }
+body.cad #mycall i { --c: #f2c94c; --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l3 6.6 7.2.7-5.4 4.8 1.6 7.1L12 17.5 5.6 21.2l1.6-7.1L1.8 9.3 9 8.6z'/%3E%3C/svg%3E"); }
+body.cad #mycall:disabled i { --c: #8fa6cf; }
+body.cad [data-act=drafts].sbtn i { --c: #ffb918; --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2h8l6 6v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm7 1.5V9h5.5z'/%3E%3C/svg%3E"); }
+body.cad #quick i { --c: #2ed131 !important; }
+body.cad #quick .sbtn:nth-child(4n+2) i { --c: #ffb918 !important; } body.cad #quick .sbtn:nth-child(4n+3) i { --c: #fb3c3c !important; }
+body.cad #quick .sbtn:nth-child(4n) i { --c: #4693ff !important; }
+body.cad .vsep { display: none; }
+body.cad main { padding: 0; gap: 0; color: #e8e8e8; background: #141414; }
+body.cad .split { gap: 0; }
+body.cad .splitter { display: none; }
+body.cad .pane { background: #141414; border: none; }
+
+body.cad table.grid { font: 700 18px Roboto, Arial, Helvetica, sans-serif; text-transform: uppercase; }
+body.cad .grid col:first-child { width: 0 !important; }
+body.cad .grid .rh { padding: 0; border: none; font-size: 0; background: none; }
+body.cad .grid th { height: 26px; padding: 0 2px; color: #fff; background: #0c2e62; border-top: 1px solid #797979; border-right: 1px solid #3a5384;
+                    border-bottom: 2px solid #768398; font: 600 14px Roboto, Arial, Helvetica, sans-serif; text-transform: none; }
+/* the filter mark on the columns a dispatcher sorts by: Nature; Unit and Status */
+body.cad #calls th:nth-child(3)::after, body.cad #units th:nth-child(3)::after, body.cad #units th:nth-child(4)::after { content: ''; float: right;
+    width: 9px; height: 7px; margin: 9px 4px 0 0; background: linear-gradient(#6f7f9a 0 1px, transparent 1px 3px, #6f7f9a 3px 4px, transparent 4px 6px, #6f7f9a 6px);
+    clip-path: polygon(0 0, 100% 0, 65% 100%, 35% 100%); }
+body.cad .grid td { height: 30px; padding: 0 2px; letter-spacing: .3px; color: #22c14b; border-bottom: 2px solid #797979; border-right: 1px solid #797979; }
+body.cad .grid tbody tr.sel td:not(.rh), body.cad .grid tbody tr:focus td:not(.rh) { background: #09142b; }
+body.cad .grid tbody tr:hover td:not(.rh) { background: #1c2333; }
+body.cad .grid .empty td { color: #8a8a8a; text-transform: none; font-weight: 600; }
+/* a row's colour is its status: calls green while worked, yellow waiting, red unanswered; units by their status */
+body.cad .grid tr[class*=st-] td { color: #22c14b !important; }
+body.cad .grid tr.st-OPEN td { color: #f9f554 !important; }
+body.cad .grid tr.st-PEND td { color: #ff7a5f !important; }
+body.cad .grid tr.st-SGND td, body.cad .grid tr.st-DRFT td { color: #9a9a9a !important; }
+body.cad #units tr[class*=st-] td { color: #bfff64 !important; }
+body.cad #units tr.st-ENRT td { color: #f9f554 !important; }
+body.cad #units tr.st-ONSC td { color: #fd9ef8 !important; }
+body.cad #units tr.st-BUSY td, body.cad #units tr.st-CNTC td { color: #96e5fc !important; }
+body.cad #units tr.st-STOP td, body.cad #units tr.st-PURS td { color: #ff7a5f !important; }
+/* the other screens, dark to match */
+body.cad .sect, body.cad .formbar h2 { color: #fff; }
+body.cad .sect small, body.cad .hint, body.cad .info b, body.cad .listbox .fine, body.cad .listbox .sec, body.cad .listbox .pts { color: #9fb0c8; }
+body.cad fieldset { border-color: #2a4a7c; }
+body.cad legend { color: #8fc0ff; }
+body.cad .txt, body.cad .listbox { color: #fff; background: #0b0b0b; border-color: #4a5a78; }
+body.cad .listbox label:hover { background: #1c2a44; }
+body.cad .cgroup { color: #fff; background: #0c2e62; border-color: #2a4a7c; }
+body.cad main .formbar, body.cad main > .sect, body.cad main > fieldset, body.cad main > .dlgbtns, body.cad main > .cols, body.cad main > .hint, body.cad .qwrap { margin: 0 6px; }
+body.cad main { padding-bottom: 6px; }
+body.cad .btn { color: #fff; border: 1px solid #65779a; border-radius: 4px; background: #234074; font-weight: 600; }
+body.cad .btn:hover:not(:disabled) { border-color: #8aa0c8; background: #2d5190; }
+body.cad .btn:active:not(:disabled) { background: #1a3360; }
+body.cad .btn.default { border-color: #9cc0ff; box-shadow: none; background: #1a478b; }
+body.cad .btn:disabled { color: #7f97c4; border-color: #3a4f75; }
+body.cad button:focus-visible, body.cad input:focus-visible, body.cad textarea:focus-visible, body.cad tr:focus-visible { outline: 1px dotted #fff; }
+body.cad .statusbar { height: 23px; color: #fff; background: #275dae; border: none; border-top: 1px solid #2a2a2a; font: 700 14px Roboto, Arial, Helvetica, sans-serif; }
+body.cad .statusbar > span { padding: 0 16px; border-right: 1px solid #5e83bc; }
+body.cad .statusbar > span:last-child { margin-left: 0; }
+body.cad #sdot, body.cad #ssince { display: none; }
+body.cad #sclock { order: 9; margin-left: auto; border: none; font-weight: 700; }
+body.cad .statusbar b { font-weight: 700; }
+body.cad .statusbar > span.dotcell { padding: 0 12px; }
+body.cad .sig { width: 13px; height: 13px; background: #fff; -webkit-mask: var(--sig) center / contain no-repeat; mask: var(--sig) center / contain no-repeat;
+                --sig: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2 22h4v-6H2zm6 0h4V11H8zm6 0h4V6h-4zm6 0h4V1h-4z'/%3E%3C/svg%3E"); }
+body.cad .dot { width: 12px; height: 12px; background: #2cd55b; }
+body.cad .dlg { color: #fff; background: #1f3866; border-color: #65779a; }
+body.cad .dlgtitle { color: #fff; background: #2d4f8e; border-color: #0c2e62; font-weight: 700; }
+body.cad .err { color: #ff8a8a; }
+body.cad #toast { color: #fff; background: #0c2e62; border-color: #65779a; }
+body.cad.web #mdt { width: 100vw; height: 100vh; }
+body.cad ::-webkit-scrollbar { width: 13px; height: 13px; background: #f0f0f0; }
+body.cad ::-webkit-scrollbar-thumb { background: #a6a6a6; border: 3px solid #f0f0f0; border-radius: 7px; }
+body.cad ::-webkit-scrollbar-button:single-button { display: block; height: 13px; background: #f0f0f0; }
+
+/* ─── report forms: a paper form on a dark desk (every style) ─── */
+.fdesk { flex: 1; min-height: 0; display: flex; background: #1b1b1b; color: #e6e6e6; font: 13px Arial, Helvetica, sans-serif; }
+.fside { width: 150px; flex: none; overflow-y: auto; background: #232323; border-right: 1px solid #111; }
+.fsidehead { padding: 10px 0 8px; text-align: center; font-weight: 700; color: #fff; border-bottom: 1px solid #333; }
+.fpick { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; padding: 12px 6px; color: #e6e6e6; background: none;
+         border: none; border-bottom: 1px solid #2c2c2c; cursor: pointer; font: 12px Arial, Helvetica, sans-serif; }
+.flogo { display: inline-block; padding: 3px 7px; border: 2px solid currentColor; border-radius: 3px; font: 900 11px Arial, Helvetica, sans-serif; letter-spacing: .12em; }
+.fpick:hover:not(:disabled) { background: #2e2e2e; }
+.fpick.on { background: #353535; box-shadow: inset 3px 0 0 #d9b25b; color: #fff; font-weight: 700; }
+.fpick:disabled { cursor: default; }
+.fpick:disabled:not(.on) { opacity: .55; }
+.fmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ftabs { height: 26px; flex: none; display: flex; align-items: end; padding: 0 4px; background: #141414; }
+.ftab { height: 22px; display: flex; align-items: center; padding: 0 10px; color: #fff; background: #2e2e2e; border: 1px solid #3a3a3a; border-bottom: none;
+        border-radius: 3px 3px 0 0; font-size: 12px; white-space: nowrap; }
+.fqa { height: 40px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; background: #2e2e2e; border-bottom: 1px solid #111; }
+.fqa b { font-size: 14px; color: #fff; }
+.fbtn { height: 28px; padding: 0 16px; color: #fff; background: #1d1d1d; border: 1px solid #444; border-radius: 3px; cursor: pointer; font: 700 12px Arial, Helvetica, sans-serif; }
+.fbtn:hover { background: #2a2a2a; border-color: #666; }
+.fbtn.go { background: #1f5e2e; border-color: #2f8a45; }
+.fbtn.go:hover { background: #26733a; }
+.fscroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 0 30px; background: #3b3b3b; }
+.paper { position: relative; width: 820px; margin: 0 auto; padding: 34px 34px 22px; color: #000; background: #fff; box-shadow: 0 2px 10px #0009;
+         font: 11px Arial, Helvetica, sans-serif; }
+.ftop { display: flex; align-items: center; gap: 22px; margin: 0 0 12px 8px; }
+.ftop .flogo { flex: none; padding: 8px 12px; border-width: 3px; font-size: 18px; }
+.ftop u { display: block; font: 700 14px Arial, Helvetica, sans-serif; }
+.ftop h3 { margin: 6px 0 0; font: 700 16px Arial, Helvetica, sans-serif; }
+.fr { display: grid; grid-template-columns: repeat(12, 1fr); }
+.fb { min-width: 0; min-height: 30px; padding: 2px 4px 3px; border: 1px solid #000; margin: 0 -1px -1px 0; display: flex; flex-direction: column; }
+.fb span { font-size: 9.5px; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fb b { flex: 1; display: flex; align-items: end; font: 700 12px Arial, Helvetica, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fb.big b { font-size: 14px; }
+.fb.flag b { color: #b00000; }
+.fb.hint b { color: #777; font-weight: 400; }
+.fb.sig b { font: 22px 'Brush Script MT', 'Segoe Script', cursive; color: #13306b; }
+.fh { margin: 0 -1px -1px 0; padding: 3px 8px; border: 1px solid #000; font: 700 11px Arial, Helvetica, sans-serif; text-transform: uppercase; }
+.cks { gap: 26px; font-weight: 400 !important; }
+.cks em { font-style: normal; }
+.ck { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border: 1px solid #555; vertical-align: -1px; }
+.ck.on { background: #000; box-shadow: inset 0 0 0 2px #fff; }
+table.ft { width: calc(100% + 1px); border-collapse: collapse; margin: 0 -1px -1px 0; table-layout: fixed; }
+.ft th { padding: 3px 4px; text-align: left; font-size: 9.5px; font-weight: 400; border: 1px solid #000; background: #f2f2f2; }
+.ft td { padding: 4px; font-weight: 700; font-size: 11.5px; border: 1px solid #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft th:first-child { width: 78px; }
+.ft td.flag { color: #b00000; }
+.ft td.none { color: #777; font-weight: 400; }
+.ft tbody tr[tabindex] { cursor: pointer; }
+.ft tbody tr.sel td, .ft tbody tr:focus td { background: #e3ecfa; }
+textarea.fnarr { display: block; width: calc(100% + 1px); height: 220px; margin: 0 -1px -1px 0; padding: 6px 8px; resize: vertical; color: #000; border: 1px solid #000;
+                 border-radius: 0; background: #fff repeating-linear-gradient(transparent 0 19px, #dfe6ef 19px 20px); background-attachment: local;
+                 font: 13px/20px 'Courier New', Consolas, monospace; outline: none; }
+.fcert { margin: 0 -1px -1px 0; padding: 6px 8px; border: 1px solid #000; font-style: italic; }
+.fsig .fb { min-height: 40px; }
+.fro { margin: 0 0 8px; padding: 4px 8px; color: #7a5a00; background: #fff4cc; border: 1px solid #e0c66a; }
+.ffoot { margin-top: 10px; text-align: center; color: #666; font-size: 9px; letter-spacing: .08em; }
+.stamp { position: absolute; top: 40px; right: 40px; padding: 4px 12px; border: 3px solid currentColor; border-radius: 4px; transform: rotate(-8deg);
+         font: 900 20px Arial, Helvetica, sans-serif; letter-spacing: .1em; opacity: .7; color: #1f6fbf; }
+.stamp.signed { color: #1d7a3a; } .stamp.pending { color: #c0392b; } .stamp.open { color: #b8860b; }
+.fchdlg { width: min(760px, 94%); }
+.fchdlg .dlgbtns .total { padding: 0; }
+
 #toast { position: absolute; right: 12px; bottom: 30px; display: none; max-width: 340px; padding: 6px 10px; color: #000;
          background: #ffffe1; border: 1px solid #767676; box-shadow: 2px 2px 4px #0004; }
 </style>
@@ -337,6 +510,7 @@ body.command .grid tbody tr.sel td:not(.rh), body.command .grid tbody tr:focus t
     </div>
     <div class="menubar">
         <button data-act="close">File</button>
+        <button data-act="home" class="cadonly">View</button>
         <button disabled>Edit</button>
         <button data-act="query">Search</button>
         <button data-act="reports">Screens</button>
@@ -353,6 +527,8 @@ body.command .grid tbody tr.sel td:not(.rh), body.command .grid tbody tr:focus t
     </div>
     <main id="view"></main>
     <div class="statusbar">
+        <span class="cadonly dotcell"><i class="dot"></i></span>
+        <span class="cadonly">Connected <i class="sig"></i></span>
         <span><i class="dot" id="sdot"></i>Status: <b id="sstatus">-</b></span>
         <span id="ssince">00:00:00</span>
         <span id="scall">No Active Call</span>
@@ -392,6 +568,7 @@ body.command .grid tbody tr.sel td:not(.rh), body.command .grid tbody tr:focus t
                     <label><input type="radio" name="style" value="command"> Command</label>
                     <label><input type="radio" name="style" value="enterprise"> Enterprise</label>
                     <label><input type="radio" name="style" value="classic"> Classic</label>
+                    <label><input type="radio" name="style" value="cad"> FLEX CAD</label>
                 </div>
                 <span>Callouts</span>
                 <label><input type="checkbox" id="setpop"> Show the callout popup (off: calls only show here)</label>

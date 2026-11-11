@@ -4,7 +4,7 @@ Config.Debug = false
 
 Config.OpenKey = 'F7'          -- players can rebind it in Settings -> Key Bindings -> FiveM -> lwk_mdt
 Config.OpenCommand = 'mdt'
-Config.DefaultStyle = 'modern' -- 'modern', 'command', 'enterprise' or 'classic'; each officer can switch theirs in the CAD's settings
+Config.DefaultStyle = 'cad' -- 'modern', 'command', 'enterprise', 'classic' or 'cad' (FLEX CAD); each officer can switch theirs in the CAD's settings
 
 -- c3r services allowed to open the MDT (checked on the player's game).
 Config.AllowedServices = { 'police', 'ambulance' }
@@ -44,6 +44,8 @@ Config.MaxIncidents = 5000
 Config.IdleMinutes = 15
 
 Config.DateFormat = '%m/%d/%Y' -- os.date format for report dates
+Config.Agency = 'San Andreas Police Department' -- printed at the top of every report form
+Config.EmsAgency = 'San Andreas Emergency Medical Services' -- the same, on a medic's patient care reports
 
 -- Charges are in charges.lua (California: Penal, Health & Safety and Vehicle Code).
 

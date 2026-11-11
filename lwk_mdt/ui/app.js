@@ -67,7 +67,7 @@ function go(render) {
     fwd.length = 0;
     show(render);
 }
-function show(render) { cur = render; seq++; render(seq); navButtons(); }
+function show(render) { closeCharges(); cur = render; seq++; render(seq); navButtons(); }
 function goBack() { if (hist.length) { fwd.push(cur); show(hist.pop()); } }
 function goFwd() { if (fwd.length) { hist.push(cur); show(fwd.pop()); } }
 const rerender = () => cur && show(cur);
@@ -75,7 +75,11 @@ const stale = (token) => token !== seq; // a newer screen replaced this one whil
 
 let CIV = false; // true while the Citizen Portal is open (player not on duty)
 
+const isCad = () => document.body.classList.contains('cad');
+let lastScreen = '';
 function setTitle(screen) {
+    lastScreen = screen;
+    if (isCad()) return ($('#title').textContent = screen === 'All Calls and All Units' ? 'CAD' : screen);
     $('#title').textContent = CIV ? `lwk Citizen Portal | [${screen}]`
         : `lwk Message Center | [MDT : ${screen} : Last Updated at ${clock(new Date())}]`;
 }
@@ -96,6 +100,17 @@ const ICONS = {
     phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
 };
+const CAD_LABEL = { fwd: 'Previous', home: 'CAD', query: 'Search' }; // the CAD style's names for the same tools
+// the CAD style's icons: arrows and solid glyphs (cut-outs in the tile's colour)
+const CAD_ICON = {
+    back: '<path d="M20 12H5M11 5l-7 7 7 7"/>', fwd: '<path d="M4 12h15M13 5l7 7-7 7"/>',
+    home: '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M4 4h16v12H4zM6 6v8h12V6zM1 18h22v2H1z"/>',
+    query: '<circle cx="10" cy="10" r="6"/><path d="M15 15l6 6" stroke-width="3.4"/>',
+    reports: '<path fill="currentColor" stroke="none" d="M2 5h20v14H2z"/><path stroke="#234074" stroke-width="1.8" d="M2.5 6l9.5 7 9.5-7"/>',
+    drafts: '<path fill="currentColor" stroke="none" d="M6 1h9l6 6v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z"/><path stroke="#234074" stroke-width="1.8" d="M8 12h9M8 16h9M8 8h5"/>',
+    new: '<path fill="currentColor" stroke="none" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path stroke="#234074" stroke-width="2.6" d="M12 7v10M7 12h10"/>',
+    stats: '<path fill="currentColor" stroke="none" d="M3 13h4.5v8H3zM9.75 3h4.5v18h-4.5zM16.5 8H21v13h-4.5z"/>',
+};
 
 const TOOLS = [
     { id: 'back', label: 'Back', key: 'Alt+Left', run: goBack },
@@ -103,7 +118,7 @@ const TOOLS = [
     { id: 'home', label: 'Home', key: 'Alt+Home', run: () => go(homeScreen) },
     'sep',
     { id: 'query', label: 'Query', key: 'Ctrl+J', run: () => go(queryScreen) },
-    { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'all')) },
+    { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'mine')) },
     { id: 'drafts', label: 'Drafts', key: 'Ctrl+D', run: () => go((t) => reportsScreen(t, 'drafts')) },
     { id: 'new', label: 'New Report', key: 'Ctrl+N', run: () => newReport({}) },
     { id: 'stats', label: 'Stats', key: 'Ctrl+T', run: () => go(statsScreen) },
@@ -130,7 +145,7 @@ const EMS_TOOLS = [
     { id: 'home', label: 'Home', key: 'Alt+Home', run: () => go(homeScreen) },
     'sep',
     { id: 'query', label: 'Patients', key: 'Ctrl+J', run: () => go(queryScreen) },
-    { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'all')) },
+    { id: 'reports', label: 'Reports', key: 'Ctrl+R', run: () => go((t) => reportsScreen(t, 'mine')) },
     { id: 'drafts', label: 'Drafts', key: 'Ctrl+D', run: () => go((t) => reportsScreen(t, 'drafts')) },
     { id: 'new', label: 'New PCR', key: 'Ctrl+N', run: () => newReport({}) },
     'sep',
@@ -139,11 +154,20 @@ const EMS_TOOLS = [
 ];
 let tools = TOOLS;
 
+// the CAD style's round badge: our own (LWK DEVELOPMENT), no agency's seal
+const SEAL = `<svg class="seal" viewBox="0 0 64 64" aria-hidden="true"><defs><path id="sealring" d="M32 32m-24 0a24 24 0 1 1 48 0a24 24 0 1 1-48 0"/></defs>
+    <circle cx="32" cy="32" r="31" fill="#0c2e62" stroke="#d8b65a" stroke-width="2"/><circle cx="32" cy="32" r="18" fill="#1a478b" stroke="#d8b65a"/>
+    <text font-size="6.6" font-weight="700" fill="#f1e2b0" letter-spacing=".6"><textPath href="#sealring" textLength="148">LWK DEVELOPMENT ★ CODE3RESPONSE ★</textPath></text>
+    <text x="32" y="36" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">LWK</text></svg>`;
+
 function buildToolbar() {
-    $('#toolbar').innerHTML = tools.map((t) => (t === 'sep' ? '<span class="tsep"></span>'
-        : `<button class="tile" id="t-${t.id}" title="${t.label} (${t.key})"><svg viewBox="0 0 24 24">${ICONS[t.id]}</svg>
-           <span>${t.label}</span><small>${t.key}</small></button>`)).join('')
-        + `<div class="brand"><b>lwk</b><small>${CIV ? 'CITIZEN PORTAL' : tools === EMS_TOOLS ? 'EMS DATA' : 'MOBILE DATA'}</small></div>`;
+    const cad = isCad() && !CIV;
+    $('#toolbar').innerHTML = tools.map((t) => {
+        if (t === 'sep') return '<span class="tsep"></span>';
+        const label = (cad && tools !== EMS_TOOLS && CAD_LABEL[t.id]) || t.label;
+        return `<button class="tile" id="t-${t.id}" title="${label} (${t.key})"><svg viewBox="0 0 24 24">${(cad && CAD_ICON[t.id]) || ICONS[t.id]}</svg>
+           <span>${label}</span><small>${t.key}</small></button>`;
+    }).join('') + `<div class="brand"><b>lwk</b><small>${CIV ? 'CITIZEN PORTAL' : tools === EMS_TOOLS ? 'EMS DATA' : 'MOBILE DATA'}</small>${SEAL}</div>`;
     tools.forEach((t) => t !== 'sep' && ($(`#t-${t.id}`).onclick = t.run));
 }
 buildToolbar();
@@ -155,7 +179,7 @@ function navButtons() {
 
 const ACTIONS = {
     close, home: () => go(homeScreen), query: () => go(queryScreen), settings: () => openSettings(),
-    reports: () => go((t) => reportsScreen(t, 'all')), drafts: () => go((t) => reportsScreen(t, 'drafts')),
+    reports: () => go((t) => reportsScreen(t, 'mine')), drafts: () => go((t) => reportsScreen(t, 'drafts')),
 };
 document.querySelectorAll('[data-act]').forEach((b) => (b.onclick = ACTIONS[b.dataset.act]));
 $('#mycall').onclick = () => init.current && go((t) => reportScreen(t, init.current.id));
@@ -216,11 +240,11 @@ async function refresh() {
 
 // ─── grids ───────────────────────────────────────────────────────────────────
 
-// cols: [label, width]; rows: { open: 'report:12', cells: [[text, class]] }
+// cols: [label, width]; rows: { open: 'report:12', cls: 'row class', cells: [[text, class]] }
 function grid(cols, rows, empty) {
     const head = `<colgroup><col style="width:24px">${cols.map(([, w]) => `<col${w ? ` style="width:${w}"` : ''}>`).join('')}</colgroup>
         <thead><tr><th class="rh">All</th>${cols.map(([l]) => `<th>${h(l)}</th>`).join('')}</tr></thead>`;
-    const body = rows.length ? rows.map((r) => `<tr tabindex="0" ${r.open ? `data-open="${h(r.open)}"` : ''}><td class="rh"></td>${
+    const body = rows.length ? rows.map((r) => `<tr tabindex="0"${r.cls ? ` class="${r.cls}"` : ''} ${r.open ? `data-open="${h(r.open)}"` : ''}><td class="rh"></td>${
         r.cells.map(([v, c]) => `<td class="${c || ''}" title="${h(v)}">${h(v)}</td>`).join('')}</tr>`).join('')
         : `<tr class="empty"><td class="rh"></td><td colspan="${cols.length}">${h(empty || 'No records.')}</td></tr>`;
     return `<table class="grid">${head}<tbody>${body}</tbody></table>`;
@@ -283,14 +307,14 @@ function callRows(list) {
         const [loc, zone] = splitLoc(c.location);
         const [st, sc] = STATUS[c.status] || [c.status, ''];
         const old = c.status === 'open' && now() - c.started > 3600;
-        return { open: `report:${c.id}`, cells: [[c.id, 'cy'], [(c.title || c.kind || '').toUpperCase(), 'cy'], [loc], [zone], [c.priority ?? ''],
+        return { open: `report:${c.id}`, cls: `st-${st}`, cells: [[c.id, 'cy'], [(c.title || c.kind || '').toUpperCase(), 'cy'], [loc], [zone], [c.priority ?? ''],
             [st, sc], [age(c.started), old || c.status !== 'open' ? 'rd' : ''], [c.officer]] };
     });
 }
 
 // c3r's calls: double-click one to attach to it, whoever's on it, popup or not.
 function c3rRows(list) {
-    return arr(list).filter((c) => !c.joined).map((c) => ({ open: `join:${c.id}`, cells: [['C' + c.id, 'cy'], [String(c.name || '').toUpperCase(), 'cy'],
+    return arr(list).filter((c) => !c.joined).map((c) => ({ open: `join:${c.id}`, cls: c.units ? 'st-ACTV' : 'st-OPEN', cells: [['C' + c.id, 'cy'], [String(c.name || '').toUpperCase(), 'cy'],
         [c.street || ''], [''], [c.priority ?? ''], [c.units ? `${c.units} ON` : 'OPEN', 'ye'], [''], ['Double-click to attach']] }));
 }
 
@@ -303,6 +327,8 @@ async function joinCall(id) {
 }
 
 const CALL_COLS = [['Call#', '58px'], ['Nature', '22%'], ['Location', ''], ['Zone', '12%'], ['P', '26px'], ['Status', '62px'], ['Time', '58px'], ['Units', '12%']];
+// the CAD style: a dispatch board's names and widths for the same columns
+const CAD_CALL_COLS = [['Call#', '64px'], ['Nature', '10%'], ['Location', '23%'], ['City', '17%'], ['Pr.', '28px'], ['Status', '7%'], ['Time', '12%'], ['Units', '']];
 
 // ─── home: all calls + all units ─────────────────────────────────────────────
 
@@ -316,14 +342,19 @@ function renderBoard(token) {
     if (stale(token) || !$('#calls')) return;
     const keep = (id) => $(`#${id} tr.sel`)?.dataset.open; // keep the selection across refreshes
     const selCall = keep('calls'), selUnit = keep('units');
-    $('#calls').innerHTML = grid(CALL_COLS, [...c3rRows(init.c3r), ...callRows(init.calls)], 'No active calls.');
-    $('#units').innerHTML = grid([['Unit', '13%'], ['Status', '62px'], ['Time', '58px'], ['Call#', '58px'], ['Zone', '12%'], ['Location', '22%'], ['Description', '']],
-        arr(init.units).map((u) => {
-            const [loc, zone] = splitLoc(u.location);
-            const c = UNIT_COLOR[u.status] || '';
-            return { open: u.call ? `report:${u.call}` : null, cells: [[u.unit, c], [u.status, c], [age(u.since), now() - u.since > 1800 ? 'rd' : ''],
-                [u.call ?? ''], [zone], [loc], [u.call ? `${u.kind || ''}${u.title ? ' - ' + u.title : ''}` : '(MDT)', c]] };
-        }), 'No units on duty.');
+    const cad = isCad();
+    $('#calls').innerHTML = grid(cad ? CAD_CALL_COLS : CALL_COLS, [...c3rRows(init.c3r), ...callRows(init.calls)], 'No active calls.');
+    const units = arr(init.units).map((u) => {
+        const [loc, zone] = splitLoc(u.location);
+        const c = UNIT_COLOR[u.status] || '';
+        const desc = u.call ? `${u.kind || ''}${u.title ? ' - ' + u.title : ''}` : '(MDT)';
+        return cad ? { open: u.call ? `report:${u.call}` : null, cls: `st-${u.status}`, cells: [[u.name || u.unit], [u.unit], [u.status], [u.call ?? ''],
+                [age(u.since)], [loc || zone], [u.call ? `(MDT) ON CALL ${u.call}: ${desc}` : '(MDT) LOGGED IN']] }
+            : { open: u.call ? `report:${u.call}` : null, cells: [[u.unit, c], [u.status, c], [age(u.since), now() - u.since > 1800 ? 'rd' : ''],
+                [u.call ?? ''], [zone], [loc], [desc, c]] };
+    });
+    $('#units').innerHTML = cad ? grid([['Officer', '8.5%'], ['Unit', '7.5%'], ['Status', '6%'], ['Call#', '6%'], ['Time', '6.5%'], ['Location', '20%'], ['Description', '']], units, 'No units on duty.')
+        : grid([['Unit', '13%'], ['Status', '62px'], ['Time', '58px'], ['Call#', '58px'], ['Zone', '12%'], ['Location', '22%'], ['Description', '']], units, 'No units on duty.');
     for (const [id, sel] of [['calls', selCall], ['units', selUnit]]) {
         if (sel) $(`#${id} tr[data-open="${CSS.escape(sel)}"]`)?.classList.add('sel');
         wire($(`#${id}`));
@@ -531,12 +562,12 @@ async function reportsScreen(token, filter) {
     setTitle(names[filter]);
     view.innerHTML = `<div class="formbar">${Object.entries(names).map(([k, l]) =>
         `<button class="btn${k === filter ? ' default' : ''}" data-f="${k}">${l}</button>`).join('')}
-        ${init.admin ? '<span class="grow"></span><button class="btn" id="deldrafts">Delete All Drafts</button>' : ''}</div>
+        <span class="grow"></span><button class="btn" id="deldrafts">${init.admin ? 'Delete All Drafts' : 'Delete My Drafts'}</button></div>
         <div class="pane" style="flex:1" id="rlist"></div>`;
     view.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => go((t) => reportsScreen(t, b.dataset.f))));
     if ($('#deldrafts')) $('#deldrafts').onclick = async (e) => {
         const b = e.currentTarget;
-        if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Confirm: delete every draft'; return; }
+        if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = init.admin ? 'Confirm: delete every draft' : 'Confirm: delete all my drafts'; return; }
         const r = await req('deleteDrafts');
         if (r.error) return toast(r.error);
         toast(`${r.count} draft${r.count === 1 ? '' : 's'} deleted.`);
@@ -591,50 +622,77 @@ async function statsScreen(token, sort = 'seconds') {
 // closing the MDT, until saved or deleted.
 const unsaved = {};
 
-const vitalsRow = (label, v) => v && { cells: [[label], [v.t ? hhmm(v.t) : '', 'cy'], [v.hr ?? '-'], [v.sys ? `${v.sys}/${v.dia}` : '---'],
-    [v.spo2 != null ? `${v.spo2}%` : '-'], [v.rr ?? '-'], [v.etco2 ?? '-'], [v.gcs ?? '-'], [v.rhythm || '']] };
-const OUTCOME = (pc) => (pc.outcome === 'pronounced' ? 'Pronounced dead'
-    : pc.outcome === 'transported' ? `Transported${pc.hospital ? ` to ${pc.hospital}` : ''}` : 'Not recorded');
+// A patient care report, on the same paper as the police forms: who, the call, the vitals, what was found, every
+// treatment with its time, the disposition, and the narrative (CHART, from the care log until edited). No charges.
+const STAR_OF_LIFE = '<span class="flogo">EMS</span>';
 
-// A patient care report: who, the vitals, what was found, the narrative (CHART, from the care log until edited), and
-// every treatment with its time. No forms or charges.
 function pcrScreen(r) {
     const s = r.summary, ro = !r.can_edit, pc = r.pcr || {};
     const draft = !ro && unsaved[s.id];
-    let auto = draft ? draft.auto : r.auto;
+    let auto = draft ? draft.auto : r.auto, dirty = !!draft;
+    const signed = s.status === 'signed';
+    const p = arr(r.people)[0] || {};
+    const [addr, addrCity] = splitLoc(p.address);
+    const [loc, zone] = splitLoc(s.location);
+    const at = (t) => (t ? hhmm(t) : '');
+    const contact = pc.contact || s.started;
     setTitle(`Patient Care Report #${s.id}`);
-    view.innerHTML = `<div class="formbar"><h2>Patient Care Report #${h(s.id)} - ${h(up(s.title || ''))}</h2>
-            <span class="badge ${h(s.status)}">${h((STATUS[s.status] || [s.status])[0])}</span><span class="grow"></span>
-            ${ro ? '<span style="color:#666">Read only: only the author or a supervisor can change this report.</span>' : ''}</div>
-        <fieldset><legend>Call</legend><div class="info">
-            <div><b>Complaint:</b> ${h(s.title || '-')}</div><div><b>Location:</b> ${h(s.location || '-')}</div>
-            <div><b>Medic:</b> ${h(s.officer)}</div><div><b>Patient contact:</b> ${when(pc.contact || s.started)}</div>
-            <div><b>Outcome:</b> ${h(OUTCOME(pc))}</div>
-            <div><b>Signed:</b> ${r.signed_by ? `${h(r.signed_by)}, ${when(r.signed_at)}` : '-'}</div></div></fieldset>
-        <fieldset><legend>Patient</legend><div class="pane" id="inv" style="min-height:0">${grid([['Name', '34%'], ['DOB', '120px'], ['Sex', '']],
-            arr(r.people).map((p) => ({ open: `person:${p.key}`, cells: [[`${p.last || ''}, ${p.first || ''}`.toUpperCase(), 'cy'], [p.dob], [p.gender]] })),
-            'Unidentified patient.')}</div></fieldset>
-        <div class="cols">
-            <fieldset class="grow"><legend>Vitals</legend><div class="pane" style="min-height:0">${grid([['Set', '70px'], ['Time', '54px'], ['HR', ''], ['BP', ''],
-                ['SpO2', ''], ['RR', ''], ['EtCO2', ''], ['GCS', ''], ['Rhythm', '24%']],
-                [vitalsRow('Initial', pc.first), vitalsRow('Final', pc.last)].filter(Boolean), 'No monitor readings.')}</div></fieldset>
-            <fieldset class="grow"><legend>Findings</legend><div class="pane" style="min-height:0">${grid([['Area', '90px'], ['Finding', ''], ['', '70px']],
-                arr(pc.findings).map((f) => ({ cells: [[up(f.part || '')], [f.text], [f.treated ? 'TREATED' : 'OPEN', f.treated ? 'gy' : 'rd']] })),
-                'Nothing found.')}</div></fieldset>
-        </div>
-        <fieldset><legend>Narrative${auto ? ' (auto, written from the care log until edited)' : ''}</legend>
-            <textarea class="txt" id="narr" aria-label="Narrative" ${ro ? 'readonly' : ''}></textarea></fieldset>
-        ${ro ? '' : `<div class="dlgbtns"><button class="btn" id="rebuild" title="Replace the text with a fresh draft from the care log">Rebuild</button>
-            <span class="grow"></span><button class="btn" id="del">Delete</button>
-            <button class="btn" id="save">${s.status === 'signed' ? 'Save Changes' : 'Save Draft'}</button>
-            ${s.status === 'signed' ? '' : '<button class="btn default" id="sign">Sign</button>'}</div>`}
-        <fieldset><legend>Care Given</legend><div class="pane" id="tl" style="min-height:0">${grid([['Time', '64px'], ['Treatment', '']],
-            arr(pc.care).map((e) => ({ cells: [[hhmm(e.t), 'cy'], [e.text]] })), 'Nothing logged.')}</div></fieldset>`;
+    const vit = (label, v) => v && `<tr><td>${h(label)}</td><td>${at(v.t)}</td><td>${h(v.hr ?? '-')}</td><td>${h(v.sys ? `${v.sys}/${v.dia}` : '---')}</td>
+        <td>${h(v.spo2 != null ? `${v.spo2}%` : '-')}</td><td>${h(v.rr ?? '-')}</td><td>${h(v.etco2 ?? '-')}</td><td>${h(v.gcs ?? '-')}</td><td>${h(up(v.rhythm || ''))}</td></tr>`;
+
+    view.innerHTML = `<div class="fdesk">
+        <aside class="fside"><div class="fsidehead">All Forms</div>
+            <button class="fpick on" disabled>${STAR_OF_LIFE}<span>Patient Care Report</span></button></aside>
+        <section class="fmain">
+            <div class="ftabs"><span class="ftab" id="ftab"></span></div>
+            <div class="fqa"><b>Quick Actions</b><span class="grow"></span>
+                ${ro ? '' : `<button class="fbtn" id="rebuild" title="Replace the narrative with a fresh draft from the care log">Rebuild Narrative</button>
+                    <button class="fbtn" id="del">Delete</button>
+                    <button class="fbtn" id="save">${signed ? 'Save Changes' : 'Save'}</button>
+                    ${signed ? '' : '<button class="fbtn go" id="sign">Sign</button>'}`}</div>
+            <div class="fscroll"><div class="paper">
+                <div class="stamp ${h(s.status)}">${h(DONE_STAMP[s.status] || up(s.status))}</div>
+                <div class="ftop">${STAR_OF_LIFE}<div><u>${h(up(init.agency || 'San Andreas Emergency Medical Services'))}</u><h3>PATIENT CARE REPORT</h3></div></div>
+                ${ro ? '<div class="fro">Read only: only the author or a supervisor can change this report.</div>' : ''}
+                <div class="fr"><div style="grid-column:span 6"></div>${fbox('PCR Number', s.id, 3, 'big')}${fbox('Chief Complaint', up(pc.complaint || s.title), 3)}</div>
+                ${fhead('Patient')}
+                ${frow(fbox('Name: First', up(p.first), 5), fbox('Middle', '', 3), fbox('Last', up(p.last || (p.first ? '' : 'UNIDENTIFIED')), 4))}
+                ${frow(fbox('Date of Birth', p.dob, 3), fbox('Gender', up(p.gender), 2), fbox('Weight', '', 2), fbox('Allergies', '', 5))}
+                ${frow(fbox('Residential Address', up(addr), 5), fbox('City', up(addrCity), 3), fbox('State', p.address ? 'SA' : '', 1), fbox('Phone Number', '', 3))}
+                ${arr(r.people).length ? ptable(['Type', 'Patient on file (double-click to open)', 'DOB', 'Gender'], arr(r.people).map((x) => `<tr tabindex="0" data-open="person:${h(x.key)}">
+                    <td>PATIENT</td><td>${h(up(`${x.last || ''}, ${x.first || ''}`))}</td><td>${h(x.dob || '')}</td><td>${h(up(x.gender || ''))}</td></tr>`), '') : ''}
+                ${fhead('Incident')}
+                ${frow(fbox('Date', contact ? new Date(contact * 1000).toLocaleDateString() : '', 2), fbox('Patient Contact', at(contact), 2),
+                    fbox('Left Scene', at(pc.left_scene), 2), fbox('Call Closed', at(pc.ended), 2), fbox('Medic', s.officer, 4))}
+                ${frow(fbox('Location', up(loc), 7), fbox('City / Zone', up(zone), 3), fbox('County', '', 2))}
+                ${pc.says ? frow(fbox('Patient Statement', `"${pc.says}"`, 12)) : ''}
+                ${fhead('Vital signs')}
+                ${ptable(['Set', 'Time', 'HR', 'BP', 'SpO2', 'RR', 'EtCO2', 'GCS', 'Rhythm'], [vit('Initial', pc.first), vit('Final', pc.last)].filter(Boolean), 'No monitor readings.')}
+                ${fhead('Assessment / findings')}
+                ${ptable(['Area', 'Finding', 'Status'], arr(pc.findings).map((f) => `<tr><td>${h(up(f.part || ''))}</td><td>${h(f.text)}</td>
+                    <td class="${f.treated ? '' : 'flag'}">${f.treated ? 'TREATED' : 'OPEN'}</td></tr>`), 'Nothing found.')}
+                ${fhead('Treatment given')}
+                ${ptable(['Time', 'Treatment'], arr(pc.care).map((e) => `<tr><td>${at(e.t)}</td><td>${h(e.text)}</td></tr>`), 'Nothing logged.')}
+                ${fhead('Disposition')}
+                <div class="fr"><div class="fb" style="grid-column:span 7"><span>Outcome</span><b class="cks">${tick(pc.outcome === 'transported', 'Transported')}
+                    ${tick(pc.outcome === 'pronounced', 'Pronounced dead')}${tick(!pc.outcome, 'Not recorded')}</b></div>
+                    ${fbox('Destination', up(pc.hospital), 5)}</div>
+                <div class="fr"><div class="fb" style="grid-column:span 12"><span>Cardiac Arrest</span><b class="cks">${tick(pc.arrested, 'Yes')}${tick(!pc.arrested, 'No')}
+                    ${tick(pc.rosc, 'ROSC achieved')}</b></div></div>
+                ${fhead(`Narrative (CHART)${auto ? ': auto, written from the care log until edited' : ''}`)}
+                <textarea class="fnarr" id="narr" aria-label="Narrative" spellcheck="true" ${ro ? 'readonly' : ''}></textarea>
+                <div class="fcert">I certify that the care described above was given by me or under my direction, and that this report is true and correct.</div>
+                <div class="fr fsig">${fbox('Medic Signature', r.signed_by || '', 6, 'sig')}${fbox('Date Signed', r.signed_at ? when(r.signed_at) : '', 3)}${fbox('Unit', s.officer, 3)}</div>
+                <div class="ffoot">${h(up(init.agency || 'San Andreas Emergency Medical Services'))} &middot; FORM PCR-${h(s.id)} &middot; LWK DEVELOPMENT</div>
+            </div></div>
+        </section></div>`;
     const narr = $('#narr');
     narr.value = draft ? draft.narrative : r.narrative || '';
-    wire($('#inv'));
+    wire(view);
+    const tab = () => ($('#ftab').textContent = `Patient Care Report${dirty ? '*' : ''} - ${s.id} (${(STATUS[s.status] || [s.status])[0]})`);
+    tab();
     if (ro) return;
-    const keep = () => { unsaved[s.id] = { form: 'pcr', charges: [], narrative: narr.value, auto }; };
+    const keep = () => { dirty = true; unsaved[s.id] = { form: 'pcr', charges: [], narrative: narr.value, auto }; tab(); };
     narr.oninput = () => { auto = false; keep(); };
     const save = async (sign) => {
         const res = await req('save', { id: s.id, form: 'pcr', charges: [], narrative: narr.value, auto, sign });
@@ -662,6 +720,19 @@ function pcrScreen(r) {
     };
 }
 
+// A report is a paper form on a desk: the forms down the left, the open form's tab, its actions, then the page.
+// Everything on the page comes from the incident (c3r's people, vehicles and timeline); the officer picks the
+// form, the charges and writes the narrative.
+const FORM_TITLE = { citation: 'Traffic Citation and Notice to Appear', warning: 'Written Warning', arrest: 'Arrest Report', incident: 'Incident Report' };
+const BADGE = '<span class="flogo">POLICE</span>'; // plain text, no agency's badge
+const fbox = (label, value, span, cls = '') => `<div class="fb ${cls}" style="grid-column:span ${span}"><span>${h(label)}</span><b>${h(value ?? '')}</b></div>`;
+const frow = (...boxes) => `<div class="fr">${boxes.join('')}</div>`;
+const fhead = (text, id) => `<div class="fh"${id ? ` id="${id}"` : ''}>${h(text)}</div>`;
+const tick = (on, label) => `<em><i class="ck${on ? ' on' : ''}"></i>${h(label)}</em>`;
+const ptable = (cols, rows, empty) => `<table class="ft"><thead><tr>${cols.map((c) => `<th>${h(c)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('')
+    : `<tr><td colspan="${cols.length}" class="none">${h(empty)}</td></tr>`}</tbody></table>`;
+const DONE_STAMP = { signed: 'SIGNED', pending: 'PENDING', open: 'OPEN', draft: 'DRAFT' };
+
 async function reportScreen(token, id, presetForm) {
     const r = await req('report', { id: Number(id) });
     if (stale(token)) return;
@@ -669,10 +740,9 @@ async function reportScreen(token, id, presetForm) {
     if (!r || !r.summary) return toast('Report not found.');
     const list = await chargeList();
     if (stale(token)) return;
-    if (!r.summary) return toast('Report not found.');
     const s = r.summary, ro = !r.can_edit;
     const draft = !ro && unsaved[s.id];
-    let form = presetForm || (draft ? draft.form : r.form), auto = draft ? draft.auto : r.auto;
+    let form = presetForm || (draft ? draft.form : r.form), auto = draft ? draft.auto : r.auto, dirty = !!draft;
     const picked = new Set(draft ? draft.charges : arr(r.charges).map((c) => c.id));
     const dis = ro ? 'disabled' : '';
     // signed: what's on it goes to the top, where it's seen at a glance (the sort is stable: code order within)
@@ -681,28 +751,68 @@ async function reportScreen(token, id, presetForm) {
     if (signed) rows.sort((a, b) => b.on - a.on);
     const groupOf = (x) => (signed && x.on ? 'ON' : x.c.code);
     const groupName = (g) => (g === 'ON' ? 'On this report' : GROUPS[g] || g);
+    const formLabel = (f) => (arr(init.forms).find((x) => x.id === f) || {}).label || f;
     setTitle(`Incident #${s.id}`);
 
-    view.innerHTML = `<div class="formbar"><h2>Incident #${h(s.id)} - ${h(s.title || s.kind)}</h2>
-            <span class="badge ${h(s.status)}">${h((STATUS[s.status] || [s.status])[0])}</span><span class="grow"></span>
-            ${r.coords ? '<button class="btn" id="wp">Set Waypoint</button>' : ''}
-            ${s.status === 'pending' ? '<button class="btn default" id="respond">Respond</button>' : ''}
-            ${ro && s.status !== 'pending' ? '<span style="color:#666">Read only: only the author or a supervisor can change this report.</span>' : ''}</div>
-        <fieldset><legend>Incident</legend><div class="info">
-            <div><b>Type:</b> ${h(s.kind)}</div><div><b>Nature:</b> ${h(s.title || '-')}</div>
-            <div><b>Location:</b> ${h(s.location || '-')}</div><div><b>Officer:</b> ${h(s.officer)}</div>
-            <div><b>Started:</b> ${when(s.started)}</div>${r.caller ? `<div><b>Caller:</b> ${h(r.caller)}</div>` : ''}
-            <div><b>Signed:</b> ${r.signed_by ? `${h(r.signed_by)}, ${when(r.signed_at)}` : '-'}</div></div></fieldset>
-        <fieldset><legend>Involved</legend><div class="pane" id="inv" style="min-height:0">${grid([['Type', '80px'], ['Identifier', '24%'], ['Description', ''], ['Flags', '30%']], [
-            ...arr(r.vehicles).map((v) => ({ open: `vehicle:${v.plate}`, cells: [['VEHICLE'], [v.plate, 'cy'],
-                [[v.year, v.color, v.make, v.model].filter(Boolean).join(' ')], [vehicleFlags(v).join(', '), 'rd']] })),
-            ...arr(r.people).map((p) => ({ open: `person:${p.key}`, cells: [['PERSON'], [`${p.last || ''}, ${p.first || ''}`.toUpperCase(), 'cy'],
-                [p.dob ? `DOB ${p.dob}` : ''], [[...arr(p.flags), p.dl_valid === false ? 'LICENCE ' + up(p.dl || 'INVALID') : ''].filter(Boolean).join(', '), 'rd']] })),
-        ], 'Nobody attached.')}</div></fieldset>
-        <div class="cols">
-            <fieldset><legend>Form</legend><div class="radios">${arr(init.forms).map(({ id: k, label: l }) =>
-                `<label><input type="radio" name="form" value="${h(k)}" ${k === form ? 'checked' : ''} ${dis}>${h(l)}</label>`).join('')}</div></fieldset>
-            <fieldset class="grow"><legend id="chead">Charges</legend>
+    const p = arr(r.people)[0] || {}, v = arr(r.vehicles)[0] || {};
+    const [addr, addrCity] = splitLoc(p.address);
+    const [loc, zone] = splitLoc(s.location);
+    const started = s.started ? new Date(s.started * 1000) : null;
+    const parties = [
+        ...arr(r.people).map((x) => `<tr tabindex="0" data-open="person:${h(x.key)}"><td>PERSON</td><td>${h(up(`${x.last || ''}, ${x.first || ''}`))}</td>
+            <td>${h(x.dob ? `DOB ${x.dob}` : '')}</td><td class="flag">${h([...arr(x.flags), x.dl_valid === false ? 'LICENCE ' + up(x.dl || 'INVALID') : ''].filter(Boolean).join(', '))}</td></tr>`),
+        ...arr(r.vehicles).map((x) => `<tr tabindex="0" data-open="vehicle:${h(x.plate)}"><td>VEHICLE</td><td>${h(x.plate)}</td>
+            <td>${h(up([x.year, x.color, x.make, x.model].filter(Boolean).join(' ')))}</td><td class="flag">${h(vehicleFlags(x).join(', '))}</td></tr>`),
+    ];
+
+    view.innerHTML = `<div class="fdesk">
+        <aside class="fside"><div class="fsidehead">All Forms</div>${arr(init.forms).map(({ id: k, label: l }) =>
+            `<button class="fpick${k === form ? ' on' : ''}" data-form="${h(k)}" ${dis}>${BADGE}<span>${h(l)}</span></button>`).join('')}</aside>
+        <section class="fmain">
+            <div class="ftabs"><span class="ftab" id="ftab"></span></div>
+            <div class="fqa"><b>Quick Actions</b><span class="grow"></span>
+                ${r.coords ? '<button class="fbtn" id="wp">Set Waypoint</button>' : ''}
+                ${s.status === 'pending' ? '<button class="fbtn" id="respond">Respond</button>' : ''}
+                ${ro ? '' : `<button class="fbtn" id="mch">Manage Charges</button>
+                    <button class="fbtn" id="rebuild" title="Replace the narrative with a fresh draft from the timeline">Rebuild Narrative</button>
+                    <button class="fbtn" id="del">Delete</button>
+                    <button class="fbtn" id="save">${signed ? 'Save Changes' : 'Save'}</button>
+                    ${signed ? '' : '<button class="fbtn go" id="sign">Sign</button>'}`}</div>
+            <div class="fscroll"><div class="paper">
+                <div class="stamp ${h(s.status)}">${h(DONE_STAMP[s.status] || up(s.status))}</div>
+                <div class="ftop">${BADGE}<div><u>${h(up(init.agency || 'San Andreas Police Department'))}</u><h3 id="ftitle"></h3></div></div>
+                ${ro ? '<div class="fro">Read only: only the author or a supervisor can change this report.</div>' : ''}
+                <div class="fr"><div style="grid-column:span 6"></div>${fbox('Form Number', s.id, 3, 'big')}${fbox('Report Type', up(s.kind), 3)}</div>
+                ${fhead('', 'fdef')}
+                ${frow(fbox("Driver's Licence Number", p.dl, 4), fbox('State', p.dl ? 'SA' : '', 1), fbox('Status', p.dl_valid === false ? 'INVALID' : p.dl_valid === true ? 'VALID' : '', 2),
+                    fbox('Endorsements', '', 3), fbox('Restrictions', '', 2))}
+                ${frow(fbox('Name: First', up(p.first), 5), fbox('Middle', '', 3), fbox('Last', up(p.last), 4))}
+                ${frow(fbox('Residential Address', up(addr), 5), fbox('City', up(addrCity), 3), fbox('State', p.address ? 'SA' : '', 1), fbox('Postal', '', 1), fbox('Phone Number', '', 2))}
+                ${frow(fbox('Gender', up(p.gender), 2), fbox('Eyes', '', 1), fbox('Hair', '', 1), fbox('Height', '', 1), fbox('Weight', '', 1), fbox('Date of Birth', p.dob, 2),
+                    fbox('Flags', up(arr(p.flags).join(', ')), 4, 'flag'))}
+                ${frow(fbox('Licence Plate', v.plate, 2), fbox('Year', v.year, 1), fbox('Color', up(v.color), 2), fbox('Make', up(v.make), 2), fbox('Model', up(v.model), 2),
+                    fbox('State', v.plate ? 'SA' : '', 1), fbox('Registration', v.reg_valid === false ? 'INVALID' : v.reg_valid === true ? 'VALID' : '', 2))}
+                ${frow(fbox('Registered Owner', up(v.owner), 6), fbox('Insurance', v.ins_valid === false ? 'UNINSURED' : v.ins_valid === true ? 'VALID' : '', 3),
+                    fbox('Vehicle Flags', vehicleFlags(v).join(', '), 3, 'flag'))}
+                ${fhead('The undersigned certifies that:')}
+                ${frow(fbox('Date', started ? started.toLocaleDateString() : '', 2), fbox('Time', started ? hhmm(s.started) : '', 1),
+                    fbox('Nature', up(s.title || s.kind), 4), fbox('Reporting Officer', s.officer, 3), fbox('Caller', r.caller, 2))}
+                ${frow(fbox('Location', up(loc), 7), fbox('City / Zone', up(zone), 3), fbox('County', '', 2))}
+                <div id="fcharges"></div>
+                ${fhead('Parties and vehicles on this report (double-click to open)')}
+                ${ptable(['Type', 'Identifier', 'Description', 'Flags'], parties, 'Nobody attached.')}
+                ${fhead(`Narrative${auto ? ' (auto: follows the timeline until edited)' : ''}`)}
+                <textarea class="fnarr" id="narr" aria-label="Narrative" spellcheck="true" ${ro ? 'readonly' : ''}></textarea>
+                <div class="fcert" id="fcert"></div>
+                <div class="fr fsig">${fbox('Officer Signature', r.signed_by || '', 6, 'sig')}${fbox('Date Signed', r.signed_at ? when(r.signed_at) : '', 3)}${fbox('Callsign', s.officer, 3)}</div>
+                ${fhead('Incident log')}
+                ${ptable(['Time', 'Event'], arr(r.events).map((e) => `<tr><td>${hhmm(e.t)}</td><td>${h(e.text)}</td></tr>`), 'Nothing logged.')}
+                <div class="ffoot">${h(up(init.agency || 'San Andreas Police Department'))} &middot; FORM ${h(up(form))}-${h(s.id)} &middot; LWK DEVELOPMENT</div>
+            </div></div>
+        </section></div>
+        <div class="dlg fchdlg" id="chdlg" role="dialog" aria-modal="true" aria-labelledby="chead" hidden>
+            <div class="dlgtitle" id="chead">Charges</div>
+            <div class="dlgbody">
                 <input class="txt" id="csearch" placeholder="Search section, charge or description" aria-label="Search charges" autocomplete="off">
                 <div class="listbox charges">${rows.map((x, n) => { const c = x.c, g = groupOf(x); return `${n === 0 || groupOf(rows[n - 1]) !== g ? `<div class="cgroup" data-g="${h(g)}">${h(groupName(g))}</div>` : ''}
                     <label data-g="${h(g)}" data-text="${h(`${chargeId(c)} ${c.label} ${c.desc || ''}`.toLowerCase())}" title="${h(c.desc || '')}">
@@ -710,16 +820,8 @@ async function reportScreen(token, id, presetForm) {
                     <span class="sec">${h(chargeId(c))}</span><span class="cname">${h(c.label)}</span>
                     <span class="cls ${h(c.class)}">${CLASS[c.class] || ''}</span>
                     <span class="pts">${c.points ? `${c.points} pt` : ''}</span><span class="fine">${money(c.fine)}</span></label>`; }).join('')}</div>
-                <div class="total" id="total"></div></fieldset>
-        </div>
-        <fieldset><legend>Narrative${auto ? ' (auto, follows the timeline until edited)' : ''}</legend>
-            <textarea class="txt" id="narr" aria-label="Narrative" ${ro ? 'readonly' : ''}></textarea></fieldset>
-        ${ro ? '' : `<div class="dlgbtns"><button class="btn" id="rebuild" title="Replace the text with a fresh draft from the timeline">Rebuild</button>
-            <span class="grow"></span><button class="btn" id="del">Delete</button>
-            <button class="btn" id="save">${s.status === 'signed' ? 'Save Changes' : 'Save Draft'}</button>
-            ${s.status === 'signed' ? '' : '<button class="btn default" id="sign">Sign</button>'}</div>`}
-        <fieldset><legend>Timeline</legend><div class="pane" id="tl" style="min-height:0">${grid([['Time', '64px'], ['Event', '']],
-            arr(r.events).map((e) => ({ cells: [[hhmm(e.t), 'cy'], [e.text]] })), 'Nothing logged.')}</div></fieldset>`;
+                <div class="dlgbtns"><span class="total" id="total"></span><span class="grow"></span><button class="btn default" id="chdone">Done</button></div>
+            </div></div>`;
 
     if ($('#wp')) $('#wp').onclick = async () => { const w = await req('waypoint', { id: s.id }); toast(w.error || 'Waypoint set.'); };
     if ($('#respond')) $('#respond').onclick = async () => {
@@ -732,19 +834,35 @@ async function reportScreen(token, id, presetForm) {
     };
     const narr = $('#narr');
     narr.value = draft ? draft.narrative : r.narrative || '';
-    wire($('#inv'));
-    wire($('#tl'));
+    wire(view);
 
     const chosen = () => list.filter((_, i) => $(`[data-c="${i}"]`)?.checked).map(chargeId);
-    const keep = () => { if (!ro) unsaved[s.id] = { form, charges: chosen(), narrative: narr.value, auto }; };
+    const keep = () => { if (!ro) { dirty = true; unsaved[s.id] = { form, charges: chosen(), narrative: narr.value, auto }; tab(); } };
+    const tab = () => ($('#ftab').textContent = `${formLabel(form)}${dirty ? '*' : ''} - ${s.id} (${(STATUS[s.status] || [s.status])[0]})`);
     narr.oninput = () => { auto = false; keep(); };
     const update = () => {
-        $('#chead').textContent = form === 'warning' ? 'Violations' : 'Charges';
+        const warn = form === 'warning', inc = form === 'incident';
+        $('#ftitle').textContent = up(FORM_TITLE[form] || formLabel(form));
+        $('#fdef').textContent = inc ? 'Subject' : form === 'arrest' ? 'Arrestee' : 'Defendant';
+        $('#chead').textContent = warn ? 'Violations' : 'Charges';
+        $('#fcert').textContent = warn ? 'This is a warning only. No fine is due and no court appearance is required. A further violation may be cited.'
+            : form === 'citation' ? 'Without admitting guilt, the person named above promises to pay the fine shown or to appear in court on the date given.'
+            : form === 'arrest' ? 'The person named above was placed under arrest for the charges listed, and advised of their rights.'
+            : 'I declare that the information in this report is true and correct to the best of my knowledge.';
         const ids = chosen();
-        const total = list.filter((c) => ids.includes(chargeId(c))).reduce((n, c) => n + Number(c.fine || 0), 0);
-        $('#total').textContent = `${ids.length} selected · ` + (form === 'warning' ? 'Written warning: no fine' : `Total fine: ${money(total)}`);
+        const on = list.filter((c) => ids.includes(chargeId(c)));
+        const total = on.reduce((n, c) => n + Number(c.fine || 0), 0), pts = on.reduce((n, c) => n + Number(c.points || 0), 0);
+        $('#fcharges').innerHTML = fhead(inc ? 'Offenses noted:' : warn ? 'The driver was warned for the following:' : 'The defendant committed the following:')
+            + (on.length ? on.map((c) => frow(fbox('Section', chargeId(c), 3), fbox('Violation', up(c.label), 9))
+                + `<div class="fr"><div class="fb" style="grid-column:span 7"><span>Offense Classification</span><b class="cks">${tick(c.class === 'I', 'Infraction')}${tick(c.class === 'M', 'Misdemeanor')}${tick(c.class === 'F', 'Felony')}</b></div>
+                    ${fbox('Fine Amount', warn ? 'NONE' : money(c.fine), 3)}${fbox('Points', c.points || 0, 2)}</div>`).join('')
+                : frow(fbox('Section', '', 3), fbox('Violation', ro ? '' : 'NONE SELECTED: USE MANAGE CHARGES', 9, 'hint')))
+            + frow(fbox('Counts', on.length, 3), fbox(warn ? 'Fine' : 'Total Fine', warn ? 'WRITTEN WARNING: NO FINE' : money(total), 6), fbox('Total Points', pts, 3));
+        $('#total').textContent = `${ids.length} selected · ` + (warn ? 'Written warning: no fine' : `Total fine: ${money(total)}`);
+        view.querySelectorAll('.fpick').forEach((b) => b.classList.toggle('on', b.dataset.form === form));
+        tab();
     };
-    view.querySelectorAll('[name=form]').forEach((b) => (b.onchange = () => { form = b.value; update(); keep(); }));
+    view.querySelectorAll('.fpick').forEach((b) => (b.onclick = () => { form = b.dataset.form; update(); keep(); }));
     view.querySelectorAll('[data-c]').forEach((c) => (c.onchange = () => { update(); keep(); }));
     // every word must match; picked charges stay visible so you can see what's on the report
     $('#csearch').oninput = () => {
@@ -759,6 +877,8 @@ async function reportScreen(token, id, presetForm) {
     update();
     if (ro) return;
 
+    $('#mch').onclick = () => { $('#veil').hidden = false; $('#chdlg').hidden = false; setTimeout(() => $('#csearch').focus(), 50); };
+    $('#chdone').onclick = closeCharges;
     const save = async (sign) => {
         const res = await req('save', { id: s.id, form, charges: chosen(), narrative: narr.value, auto, sign });
         if (res.error) return toast(res.error);
@@ -783,6 +903,14 @@ async function reportScreen(token, id, presetForm) {
         fwd.length = 0;
         navButtons();
     };
+}
+
+function closeCharges() {
+    const d = $('#chdlg');
+    if (!d || d.hidden) return false;
+    d.hidden = true;
+    $('#veil').hidden = true;
+    return true;
 }
 
 // ─── citizen portal ──────────────────────────────────────────────────────────
@@ -1044,6 +1172,7 @@ $('#close').onclick = close;
 
 window.addEventListener('keydown', (e) => {
     if (!$('#mdt').classList.contains('open')) return;
+    if (!($('#chdlg')?.hidden ?? true)) { if (e.key === 'Escape') closeCharges(); return; } // the charges list has the keys
     if (e.key === 'Escape' && !$('#linkdlg').hidden) { $('#linkdlg').hidden = true; return; }
     if (e.key === 'Escape' && !$('#setdlg').hidden) { closeSettings(); return; }
     if (!$('#signon').hidden || !$('#setdlg').hidden) { if (e.key === 'Escape') close(); return; } // a dialog has the keys
@@ -1084,16 +1213,19 @@ if (WEB) {
 // The callsign is asked for on the first open of a session (the server remembers it for next time, and puts it
 // where lwk_control reads it). The style is the officer's own, modern unless they pick classic.
 
-const STYLES = ['modern', 'command', 'enterprise', 'classic'];
+const STYLES = ['modern', 'command', 'enterprise', 'classic', 'cad'];
 const FLAT = ['modern', 'command', 'enterprise']; // one layout, three palettes (body.flat + the style's own class)
 function applyStyle(style) {
-    const s = STYLES.includes(style) ? style : 'modern';
+    const s = STYLES.includes(style) ? style : 'cad';
     for (const f of FLAT) document.body.classList.toggle(f, s === f);
     document.body.classList.toggle('flat', FLAT.includes(s));
+    const wasCad = isCad();
+    document.body.classList.toggle('cad', s === 'cad'); // the classic layout, dressed as a dispatch CAD
+    if (wasCad !== (s === 'cad')) { buildToolbar(); navButtons(); if (cur) rerender(); else if (lastScreen) setTitle(lastScreen); }
     store.set('lwk_mdt.style', s); // so the Citizen Portal and the next open start in it too
     return s;
 }
-applyStyle(store.get('lwk_mdt.style', 'modern'));
+applyStyle(store.get('lwk_mdt.style', 'cad'));
 
 function showSignOn() {
     $('#veil').hidden = false;
@@ -1136,7 +1268,7 @@ document.querySelectorAll('input[name=style]').forEach((r) => (r.onchange = () =
 $('#gear').onclick = openSettings;
 $('#setcancel').onclick = () => closeSettings();
 $('#setsave').onclick = async () => {
-    const style = document.querySelector('input[name=style]:checked')?.value || 'modern';
+    const style = document.querySelector('input[name=style]:checked')?.value || 'cad';
     const r = await req('settings', { callsign: $('#setcs').value, style, popups: $('#setpop').checked });
     if (!r || r.error) { $('#seterr').textContent = r?.error || 'No answer from the server.'; return; }
     applyStyle(r.prefs?.style || style);

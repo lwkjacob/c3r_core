@@ -569,7 +569,7 @@ local function units_board()
         if s ~= u.shown then u.shown, u.since = s, os.time() end
         local inc = current(src)
         list[#list + 1] = {
-            unit = officer(src), status = s, since = u.since, call = inc and inc.id or nil,
+            unit = officer(src), name = GetPlayerName(src), status = s, since = u.since, call = inc and inc.id or nil,
             kind = inc and Records.KIND[inc.kind] or nil, title = inc and inc.title or nil,
             location = inc and inc.location or nil,
         }
@@ -630,7 +630,7 @@ local H = {}
 
 -- ─── sign-on and settings ────────────────────────────────────────────────────
 
-local STYLES = { modern = true, command = true, enterprise = true, classic = true }
+local STYLES = { modern = true, command = true, enterprise = true, classic = true, cad = true }
 
 -- 1-ADAM-12, 2 BOY 4, K9-3: letters, numbers, dashes and spaces, 20 at most, upper case.
 local function clean_callsign(cs)
@@ -671,7 +671,7 @@ function H.init(src)
         c3r = c3r_calls(src),
         admin = admin(src),
         units = units_board(), now = os.time(),
-        signed = signed_on(src) ~= nil, prefs = prefs(src),
+        signed = signed_on(src) ~= nil, prefs = prefs(src), agency = ems and Config.EmsAgency or Config.Agency,
     }
 end
 
@@ -828,7 +828,7 @@ function H.reports(src, a)
     local me = license(src)
     local filters = {
         mine = function(i) return i.author == me end,
-        drafts = function(i) return i.status == 'draft' end,
+        drafts = function(i) return i.status == 'draft' and i.author == me end, -- (your own, like My Drafts)
         signed = function(i) return i.status == 'signed' end,
     }
     local f = filters[a.filter] or function() return true end
@@ -914,17 +914,18 @@ function H.delete(src, a)
 end
 
 -- Every unsigned, closed report on the server (open calls and signed reports stay). Supervisors and Config.Admins only.
+-- An officer clears their own drafts; a supervisor (Config.Admins) everyone's.
 function H.deleteDrafts(src)
-    if not admin(src) then return { error = 'Not allowed.' } end
+    local me, all = license(src), admin(src)
     local n = 0
     for id, inc in pairs(Incidents) do
-        if inc.status == 'draft' then
+        if inc.status == 'draft' and (all or inc.author == me) then
             Incidents[id] = nil
             forget('i', id)
             n = n + 1
         end
     end
-    print(('[lwk_mdt] %s deleted all drafts (%d)'):format(GetPlayerName(src) or src, n))
+    print(('[lwk_mdt] %s deleted %s drafts (%d)'):format(GetPlayerName(src) or src, all and 'all' or 'their', n))
     return { ok = true, count = n }
 end
 
