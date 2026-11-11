@@ -67,7 +67,8 @@ end
 
 -- What each hit did: { part | nil, cause } -> conditions, and whether one of them killed them outright. A gunshot to the
 -- head kills; to the chest it collapses the lung; to the neck there's blood in the airway; a limb may break. A blow or
--- a fall to the head is a head injury, to a limb a break. A car or a blast: bleeding, breaks and the head.
+-- a fall to the head is a head injury, to a limb a break. A car or a blast: bleeding, breaks and the head. A dog bite: a
+-- bleeding arm or leg.
 local BREAKS = 0.4 -- (how often a bullet breaks the bone, or a blow a limb)
 function Ems.wounds(hits, rand)
     rand = rand or math.random
@@ -93,6 +94,8 @@ function Ems.wounds(hits, rand)
             if part == 'head' or cause == 'explosion' then add('head') end
         elseif cause == 'burn' then
             add('respiratory') -- (the smoke)
+        elseif cause == 'bite' then -- (a police dog's: it holds an arm or a leg)
+            add({ 'hemorrhage', LIMBS[part] and part or 'rarm' })
         end
         add('pain')
     end
@@ -201,7 +204,7 @@ end)
 
 -- A hit, from the game that owns them: kept, and if they're already a patient, it's on their body now.
 local PART = { head = 1, neck = 1, thorax = 1, abdomen = 1, larm = 1, rarm = 1, lhand = 1, rhand = 1, lleg = 1, rleg = 1, lfoot = 1, rfoot = 1 }
-local CAUSE = { gunshot = 1, stab = 1, blunt = 1, fall = 1, vehicle = 1, explosion = 1, burn = 1 }
+local CAUSE = { gunshot = 1, stab = 1, blunt = 1, fall = 1, vehicle = 1, explosion = 1, burn = 1, bite = 1 }
 RegisterNetEvent('c3r:ems:hit', function(net, part, cause)
     local src = source
     if math.type(net) ~= 'integer' or not CAUSE[cause] or (part ~= nil and not PART[part]) then return end

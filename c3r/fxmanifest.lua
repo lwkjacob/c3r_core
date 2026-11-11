@@ -38,6 +38,7 @@ server_scripts {
     'server/presence.lua',
     'callouts/*.lua', -- the calls (server only: the truth never reaches a game)
     'callouts/ems/*.lua', -- medics' calls
+    'callouts/taskings/*.lua', -- special taskings: asked for on the radio, never put out
     'server/config_labels.lua',
     'server/config_edit.lua',
 }

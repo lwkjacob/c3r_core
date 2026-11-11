@@ -20,6 +20,7 @@ The shipped callouts are worked examples worth reading:
 - `racing.lua`, with several cars running in different directions and a crowd scattering
 - `crash.lua`, with a road to clear: casualties, tow trucks, the fire department and held traffic
 - `parked.lua`, about a car: its plate, its owner and the tow truck the officer calls
+- `taskings/protect.lua`, `taskings/business.lua` and `taskings/rally.lua`, special taskings (see **Special taskings** below): someone turns up later, a route of places, a crowd
 - `ems/ems_collapse.lua`, `ems/ems_fall.lua` and `ems/ems_overdose.lua`, medical calls for medics on the Ambulance service (put your own medical calls in `ems/` too)
 
 > **Back up your own callouts.** An update can replace this folder. Keep a copy of your files somewhere else, and put them back after you update.
@@ -173,6 +174,7 @@ c:person('host', { at = 'host', label = 'Host', male = true, home = true, secret
 | `questions` | Their questions under **The call**: `{ id = 'c_...', label, needs?, press?, stress? }`. |
 | `lines` | What they say: `lines[question id] = { 'one answer', 'or another' }`. |
 | `facts` | Facts they start with. |
+| `later` | `true`: on file from the start (names, the MDT), but not in the world until `c:bring(key)`. For someone who turns up later. Works on `c:vehicle` too. |
 
 **Questions:**
 - `needs = { c_fact = true }` shows the question only once that fact is known.
@@ -324,12 +326,42 @@ Units can always leave a call with **X** or by clearing with dispatch. The last 
 | `c:task(person, 'shoot', point?)` | They fight every player near. With no `weapon`, with their fists. If an officer is talking to them, the talking ends. With a point (a window, a doorway), they go there and hold it, using cover. Without one, they come after the officer. They fire at up to about 40 m, so start it from no further than that. Nobody can talk to them until `surrender`, which your call must do: see `dangerous()` in `armed.lua`. |
 | `c:hangup(person)` | The talking's over: any officer talking to them is cut off, and a task given while they were talking goes through. |
 | `c:health(person)` | Their health: 200 is unhurt, 100 or less is dead. |
+| `c:bring(key)` | Someone or a car made with `later = true`: into the world now (made once a unit's within 300 m of their point). |
+| `c:crowd(key, spec)` | Walkers in an area who come and go: `{ at = point (the middle), radius = 20, count = 30 (at most 40), entries = { points } (newcomers walk in from one), stay = { 60, 240 } (s each stays), near = 120 (m: made once a unit's this close) }`. Each is an ordinary passer-by: E talks to them as anyone in the street, and once stopped they're not the crowd's any more. `taskings/rally.lua` is the example. |
+| `c:scatter(key)` | The crowd runs, and nobody new comes. |
+| `c:distance(key, point)` | How far someone or a car is from one of the location's points, in metres (nil if they're not in the world). |
+| `c:waypoint(point)` | The call's waypoint (the map marker and GPS route of every unit on it) moves to that point: on a route of places, the next one. `nil`: back to the call's own spot. `taskings/business.lua` is the example. |
+| `c:point(name)` | One of the location's points (a vector4), or nil if this location hasn't got it. |
+| `c:street(point?)` | The call's street, or the street that point is on. |
+| `c:label(point)` | A name written into the location by hand: `names = { shop1 = "Rob's Liquor" }` beside `points`. A `/c3rplace` over that location replaces it. |
 | `c:say(person, text)` | A line heard by units within 30 m. |
 | `c:tell(src, title, text)` | Something one officer notices (a card on their screen). |
 | `c:dispatch(text)` | A radio update to every unit on the call. |
 | `c:note(text)` | A line on every unit's MDT incident. |
 | `c:set(k, v)` / `c:get(k)` | The call's own memory. |
 | `c:finish(summary)` | Done: completed, with the summary on the MDT. |
+
+## Special taskings
+
+A special tasking is a longer, planned job (a protection detail, event security, a round of business checks): a callout with `tasking` set.
+
+```lua
+Callout({
+    id = 'protect', name = 'Protection detail',
+    tasking = 'protection', -- its kind: what the radio asks for
+    joinable = false,       -- true: once someone's on it, other units are asked ("Units needed")
+    max_minutes = 40,       -- its own time limit (40 for a tasking unless it says)
+    alert = 'Special tasking',
+    ...
+})
+```
+
+- Dispatch never puts one out. An officer asks on the radio ("requesting a special tasking", or by kind: "protection detail", "event security", "business check"), or types `/requesttasking [kind or file] [story]`. It's theirs at once, and dispatch says the callout's `voice` line as it hands it over.
+- Without `joinable`, nobody else can join it, from the offer or the MDT.
+- On one, the officer is busy: no callout offers, as on any call. Taskings don't count towards `max_open`.
+- Leaving early puts "Stood down early from the …" on that unit's MDT.
+- The tasking ends itself: the shipped ones stand the unit down at about 20 minutes (`taskings/protect.lua`, `taskings/rally.lua`) or when the route's done (`taskings/business.lua`).
+- Put your own in `callouts/taskings/` too, so they're easy to tell from ordinary calls.
 
 ## Testing
 

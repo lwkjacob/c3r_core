@@ -851,7 +851,7 @@ function ACT.search_car(s, o)
     if o then say(s, Dialogue.answer('search_car', o), o) end
     TriggerClientEvent('c3r:stop:task', s.src, 'search_car', o and o.net)
     local consent = s.driver and s.driver.facts.consent
-    note(s, ('Vehicle searched (%s)'):format(consent == 'yes' and 'with consent'
+    note(s, ('Vehicle searched (%s)'):format(s.k9 and 'K9 alert, probable cause' or consent == 'yes' and 'with consent'
         or consent == 'no' and 'consent refused' or 'consent not asked'))
     found(s, 'Vehicle search', s.car_items, 8000)
 end
@@ -1288,6 +1288,50 @@ exports('endStop', function(src, net, outcome)
     if outcome == 'fled' then s.occ[tonumber(net)].ran = true end
     finish(src, outcome)
     return true
+end)
+
+-- What a search of the officer's stop would turn up that's part of someone's story, and where it is: for a dog's nose
+-- (lwk_k9), so it stays on this side. net: one person's pockets only; nil: the car and everyone's pockets.
+-- -> { { name, where ('driver' | 'passenger' | 'rear_left' | 'rear_right' | 'trunk' | 'person'), net } }
+local SEAT_AT = { [-1] = 'driver', [0] = 'passenger', [1] = 'rear_left', [2] = 'rear_right' }
+exports('getStopFinds', function(src, net)
+    local s = Stops[tonumber(src)]
+    if not s then return {} end
+    net = tonumber(net)
+    local out = {}
+    for n, o in pairs(s.occ) do
+        if not net or n == net then
+            for _, item in ipairs(o.pockets or {}) do
+                for _, x in ipairs(o.items or {}) do
+                    if x == item then out[#out + 1] = { name = item, where = 'person', net = n } break end
+                end
+            end
+        end
+    end
+    if not net then
+        for _, f in ipairs(s.car_items) do
+            if f.owner then out[#out + 1] = { name = f.name, where = SEAT_AT[f.owner.seat] or 'trunk', net = f.owner.net } end
+        end
+    end
+    return out
+end)
+
+-- A police dog alerted on the stop (lwk_k9): on the report, and the search that follows is on probable cause.
+exports('k9Alert', function(src, where)
+    local s = Stops[tonumber(src)]
+    if not s or type(where) ~= 'string' then return false end
+    s.k9 = true
+    note(s, ('K9 sniff: positive alert, %s (probable cause)'):format(where:sub(1, 60)))
+    return true
+end)
+
+-- A line for the officer's open incident from an add-on ("K9 apprehension"): c3r:note, the stop's report if on one.
+exports('note', function(src, text)
+    src = tonumber(src)
+    if not src or type(text) ~= 'string' or text == '' then return end
+    local s = Stops[src]
+    if s then return note(s, text:sub(1, 200)) end
+    TriggerEvent('c3r:note', src, text:sub(1, 200))
 end)
 
 -- A warrant on someone's record, from a signed report or anything else. id = their record's.

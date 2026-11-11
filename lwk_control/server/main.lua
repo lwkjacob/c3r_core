@@ -221,6 +221,15 @@ RegisterNetEvent('lwk_control:requestCallout', function()
     if not ok then reply(src, 'no_callout', '~r~No call: ' .. tostring(reason or 'unavailable'):gsub('_', ' ')) end
 end)
 
+local TASKING_REFUSED = { already_on_call = 'You are already on a call.', off_duty = 'You are not in service.' }
+RegisterNetEvent('lwk_control:requestTasking', function(kind)
+    local src = source
+    local ok, reason = pd('requestTasking', src, type(kind) == 'string' and kind:sub(1, 20) or nil)
+    if ok then return end -- (c3r hands it over, and dispatch says what and where)
+    if reason == 'no_tasking' then return reply(src, 'no_tasking', 'Negative, no special taskings available right now.') end
+    reply(src, 'unable', '~r~Unable: ' .. (TASKING_REFUSED[reason] or tostring(reason or 'unavailable'):gsub('_', ' ')))
+end)
+
 -- ─── plate check ──────────────────────────────────────────────────────────────
 
 -- plate = spoken plate, or nil for "the vehicle I stopped"

@@ -47,11 +47,16 @@ end
 
 -- ─── the definitions ──────────────────────────────────────────────────────────
 
--- Called by each file in callouts/. A broken one is left out (and said why), never the rest.
+local Loading -- { res, file, ids }: the pack file Callouts.load is running now
+
+-- Called by each file in callouts/ (and each pack file). A broken one is left out (and said why), never the rest.
 function Callout(def)
     local function bad(why) print(('[c3r] callout %s left out: %s'):format(tostring(type(def) == 'table' and def.id), why)) end
     if type(def) ~= 'table' or type(def.id) ~= 'string' then return bad('no id') end
-    if Defs[def.id] then return bad('a callout with that id is already loaded') end
+    local old = Defs[def.id]
+    if old and not (Loading and old.resource == Loading.res and old.file == Loading.file) then
+        return bad('a callout with that id is already loaded')
+    end
     if type(def.name) ~= 'string' then return bad('no name') end
     if type(def.reports) ~= 'table' or not def.reports[1] then return bad('no reports') end
     if type(def.locations) ~= 'table' or not def.locations[1] then return bad('no locations') end
@@ -68,12 +73,80 @@ function Callout(def)
     table.sort(stories, function(a, b) return tostring(a.id) < tostring(b.id) end) -- (pairs order: same weights, same pick)
     def.story_list = stories
     def.priority = tonumber(def.priority) or 2
-    -- the file it's in (for /c3rplace to write new locations into)
-    local source = debug and debug.getinfo and (debug.getinfo(2, 'S') or {}).source or ''
-    def.file = source:match('(callouts/[%w_%-/]+%.lua)$')
+    -- the file it's in, and whose (for /c3rplace to write new locations into)
+    if Loading then
+        def.resource, def.file = Loading.res, Loading.file
+        Loading.ids[#Loading.ids + 1] = def.id
+    else
+        local source = debug and debug.getinfo and (debug.getinfo(2, 'S') or {}).source or ''
+        def.resource, def.file = GetCurrentResourceName(), source:match('(callouts/[%w_%-/]+%.lua)$')
+    end
     Defs[def.id] = def
+    for i, d in ipairs(DefList) do -- (loaded again: in the old one's place)
+        if d == old then DefList[i] = def return end
+    end
     DefList[#DefList + 1] = def
 end
+
+-- ─── callout packs: callouts in other resources ──────────────────────────────
+-- A resource lists its callout files in its fxmanifest, one line each: c3r_callout 'callouts/x.lua'. c3r runs them here,
+-- in its own Lua, as if they were in callouts/ (a story's setup(c) and c:on can't cross from one resource to another).
+-- When that resource stops, its callouts go.
+
+local function drop(pred)
+    for i = #DefList, 1, -1 do
+        if pred(DefList[i]) then
+            Defs[DefList[i].id] = nil
+            table.remove(DefList, i)
+        end
+    end
+end
+
+-- Runs one pack file (again: its callouts replace the ones it had). -> { ids } | nil, why
+function Callouts.load(res, file)
+    if type(res) ~= 'string' or type(file) ~= 'string' or not file:match('%.lua$') then return nil, 'bad file' end
+    local text = LoadResourceFile(res, file)
+    if not text then return nil, ('%s/%s: no such file'):format(res, file) end
+    local chunk, err = load(text, '@' .. res .. '/' .. file, 't')
+    if not chunk then
+        print(('[c3r] callout pack %s/%s left out: %s'):format(res, file, err))
+        return nil, err
+    end
+    local before = {}
+    for _, d in ipairs(DefList) do if d.resource == res and d.file == file then before[d.id] = true end end
+    Loading = { res = res, file = file, ids = {} }
+    local ok, run_err = pcall(chunk)
+    local ids = Loading.ids
+    Loading = nil
+    if not ok then
+        print(('[c3r] callout pack %s/%s left out: %s'):format(res, file, tostring(run_err)))
+        return nil, tostring(run_err)
+    end
+    for _, id in ipairs(ids) do before[id] = nil end
+    drop(function(d) return before[d.id] and d.resource == res and d.file == file end) -- (no longer in the file)
+    if not ids[1] then return nil, 'no callout loaded (see the server console)' end
+    return ids
+end
+
+local function load_pack(res)
+    if res == GetCurrentResourceName() then return end
+    for i = 0, GetNumResourceMetadata(res, 'c3r_callout') - 1 do
+        local file = GetResourceMetadata(res, 'c3r_callout', i)
+        local ids = Callouts.load(res, file)
+        if ids then log('pack %s: %s', res, table.concat(ids, ', ')) end
+    end
+end
+
+CreateThread(function() -- (after every c3r script has loaded: a pack file can use Ems and the rest)
+    for i = 0, GetNumResources() - 1 do
+        local res = GetResourceByFindIndex(i)
+        if res and GetResourceState(res) == 'started' then load_pack(res) end
+    end
+end)
+AddEventHandler('onResourceStart', load_pack)
+AddEventHandler('onResourceStop', function(res)
+    if res ~= GetCurrentResourceName() then drop(function(d) return d.resource == res end) end
+end)
 
 -- ─── what a story writes: the handle its setup gets ───────────────────────────
 
@@ -229,8 +302,30 @@ function C:moved(key)
     return #(GetEntityCoords(v.ent) - vector3(at.x, at.y, at.z))
 end
 
--- The street the call is on.
-function C:street() return self.inc.loc.street end
+-- The street the call is on, or (a point's name) the street that point is on.
+function C:street(at) return at and (self.inc.loc.streets or {})[at] or self.inc.loc.street end
+
+-- One of the location's points (a vector4), or nil if this location hasn't got it.
+function C:point(at) return self.inc.loc.points and self.inc.loc.points[at] end
+
+-- The call's waypoint (the map marker and GPS route of every unit on it) moved to one of the location's points: on a
+-- route of places, the next one. nil: back to the call's own spot.
+function C:waypoint(at)
+    local p = at and self:point(at)
+    self.inc.waypoint = p and vector3(p.x, p.y, p.z) or nil
+    for src in pairs(self.inc.responders) do
+        TriggerClientEvent('c3r:callout:waypoint', src, self.inc.id, self.inc.waypoint or self.inc.loc.at)
+    end
+end
+
+-- A name written into the location by hand for one of its points (names = { shop1 = "Rob's Liquor" }), or nil.
+function C:label(at) return (self.inc.loc.names or {})[at] end
+
+-- Someone or a car made with later = true: into the world now (when a unit's near its point, as anyone else).
+function C:bring(key)
+    local t = self.inc.people[key] or self.inc.vehicles[key]
+    if t then t.brought = true end
+end
 
 -- Change what an objective marks on the map (keys, or nil for nothing), e.g. once someone's said where he went.
 function C:blip(id, keys)
@@ -330,6 +425,14 @@ function C:near(key, m)
         if #(pos(src) - vector3(at.x, at.y, at.z)) < m then return true end
     end
     return false
+end
+
+-- How far someone (or a car) is from one of the location's points, in metres; nil if they aren't in the world.
+function C:distance(key, at)
+    local t = self.inc.people[key] or self.inc.vehicles[key]
+    local to = self.inc.loc.points and self.inc.loc.points[at]
+    if not (t and t.ent and to and DoesEntityExist(t.ent)) then return nil end
+    return #(GetEntityCoords(t.ent) - vector3(to.x, to.y, to.z))
 end
 
 -- Out of each other's earshot: more than 10 m apart, or either cuffed or sat in a car.
@@ -439,6 +542,31 @@ function C:collapse(key, vitals)
     p.owner = nil -- (keep_up tells their game)
 end
 
+-- A crowd: walkers in an area who come and go. Each is an ordinary passer-by (E talks to them as anyone in the street),
+-- not one of the call's people. spec = { at = point (the middle), radius? (20 m), count? (30, at most 40), entries? ({ points }:
+-- newcomers walk in from one), stay? ({ 60, 240 }: s each stays), near? (m: made once a unit's this close to the middle, 120) }
+local CROWD_MAX = 40
+function C:crowd(key, spec)
+    if left_out(self.inc, key, spec.at) then return end
+    self.inc.crowds = self.inc.crowds or {}
+    self.inc.crowds[key] = { key = key, spec = spec, peds = {} }
+end
+
+-- The crowd runs (from the nearest officer), and nobody new comes.
+function C:scatter(key)
+    local cr = self.inc.crowds and self.inc.crowds[key]
+    if not cr or cr.scattered then return end
+    cr.scattered = true
+    for _, w in ipairs(cr.peds) do
+        if DoesEntityExist(w.ent) then
+            local owner = NetworkGetEntityOwner(w.ent)
+            if owner and owner > 0 then TriggerClientEvent('c3r:callout:task', owner, w.net, 'flee') end
+            SetEntityOrphanMode(w.ent, 0)
+        end
+    end
+    cr.peds = {}
+end
+
 function C:set(k, v) self.inc.facts[k] = v end
 function C:get(k) return self.inc.facts[k] end
 
@@ -474,7 +602,8 @@ local function record(inc)
     local l = inc.loc
     return { id = inc.id, name = inc.def.name, street = l.street, coords = l.at, priority = inc.def.priority,
              description = inc.report, voice = type(inc.def.voice) == 'string' and inc.def.voice or nil,
-             alert = type(inc.def.alert) == 'string' and inc.def.alert or nil }
+             alert = type(inc.def.alert) == 'string' and inc.def.alert or (inc.def.tasking and 'Special tasking') or nil,
+             tasking = inc.def.tasking }
 end
 
 local function count(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
@@ -591,6 +720,7 @@ end
 
 local function offer(inc)
     local r = record(inc)
+    if inc.def.tasking then r.alert = 'Units needed' end -- (a joinable tasking: someone's on it already)
     for _, src in ipairs(on_duty_players(inc.def.service)) do
         if not Held[src] and not OnCall[src] then
             r.distance = #(pos(src) - inc.loc.at)
@@ -691,8 +821,8 @@ end
 function Callouts.send_clues(inc)
     local list = {}
     for _, cl in ipairs(inc.clue_list) do
-        if not cl.hidden and not cl.cleared then
-            local on = cl.spec.on and (inc.people[cl.spec.on] or inc.vehicles[cl.spec.on])
+        local on = cl.spec.on and (inc.people[cl.spec.on] or inc.vehicles[cl.spec.on])
+        if not cl.hidden and not cl.cleared and not (on and not on.net) then -- (on someone not made yet: later = true)
             local car = on and inc.vehicles[cl.spec.on]
             list[#list + 1] = { key = cl.key, label = cl.spec.label, at = not on and point(inc, cl.spec.at) or nil, on = on and on.net or nil,
                                 range = car and 3.2 or cl.spec.drag and 2.4 or 1.6, glow = cl.net or (car and car.net) or nil,
@@ -737,8 +867,8 @@ local function records(inc)
 end
 
 -- Is any unit on the call within the build distance of that point?
-local function in_range(inc, at)
-    local r = cfg().build or 300.0
+local function in_range(inc, at, r)
+    r = r or cfg().build or 300.0
     for src in pairs(inc.responders) do
         if #(pos(src) - vector3(at.x, at.y, at.z)) < r then return true end
     end
@@ -753,7 +883,7 @@ local function make_near(inc)
     for _, p in ipairs(inc.people_list) do
         if inc.state ~= 'open' then return end
         local at = point(inc, p.spec.at)
-        if not p.ent and in_range(inc, at) then
+        if not p.ent and (not p.spec.later or p.brought) and in_range(inc, at) then
             local spec = p.spec
             local models = spec.model and { spec.model } or (p.male and MODELS.male or MODELS.female)
             local ent = CreatePed(4, p.face and p.face.model or GetHashKey(models[math.random(#models)]), at.x, at.y, at.z, heading_of(at) or 0.0, true, true)
@@ -783,7 +913,7 @@ local function make_near(inc)
     for _, v in ipairs(inc.vehicle_list) do
         if inc.state ~= 'open' then return end
         local at = point(inc, v.spec.at)
-        if not v.ent and in_range(inc, at) then
+        if not v.ent and (not v.spec.later or v.brought) and in_range(inc, at) then
             local ent = CreateVehicleServerSetter(GetHashKey(v.spec.model), 'automobile', at.x, at.y, at.z, heading_of(at) or 0.0)
             local net = net_of(ent)
             if not net then
@@ -938,8 +1068,80 @@ local function keep_up(inc)
     end
 end
 
+-- ─── crowds (c:crowd) ─────────────────────────────────────────────────────────
+
+local CROWD_MODELS = { MODELS.male, MODELS.female }
+
+local function crowd_spot(mid, radius)
+    local r, a = math.sqrt(math.random()) * radius, math.random() * 6.283
+    return vector3(mid.x + r * math.cos(a), mid.y + r * math.sin(a), mid.z)
+end
+
+-- Each second: anyone whose time is up walks off, anyone an officer has stopped is theirs now, the rest are told (again,
+-- on a new game) to walk about the area; then it's topped up: all at once the first time, then a couple at a time,
+-- walking in from an entrance.
+local function crowd_on(inc, now)
+    for _, cr in pairs(inc.crowds or {}) do
+        local spec = cr.spec
+        local mid, radius = point(inc, spec.at), spec.radius or 20.0
+        for i = #cr.peds, 1, -1 do
+            local w = cr.peds[i]
+            local done = not DoesEntityExist(w.ent) or Subject(w.net) ~= nil -- (stopped: the stop's, then the game's)
+            if not done and now >= w.leave then
+                local owner = NetworkGetEntityOwner(w.ent)
+                if owner and owner > 0 then TriggerClientEvent('c3r:callout:task', owner, w.net, 'wander') end
+                done = true
+            end
+            if done then
+                if DoesEntityExist(w.ent) then SetEntityOrphanMode(w.ent, 0) end
+                table.remove(cr.peds, i)
+            else
+                local owner = NetworkGetEntityOwner(w.ent)
+                if owner and owner > 0 and owner ~= w.owner then
+                    w.owner = owner
+                    TriggerClientEvent('c3r:callout:task', owner, w.net, 'crowd', { x = mid.x, y = mid.y, z = mid.z, r = radius, place = not w.placed })
+                    w.placed = true
+                end
+            end
+        end
+        if not cr.scattered and in_range(inc, mid, spec.near or 120.0) then
+            local entries = {}
+            for _, e in ipairs(spec.entries or {}) do if inc.loc.points and inc.loc.points[e] then entries[#entries + 1] = e end end
+            local want = math.min(spec.count or 30, CROWD_MAX)
+            local stay = spec.stay or { 60, 240 }
+            local first = not cr.filled
+            for _ = 1, first and want - #cr.peds or math.min(want - #cr.peds, 2) do
+                local at = (not first and entries[1]) and point(inc, entries[math.random(#entries)]) or crowd_spot(mid, radius)
+                local models = CROWD_MODELS[math.random(2)]
+                local ent = CreatePed(4, GetHashKey(models[math.random(#models)]), at.x, at.y, at.z, math.random() * 360.0, true, true)
+                local net = net_of(ent)
+                if net and Subject(net) then UnbindSubject(net) end -- (a net id someone's ped had: not them)
+                if inc.state ~= 'open' or cr.scattered or not net then
+                    if ent ~= 0 and DoesEntityExist(ent) then DeleteEntity(ent) end
+                    if inc.state ~= 'open' or cr.scattered then return end
+                else
+                    SetEntityOrphanMode(ent, 2)
+                    -- (the first lot leave at any time up to the longest stay, so they don't all go together)
+                    cr.peds[#cr.peds + 1] = { ent = ent, net = net, leave = now + math.random(first and 10 or stay[1], stay[2]) }
+                end
+            end
+            cr.filled = true
+        end
+    end
+end
+
 -- The call's over: people not under arrest walk off and are left to the game; props go; nobody is the call's any more.
 local function clean(inc)
+    for _, cr in pairs(inc.crowds or {}) do -- (the crowd goes home)
+        for _, w in ipairs(cr.peds) do
+            if DoesEntityExist(w.ent) then
+                SetEntityOrphanMode(w.ent, 0)
+                local owner = NetworkGetEntityOwner(w.ent)
+                if owner and owner > 0 then TriggerClientEvent('c3r:callout:task', owner, w.net, 'wander') end
+            end
+        end
+        cr.peds, cr.scattered = {}, true
+    end
     for _, p in ipairs(inc.people_list) do
         if p.net then
             ByNet[p.net] = nil
@@ -1072,7 +1274,9 @@ end
 
 -- story: the id of one to ask for (/requestcall armed active). Not one of this callout's: any.
 -- service: whose call it is ('police' | 'ambulance'): near's own, if near is given.
-function Callouts.create(near, only, story, service)
+-- tasking: a special tasking (def.tasking) of that kind, or true for any. Without it (or only), never a tasking: dispatch
+-- doesn't put those out, an officer asks for one (Callouts.request). A tasking made near an officer is theirs at once.
+function Callouts.create(near, only, story, service, tasking)
     local c = cfg()
     service = (near and ServiceOf(near)) or service or 'police'
     local officers = near and { near } or on_duty_players(service)
@@ -1081,7 +1285,9 @@ function Callouts.create(near, only, story, service)
     for _, inc in pairs(Open) do used[inc.def.id .. ':' .. inc.loc_index] = true end
     local options = {}
     for _, def in ipairs(DefList) do
-        if (only and def == only) or (not only and def.enabled ~= false and (def.service or 'police') == service) then
+        local kind = not only and def.enabled ~= false and (def.service or 'police') == service
+            and (tasking and def.tasking and (tasking == true or def.tasking == tasking) or (not tasking and not def.tasking))
+        if (only and def == only) or kind then
             local locs, nearest, nearest_d = {}, nil, math.huge
             local wanted
             for _, s in ipairs(story and def.story_list or {}) do if s.id == story then wanted = s end end
@@ -1094,7 +1300,7 @@ function Callouts.create(near, only, story, service)
                     end
                 end
             end
-            if not locs[1] and only and nearest then locs[1] = nearest end
+            if not locs[1] and (only or tasking) and nearest then locs[1] = nearest end
             if locs[1] then options[#options + 1] = { def = def, locs = locs, weight = def.weight or 1 } end
         end
     end
@@ -1121,7 +1327,28 @@ function Callouts.create(near, only, story, service)
         return nil, 'no_callout'
     end
     log('callout %d: %s (%s) at %s', inc.id, def.id, tostring(inc.story.id), inc.loc.street)
-    offer(inc)
+    if def.tasking and near then -- (theirs, straight away: dispatch gives it to them; a joinable one asks for more units)
+        local ok, why = Callouts.respond(near, inc.id, true)
+        if not ok then close(inc, 'gone') return nil, why end -- (on a call already, off duty: nobody's, so nobody's)
+        if def.joinable then offer(inc) else board() end
+    else
+        offer(inc)
+    end
+    return inc
+end
+
+-- A special tasking for an officer who asked for one (on the radio, /requesttasking): kind = 'protection' | 'event' |
+-- 'business'..., or a tasking's file name (protect), or nil for any. -> incident | nil, why
+function Callouts.request(src, kind, story)
+    if not IsOnDuty(src) then return nil, 'off_duty' end
+    if OnCall[src] then return nil, 'already_on_call' end
+    local by_kind = false -- (a kind first: 'business' is a kind, and its file's name too; switched off is off)
+    for _, d in ipairs(DefList) do if d.tasking and d.tasking == kind then by_kind = true end end
+    local only = not by_kind and type(kind) == 'string' and Callouts.find(kind) or nil
+    if only and not only.tasking then only = nil end
+    if not only and kind and not by_kind then return nil, 'no_tasking' end
+    local inc = Callouts.create(src, only, story, nil, not only and (kind or true) or nil)
+    if not inc then return nil, 'no_tasking' end
     return inc
 end
 
@@ -1130,7 +1357,7 @@ function Callouts.of(src) return OnCall[src] end -- the call they're on, if any
 function Callouts.open_list() local l = {} for _, inc in pairs(Open) do l[#l + 1] = inc end return l end
 
 -- Respond: to call id, or (nil) the nearest open one. -> true | nil, reason
-function Callouts.respond(src, id)
+function Callouts.respond(src, id, assigned)
     if not IsOnDuty(src) then return nil, 'off_duty' end
     if OnCall[src] then return nil, 'already_on_call' end
     local inc = id and Open[id]
@@ -1138,17 +1365,22 @@ function Callouts.respond(src, id)
         local best
         for _, x in pairs(Open) do
             local d = #(pos(src) - x.loc.at)
-            if (x.def.service or 'police') == ServiceOf(src) and (not best or d < best) then inc, best = x, d end
+            local theirs = x.def.tasking and not x.def.joinable and next(x.responders) -- (someone else's solo tasking)
+            if (x.def.service or 'police') == ServiceOf(src) and not theirs and (not best or d < best) then inc, best = x, d end
         end
     end
     if not inc or inc.state ~= 'open' then return nil, 'no_callout' end
+    if inc.def.tasking and not inc.def.joinable and next(inc.responders) then return nil, 'solo_tasking' end
     inc.responders[src] = {}
     OnCall[src] = inc
     Recent[src] = Recent[src] or {}
     Recent[src][inc.def.id] = Recent[src][inc.def.id] or {}
     Recent[src][inc.def.id][inc.story.id] = os.time()
     TriggerEvent('c3r:calloutAccepted', src, record(inc))
-    TriggerClientEvent('c3r:callout:joined', src, record(inc))
+    local r = record(inc)
+    r.say = assigned or nil -- (given to them, not taken from an offer: dispatch says it as it hands it over)
+    r.waypoint = inc.waypoint -- (moved on from the call's spot: c:waypoint)
+    TriggerClientEvent('c3r:callout:joined', src, r)
     Callouts.refresh(inc)
     if inc.built then Callouts.send_clues(inc) end
     board()
@@ -1182,6 +1414,7 @@ function Callouts.leave(src)
     if not inc then return nil, 'not_on_call' end
     OnCall[src] = nil
     inc.responders[src] = nil
+    if inc.def.tasking then TriggerEvent('c3r:note', src, ('Stood down early from the %s.'):format(inc.def.name:lower())) end
     TriggerEvent('c3r:calloutEnded', src, false)
     TriggerClientEvent('c3r:callout:ended', src, false)
     if not next(inc.responders) then
@@ -1204,7 +1437,7 @@ function Callouts.tick(now)
         for _, service in ipairs({ 'police', 'ambulance' }) do -- (each its own clock and its own max_open)
             next_at[service] = next_at[service] or now + math.random(every[1], every[2])
             local open = 0
-            for _, inc in pairs(Open) do if (inc.def.service or 'police') == service then open = open + 1 end end
+            for _, inc in pairs(Open) do if (inc.def.service or 'police') == service and not inc.def.tasking then open = open + 1 end end
             if now >= next_at[service] and open < (c.max_open or 2) then
                 next_at[service] = now + math.random(every[1], every[2])
                 Callouts.create(nil, nil, nil, service)
@@ -1215,7 +1448,7 @@ function Callouts.tick(now)
         if not next(inc.responders) and now - inc.created > (c.expire or 300) then
             log('callout %d: nobody took it', inc.id)
             close(inc, 'gone')
-        elseif now - inc.created > (c.max_minutes or 30) * 60 then
+        elseif now - inc.created > (inc.def.max_minutes or (inc.def.tasking and 40) or c.max_minutes or 30) * 60 then
             log('callout %d: time limit', inc.id)
             Callouts.cancel(inc)
         else
@@ -1242,6 +1475,17 @@ function Callouts.tick(now)
                         inc.making = false
                         if not ok then
                             print(('[c3r] callout %s (%s) build: %s'):format(inc.def.id, tostring(inc.story.id), tostring(err)))
+                            Callouts.cancel(inc)
+                        end
+                    end)
+                end
+                if inc.crowds and not inc.crowding and inc.state == 'open' then
+                    inc.crowding = true
+                    CreateThread(function()
+                        local ok, err = pcall(crowd_on, inc, now)
+                        inc.crowding = false
+                        if not ok then
+                            print(('[c3r] callout %s (%s) crowd: %s'):format(inc.def.id, tostring(inc.story.id), tostring(err)))
                             Callouts.cancel(inc)
                         end
                     end)
@@ -1424,6 +1668,13 @@ RegisterCommand('requestcall', function(src, args)
     if not inc then TriggerClientEvent('c3r:callout:refused', src, only and why == 'no_callout' and (only.name .. ': every location is in use.') or why) end
 end, false)
 
+-- /requesttasking [kind | file] [story]: a special tasking now, yours (what the radio's "requesting a special tasking" does).
+RegisterCommand('requesttasking', function(src, args)
+    if src <= 0 then return end
+    local inc, why = Callouts.request(src, args[1], args[2])
+    if not inc then TriggerClientEvent('c3r:callout:refused', src, why) end
+end, false)
+
 -- A game starting up (or c3r restarting on it): the calls open now.
 RegisterNetEvent('c3r:callout:sync', function() board() end)
 
@@ -1501,19 +1752,25 @@ local function location_of(def, data, indent)
     return head .. '\n' .. table.concat(lines, '\n') .. '\n' .. indent .. '} }', { street = data.street, at = at, points = pts, streets = streets }
 end
 
-RegisterCommand('c3rplace', function(src, args)
-    if not admin(src) then return end
-    local def = Defs[args[1] or '']
-    if not def or not def.points or not def.file then
-        local ids = {}
-        for _, d in ipairs(DefList) do if d.points and d.file then ids[#ids + 1] = d.id end end
-        return TriggerClientEvent('c3r:place:msg', src, 'Usage: /c3rplace <callout> [location number]. Callouts: ' .. table.concat(ids, ', '))
-    end
-    local n = tonumber(args[2])
+-- Their game walks them through def's points. -> true | nil, why
+local function place(src, id, n)
+    local def = Defs[id or '']
+    if not def or not def.points or not def.file then return nil, 'no_callout' end
+    n = tonumber(n)
     local points = {} -- (as a plain list, whole: name, what it is, 'car' or false, can be skipped)
     for i, pt in ipairs(def.points) do points[i] = { pt[1], pt[2], pt[3] or false, pt.optional == true } end
     TriggerClientEvent('c3r:place:start', src, { id = def.id, name = def.name, points = points,
         index = n and def.locations[n] and math.floor(n) or nil, count = #def.locations })
+    return true
+end
+
+RegisterCommand('c3rplace', function(src, args)
+    if not admin(src) then return end
+    if not place(src, args[1], args[2]) then
+        local ids = {}
+        for _, d in ipairs(DefList) do if d.points and d.file then ids[#ids + 1] = d.id end end
+        return TriggerClientEvent('c3r:place:msg', src, 'Usage: /c3rplace <callout> [location number]. Callouts: ' .. table.concat(ids, ', '))
+    end
 end, false)
 
 RegisterNetEvent('c3r:place:save', function(id, index, data)
@@ -1535,7 +1792,7 @@ RegisterNetEvent('c3r:place:save', function(id, index, data)
         streets[pt[1]] = type(data.streets) == 'table' and clean_street(data.streets[pt[1]]) or nil
     end
     data.streets = streets
-    local text = LoadResourceFile(GetCurrentResourceName(), def.file)
+    local text = LoadResourceFile(def.resource or GetCurrentResourceName(), def.file)
     local at_id = text and (text:find("id = '" .. id .. "'", 1, true) or text:find('id = "' .. id .. '"', 1, true))
     local brace = text and select(2, text:find('locations%s*=%s*{', at_id or 1)) -- (where its '{' is)
     local list = brace and table_items(text, brace)
@@ -1563,7 +1820,7 @@ RegisterNetEvent('c3r:place:save', function(id, index, data)
         index = #def.locations
     end
     if not load(text) then return TriggerClientEvent('c3r:place:msg', src, 'Not saved: the file would not load (nothing changed).') end
-    SaveResourceFile(GetCurrentResourceName(), def.file, text, -1)
+    SaveResourceFile(def.resource or GetCurrentResourceName(), def.file, text, -1)
     print(('[c3r] %s placed %s location %d (%s) with /c3rplace'):format(GetPlayerName(src) or src, id, index, data.street))
     TriggerClientEvent('c3r:place:saved', src, ('%s: location %d saved to %s, in use now.'):format(def.name, index, def.file), entry)
 end)
@@ -1600,4 +1857,57 @@ exports('offerCallout', function(src)
     if not src or not IsOnDuty(src) then return nil, 'off_duty' end
     local inc, why = Callouts.create(src)
     return inc and true or nil, why
+end)
+
+-- Callout packs (lwk_calloutcreator and the packs it exports): a pack file run again after it's been saved. -> { ids } | nil, why
+-- (false, not nil, on a refusal: a list starting with nil loses the reason on its way to another resource)
+exports('loadCallout', function(res, file)
+    local ids, why = Callouts.load(res, file)
+    if ids then return ids end
+    return false, why
+end)
+
+-- A pack's callout taken out (the creator deleted it). Never one of c3r's own. -> true | nil
+exports('unloadCallout', function(id)
+    local def = Defs[id or '']
+    if not def or def.resource == GetCurrentResourceName() then return nil end
+    drop(function(d) return d == def end)
+    return true
+end)
+
+-- A call of that callout (and story, if given) now, near that officer, as /requestcall. -> true | nil, why
+exports('requestCallout', function(src, id, story)
+    src = tonumber(src)
+    if not src or not IsOnDuty(src) then return false, 'off_duty' end
+    local def = Defs[id or '']
+    if not def then return false, 'no_callout' end
+    if (def.service or 'police') ~= ServiceOf(src) then return false, 'wrong_service' end
+    local inc, why = Callouts.create(src, def, story)
+    if inc then return true end
+    return false, why or 'no_callout'
+end)
+
+-- A special tasking for that officer, theirs at once (lwk_control's "requesting a special tasking"). kind: 'protection',
+-- 'event', 'business'..., or nil for any. -> true, name | false, why ('off_duty', 'already_on_call', 'no_tasking')
+exports('requestTasking', function(src, kind)
+    src = tonumber(src)
+    if not src then return false, 'off_duty' end
+    local inc, why = Callouts.request(src, type(kind) == 'string' and kind or nil)
+    if inc then return true, inc.def.name end
+    return false, why
+end)
+
+-- What a loaded callout is, as plain data. -> { id, name, resource, file, stories = { ids }, points, locations } | nil
+exports('getCallout', function(id)
+    local def = Defs[id or '']
+    if not def then return nil end
+    local stories, locations = {}, {}
+    for _, s in ipairs(def.story_list) do stories[#stories + 1] = s.id end
+    for i, l in ipairs(def.locations) do
+        local pts = {}
+        for k, p in pairs(l.points or {}) do pts[k] = { x = p.x, y = p.y, z = p.z, h = p.w or 0.0 } end
+        locations[i] = { street = l.street, at = { x = l.at.x, y = l.at.y, z = l.at.z }, points = pts, streets = l.streets }
+    end
+    return { id = def.id, name = def.name, resource = def.resource, file = def.file, stories = stories,
+             points = def.points, locations = locations }
 end)

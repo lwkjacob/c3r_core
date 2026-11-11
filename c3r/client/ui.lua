@@ -13,6 +13,13 @@ function Prompt(id, kind, title, text, ms)
     SendNUIMessage({ type = 'prompt', id = id, kind = kind, title = title, text = text, ms = ms })
 end
 
+-- An add-on's card, in c3r's look (lwk_k9's "K9 alert: front passenger door").
+exports('prompt', function(id, kind, title, text, ms)
+    if type(id) ~= 'string' then return end
+    if title == nil then return ClearPrompt('addon:' .. id) end
+    Prompt('addon:' .. id, kind == 'alert' and 'alert' or kind == 'ok' and 'ok' or 'info', tostring(title), tostring(text or ''), tonumber(ms))
+end)
+
 -- The PA key, as lwk_control has it bound ('N' when lwk_control isn't running).
 function PaKeyName() return KeyName('+lwk_control_pa', 'N') end
 

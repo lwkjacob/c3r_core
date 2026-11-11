@@ -11,7 +11,8 @@ local hidden, last_text = false, nil
 local confirming = false
 
 local REFUSED = { already_on_call = 'You are already on a call.', off_duty = 'You are not on duty.',
-                  no_callout = 'No call available near you right now.' }
+                  no_callout = 'No call available near you right now.', no_tasking = 'No special tasking available right now.',
+                  solo_tasking = "That tasking is another unit's." }
 
 local function clear_blip()
     if call and call.blip and DoesBlipExist(call.blip) then RemoveBlip(call.blip) end
@@ -97,6 +98,16 @@ end)
 
 RegisterNetEvent('c3r:callout:board', function(list) board = type(list) == 'table' and list or {} end)
 
+-- Dispatch over the radio: the call's own line, or "Incoming 911 call", in the area of where it is (lwk_control_assets
+-- voice/<key>_to_1.ogg + the location's clips; voice/<key>_1.ogg with no location), the details as text. -> said it
+local function announce(r)
+    local clip = r.voice and LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(r.voice)) and r.voice or 'incoming_call'
+    local alert = r.alert or 'Incoming 911 call' -- (a planned job isn't a 911 call: the callout's `alert`)
+    return pcall(function()
+        exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('%s: %s, %s. Priority %d.'):format(alert, r.name:lower(), r.street, r.priority))
+    end)
+end
+
 RegisterNetEvent('c3r:callout:offer', function(r)
     if call then return end
     local cad_only = LocalPlayer.state.c3rNoPopup -- (lwk_mdt's settings: no card, it's on the board there; dispatch still says it)
@@ -108,21 +119,37 @@ RegisterNetEvent('c3r:callout:offer', function(r)
         SendNUIMessage({ type = 'callout', offer = { name = r.name, street = r.street, distance = r.distance, report = r.description,
             priority = r.priority, units = r.units, key = KeyName('+c3r_respond', 'Y'), decline = KeyName('+c3r_leavecall', 'X'), ms = ms } })
     end
-    -- dispatch over the radio: the call's own line, or "Incoming 911 call", in the area of where it is (lwk_control_assets
-    -- voice/<key>_to_1.ogg + the location's clips; voice/<key>_1.ogg with no location), the details as text
-    local clip = r.voice and LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(r.voice)) and r.voice or 'incoming_call'
-    local alert = r.alert or 'Incoming 911 call' -- (a planned job isn't a 911 call: the callout's `alert`)
-    local said = pcall(function()
-        exports.lwk_control:sayCall(clip, vector3(r.coords.x, r.coords.y, r.coords.z), ('%s: %s, %s. Priority %d.'):format(alert, r.name:lower(), r.street, r.priority))
-    end)
+    local said = announce(r)
     if cad_only then
         Notify(('~b~C~w~3~r~R~s~ New call in the CAD: %s, %s.'):format(r.name, r.street))
     elseif not said then
-        Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(alert, r.name:lower(), r.street))
+        Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(r.alert or 'Incoming 911 call', r.name:lower(), r.street))
     end
 end)
 
+-- The call's waypoint moved (c:waypoint, a route of places): the marker and the GPS route go there, until I'm close.
+local function route_to(at)
+    if not (call and call.blip and DoesBlipExist(call.blip)) then return end
+    local wp = vector3(at.x, at.y, at.z)
+    call.wp = wp
+    SetBlipCoords(call.blip, wp.x, wp.y, wp.z)
+    SetBlipRoute(call.blip, true)
+    SetBlipRouteColour(call.blip, 1)
+    CreateThread(function()
+        while call and call.wp == wp do
+            if #(GetEntityCoords(PlayerPedId()) - wp) < 40.0 then
+                if DoesBlipExist(call.blip) then SetBlipRoute(call.blip, false) end
+                return
+            end
+            Wait(1000)
+        end
+    end)
+end
+
+RegisterNetEvent('c3r:callout:waypoint', function(id, at) if call and call.id == id then route_to(at) end end)
+
 RegisterNetEvent('c3r:callout:joined', function(r)
+    if r.say and not announce(r) then Notify(('~b~DISPATCH~s~ %s: %s, %s.'):format(r.alert or 'Assigned', r.name:lower(), r.street)) end -- (a tasking handed to me)
     offer = nil
     SendNUIMessage({ type = 'callout', offer = false })
     clear_blip()
@@ -136,11 +163,12 @@ RegisterNetEvent('c3r:callout:joined', function(r)
     BeginTextCommandSetBlipName('STRING')
     AddTextComponentSubstringPlayerName(r.name)
     EndTextCommandSetBlipName(call.blip)
+    if r.waypoint then route_to(r.waypoint) end
 end)
 
 RegisterNetEvent('c3r:callout:card', function(card)
     if not call or card.id ~= call.id then return end
-    if card.arrived and call.blip and DoesBlipExist(call.blip) then SetBlipRoute(call.blip, false) end
+    if card.arrived and not call.wp and call.blip and DoesBlipExist(call.blip) then SetBlipRoute(call.blip, false) end -- (a moved one: route_to)
     local text = card.mine[1] and card.mine[1].text
     if hidden and text and text ~= last_text then Prompt('callout', 'info', 'New objective', text, 5000) end
     if last_text and text and text ~= last_text then SendNUIMessage({ type = 'sfx', name = 'ding' }) end -- (a new objective)
@@ -393,6 +421,27 @@ local function brawl(ped, args)
     end
 end
 
+-- One of a crowd (c:crowd): an ordinary passer-by, reacting to the street as anyone does. Just made: onto the ground first
+-- (made from the middle's height, wherever in the area). Outside the area: walks in, then wanders it.
+local function crowd(ped, a)
+    SetBlockingOfNonTemporaryEvents(ped, false)
+    SetPedKeepTask(ped, true)
+    local mid = vector3(a.x, a.y, a.z)
+    if a.place then
+        local p = GetEntityCoords(ped)
+        RequestCollisionAtCoord(p.x, p.y, p.z)
+        local ok, z = GetGroundZFor_3dCoord(p.x, p.y, p.z + 2.0, false)
+        if ok and math.abs(z - p.z) < 6.0 then SetEntityCoords(ped, p.x, p.y, z, false, false, false, false) end
+    end
+    if #(GetEntityCoords(ped) - mid) > a.r then
+        TaskFollowNavMeshToCoord(ped, mid.x, mid.y, mid.z, 1.0, -1, a.r * 0.5, 0, 0.0)
+        local deadline = GetGameTimer() + 90000
+        while DoesEntityExist(ped) and NetworkHasControlOfEntity(ped) and #(GetEntityCoords(ped) - mid) > a.r and GetGameTimer() < deadline do Wait(1000) end
+        if not (DoesEntityExist(ped) and NetworkHasControlOfEntity(ped)) then return end
+    end
+    TaskWanderInArea(ped, mid.x, mid.y, mid.z, a.r, 2, 8.0) -- (at least 2 m a walk, ~8 s stood between: UNVERIFIED by eye)
+end
+
 local SPRAY_UP = 6.0 -- m over the point a 'spray' is aimed at
 local function run(ped, name, args, sc, weapon)
     if name == 'go' and args then -- (walking there round buildings and cars, not through them)
@@ -429,6 +478,8 @@ local function run(ped, name, args, sc, weapon)
     elseif name == 'get_out' then
         local veh = GetVehiclePedIsIn(ped, false)
         if veh ~= 0 then TaskLeaveVehicle(ped, veh, 0) end
+    elseif name == 'crowd' and args then -- (c:crowd: into the area if outside it, then walking about in it)
+        crowd(ped, args)
     elseif name == 'wander' then
         if weapon or Fought[ped] then stand_down(ped) end -- (the call ended mid-fight: it's over for them too)
         SetBlockingOfNonTemporaryEvents(ped, false)

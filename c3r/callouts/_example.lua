@@ -85,11 +85,26 @@
       c:file(person)   their record on the call's MDT incident now; c:warrant(person, text | nil)   a warrant on them, or cleared
       c:patient(person)   someone unhurt who'll go with paramedics; c:collapse(person)   they drop, a casualty
       c:task(person, 'drive', { car = 'key', to = 'point' })   into that car and off there; 'parked' fires when they're out
+      later = true (on a person or car)   on file from the start, but not in the world until c:bring(key): someone
+                               who turns up later (made when a unit's near their point, as anyone)
+      c:crowd(key, { at, radius?, count?, entries?, stay? })   walkers in an area who come and go (ordinary passers-by);
+                               c:scatter(key) and they run
+      c:distance(key, point)   how far someone or a car is from a point; c:point(name) the location's point (vector4)
+      c:waypoint(point)        every unit's map marker and GPS route moves there (a route of places); nil: back
+      c:street(point?)         the call's street, or the street that point is on; c:label(point) a name written into
+                               the location by hand (names = { shop1 = "Rob's Liquor" })
       c:say(person, text)      a line heard on scene
       c:dispatch(text)         a radio update to the units on it
       c:note(text)             a line on their MDT incident
       c:set(k, v) / c:get(k)   the call's own memory
       c:finish(summary)        it's dealt with: completed, the summary on the MDT
+
+    ── Special taskings ───────────────────────────────────────────────────────────────────────────────────────────
+      tasking = 'protection' (or any kind) on the callout makes it a special tasking: dispatch never puts it out; an
+      officer asks for one on the radio ("requesting a special tasking", or by kind) or /requesttasking [kind], and
+      it's theirs at once. joinable = true also asks other units ("Units needed"); without it nobody else can join.
+      max_minutes = its own time limit (40 for a tasking unless it says). Leaving early puts "Stood down early" on the
+      MDT. callouts/taskings/ holds them: protect.lua, business.lua and rally.lua are the examples.
 
     ── Rules that keep a callout good ─────────────────────────────────────────────────────────────────────────────
       · Same reports for every story, and the same objectives at the start: story-specific ones are hidden until

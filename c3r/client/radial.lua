@@ -1,7 +1,7 @@
 --[[
     c3r — client: the vehicle's radial menu. Press the radial key (G) on foot at any car: search it, call a
     tow, run its plate, order everyone out or back in, call backup. Sat in a car (the officer's own), or with no car
-    at hand, it's the dispatch wheel: any unit, or in a chase, pursuit backup and air (and the rest under Services ▸).
+    at hand, it's the dispatch wheel: any unit, or in a chase, only air support.
     Every wheel has Backup ▸. A car that isn't stopped becomes a quiet stop first
     (stop.lua's RequestVehicle). On a traffic stop it's only for the car pulled over. Point at an option and
     click it; the key again closes it. The stopped car's felony stop is run from cover: from Config.PaRange, and from
@@ -59,7 +59,7 @@ end
 
 -- Units dispatch can send (client/backup.lua), as wheel options.
 local SERVICES = {
-    { 'police', 'Prisoner transport', 'cuffs' }, { 'ambulance', 'Ambulance', 'medic' }, { 'cover', 'Cover unit', 'siren' },
+    { 'police', 'Prisoner transport', 'cuffs' }, { 'ambulance', 'Ambulance', 'medic' },
     { 'tow', 'Tow truck', 'tow' }, { 'fire', 'Fire department', 'flame' }, { 'coroner', 'Coroner', 'file' },
     { 'mechanic', 'Mechanic', 'wrench' }, { 'roadservice', 'Road service', 'wrench' },
     { 'animalrescue', 'Animal control', 'paw' }, { 'taxi', 'Taxi', 'car' }, { 'dot', 'DOT crew', 'wrench' },
@@ -70,10 +70,8 @@ local MEDIC_SERVICES = {
     { 'mechanic', 'Mechanic', 'wrench' }, { 'dot', 'DOT crew', 'wrench' },
 }
 local function services() return OnPatrol() and SERVICES or MEDIC_SERVICES end
-local CHASE = {
-    { 'light', 'Backup: code 1', 'siren' }, { 'medium', 'Backup: code 2', 'siren' }, { 'heavy', 'Backup: code 3', 'siren' },
-    { 'air', 'Air support', 'heli' }, { 'cancel_pursuit', 'Cancel backup', 'radio' },
-}
+-- In a chase, only the helicopter (the AI pursuit cars weren't up to it).
+local CHASE = { { 'air', 'Air support', 'heli' }, { 'cancel_pursuit', 'Cancel backup', 'radio' } }
 -- A unit already on its way is called off from the same place ("Cancel ..."), the tow truck too (until it has the car).
 local function backup_items(list, skip)
     local out = {}
@@ -89,13 +87,43 @@ end
 
 local BACKUP = { label = 'Backup', icon = 'radio', to = 'backup' }
 
--- The sub-levels: Backup ▸ (every unit but the tow, which the car wheel has itself; Pursuit ▸ first in a chase),
--- and the dispatch wheel's Services ▸ in a chase.
+-- Add-ons' slices of the wheel (lwk_k9's K9 ▸): { label, icon, desc, root = level id, levels = { [id] = { title, items } } }.
+-- An add-on keeps its slice fresh; its options come back to it as the client event c3r:radial (slice id, action, arg).
+local Slices = {}
+local function slice_items(id, list)
+    local out = {}
+    for i, it in ipairs(list or {}) do
+        local c = {}
+        for k, v in pairs(it) do c[k] = v end
+        if type(c.action) == 'string' then c.action = 'addon:' .. id .. ':' .. c.action end
+        if type(c.to) == 'string' then c.to = 'addon:' .. id .. ':' .. c.to end
+        out[i] = c
+    end
+    return out
+end
+local function slice_levels(into)
+    for id, sl in pairs(Slices) do
+        for lv, l in pairs(sl.levels or {}) do
+            into['addon:' .. id .. ':' .. lv] = { title = l.title, items = slice_items(id, l.items) }
+        end
+    end
+    return into
+end
+local function slice_roots(list)
+    for id, sl in pairs(Slices) do
+        if sl.root then list[#list + 1] = { label = sl.label, icon = sl.icon, desc = sl.desc, to = 'addon:' .. id .. ':' .. sl.root } end
+    end
+    return list
+end
+exports('setRadialSlice', function(id, sl)
+    if type(id) ~= 'string' then return end
+    Slices[id] = type(sl) == 'table' and sl or nil
+end)
+
+-- The sub-level: Backup ▸ (every unit but the tow, which the car wheel has itself; in a chase, only the helicopter).
 local function levels()
-    local backup = backup_items(services(), 'tow')
-    if ChaseOn() then table.insert(backup, 1, { label = 'Pursuit', icon = 'siren', to = 'pursuit' }) end
-    return { backup = { title = 'Backup', items = backup }, pursuit = { title = 'Pursuit', items = backup_items(CHASE) },
-             services = { title = 'Services', items = backup_items(services()) } }
+    local chase = ChaseOn() and OnPatrol()
+    return slice_levels({ backup = { title = 'Backup', items = chase and backup_items(CHASE) or backup_items(services(), 'tow') } })
 end
 
 -- The first half go on the left of the wheel, the rest on the right.
@@ -108,9 +136,7 @@ local function items(t)
     end
     if t.backup then
         if not ChaseOn() or not OnPatrol() then return backup_items(services()) end
-        local list = backup_items(CHASE)
-        list[#list + 1] = { label = 'Services', icon = 'radio', to = 'services' }
-        return list
+        return backup_items(CHASE)
     end
     if not OnPatrol() then return { BACKUP } end -- (a medic: units to call, nothing of a stop's)
     if t.far then
@@ -188,7 +214,9 @@ RegisterCommand('+c3r_radial', function()
         end)
     end
     local plate = (t.veh and GetVehicleNumberPlateText(t.veh) or ''):match('^%s*(.-)%s*$') -- which car this is, in the middle of the wheel
-    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = items(t), key = KeyName('+c3r_radial', 'G'),
+    local list = items(t)
+    if OnPatrol() then slice_roots(list) end -- (an officer's add-ons: K9 ▸)
+    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = list, key = KeyName('+c3r_radial', 'G'),
                      title = t.backup and 'Dispatch' or plate ~= '' and plate or nil, levels = levels() })
 end, false)
 RegisterCommand('-c3r_radial', function() end, false)
@@ -204,11 +232,25 @@ function OpenPaWheel(ped, list)
     return true
 end
 
+-- An add-on's own key: its slice on c3r's wheel, on or off duty (lwk_k9's pet wheel). -> true when it opened
+exports('openRadial', function(id, key)
+    local sl = Slices[id]
+    if open or IsNuiFocused() or not sl or not sl.root or not (sl.levels or {})[sl.root] then return false end
+    open, target = true, { addon = id }
+    SetNuiFocus(true, true)
+    local root = sl.levels[sl.root]
+    SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = slice_items(id, root.items),
+                     key = type(key) == 'string' and key or nil, title = root.title, levels = slice_levels({}) })
+    return true
+end)
+
 RegisterNUICallback('radial', function(d, cb)
     cb({})
     local t = target
     close()
     if not t or type(d.action) ~= 'string' then return end
+    local id, act = d.action:match('^addon:([^:]+):(.+)$')
+    if id then return TriggerEvent('c3r:radial', id, act, d.arg) end
     if d.action == 'pa' then return PaAt(t.pa, d.arg) end
     if d.action == 'backup' then return CallBackup(d.arg) end
     if d.action == 'ems' then return EmsWheelAction(d.arg) end

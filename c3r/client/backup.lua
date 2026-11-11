@@ -20,7 +20,9 @@ local spawned = {}  -- [entity] = true: everything spawned (and prisoners taken)
 local next_id = 0
 
 -- driving styles (eVehicleDrivingFlags): on lights, round traffic but stopping for people; otherwise normal traffic
-local RESPOND = 786469 | 2 | 16 -- AvoidVehicles + StopForPeds + SteerAroundPeds
+-- On lights: never queues behind stopped cars. 2 stop for peds + 4 swerve round vehicles + 8 round stopped ones + 16 round
+-- peds + 32 round objects + 512 wrong side allowed + 262144 shortcut links + 524288 change lanes round obstructions
+local RESPOND = 787006
 local NORMAL = 786603           -- DrivingModeStopForVehicles
 
 local function say(text) pcall(function() exports.lwk_control:say(nil, text) end) end
@@ -134,15 +136,46 @@ end
 local function park_point(at)
     local own = GetVehiclePedIsIn(me(), true)
     local busy = { own ~= 0 and GetEntityCoords(own) or nil, Stop and Stop.veh ~= 0 and DoesEntityExist(Stop.veh) and GetEntityCoords(Stop.veh) or nil }
-    for n = 1, 12 do
-        local ok, node, h = GetNthClosestVehicleNodeWithHeading(at.x, at.y, at.z, n, 0, 3.0, 0)
-        if ok then
-            local clear = #(node - at) < 40.0
-            for _, b in pairs(busy) do clear = clear and #(node - b) > 8.0 end
-            if clear then return node, true end
+    -- (first the side of the road the scene's car faces: arriving from behind it, no turning round to get there)
+    local ref = (Stop and Stop.veh ~= 0 and DoesEntityExist(Stop.veh) and Stop.veh) or (own ~= 0 and own) or nil
+    local fwd = ref and GetEntityForwardVector(ref)
+    local first
+    for pass = 1, fwd and 2 or 1 do
+        for n = 1, 12 do
+            local ok, node, h = GetNthClosestVehicleNodeWithHeading(at.x, at.y, at.z, n, 0, 3.0, 0)
+            if ok then
+                local free = true
+                for _, b in pairs(busy) do free = free and #(node - b) > 8.0 end
+                local r = math.rad(h)
+                if free and (pass == 2 or not fwd or (-math.sin(r)) * fwd.x + math.cos(r) * fwd.y > 0.0) then
+                    first = first or node
+                    if #(node - at) < 40.0 then return node, true end
+                end
+            end
         end
     end
+    -- the scene's well off the road (a field, a hillside): the road nearest it, and the crew walk the rest
+    if first then return first, true end
     return at, false
+end
+
+-- Where a unit appears when there's a car at the scene to come up behind (the stop's, or the officer's own): back down
+-- the road it faces, on that side of the road, so it arrives without turning round (a highway has nowhere to).
+-- -> node, heading | nil
+-- ponytail: not checked against the camera like spawn_point; behind the car is usually behind the officer too
+local function behind_point(at)
+    for _, car in ipairs({ Stop and Stop.veh or 0, GetVehiclePedIsIn(me(), true) }) do
+        if car ~= 0 and DoesEntityExist(car) and #(GetEntityCoords(car) - at) <= 60.0 then
+            local fwd = GetEntityForwardVector(car)
+            local back = GetEntityCoords(car) - fwd * (B.spawn[1] + math.random() * (B.spawn[2] - B.spawn[1]))
+            for n = 1, 6 do
+                local ok, node, h = GetNthClosestVehicleNodeWithHeading(back.x, back.y, back.z, n, 0, 3.0, 0)
+                local r = math.rad(h or 0.0)
+                -- (the node's own heading the same way the car faces: its side of a divided road, never the other)
+                if ok and (-math.sin(r)) * fwd.x + math.cos(r) * fwd.y > 0.5 and #(node - pos()) > 120.0 then return node, h end
+            end
+        end
+    end
 end
 
 -- ─── a unit's life ────────────────────────────────────────────────────────────
@@ -386,6 +419,10 @@ function JOB.police(u)
         if not alive(u) then break end
         while seat < max and not IsVehicleSeatFree(u.veh, seat) do seat = seat + 1 end
         if seat >= max then break end
+        if #(GetEntityCoords(u.veh) - GetEntityCoords(pr.ped)) > 12.0 then -- parked up at the road: one of them walks over
+            walk_to(u.crew[#u.crew], pr.ped, false, 1.5) -- ponytail: they're then put in the van from there; walk them back if it jars
+            if not alive(u) then break end
+        end
         if control(pr.ped) then
             local o = pr.o or stop_ped(pr.ped)
             if o then
@@ -600,7 +637,7 @@ JOB.roadservice = JOB.mechanic
 local function stranded(at)
     local fares = {}
     for _, p in ipairs(peds_near(at or pos(), 40.0, function(p)
-        return NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_taxi == true and not IsEntityDead(p) and not IsPedCuffed(p) and not IsPedInAnyVehicle(p, false)
+        return NetworkGetEntityIsNetworked(p) and Entity(p).state.c3r_taxi == true and not IsEntityDead(p) and not IsPedCuffed(p)
     end)) do
         fares[#fares + 1] = { ped = p, net = PedToNet(p) }
     end
@@ -613,7 +650,7 @@ local function stranded(at)
     local list = {}
     for _, o in pairs(s.occ) do
         if not o.cuffed and not o.fleeing and not o.escaped and not o.transported and DoesEntityExist(o.ped)
-            and not IsEntityDead(o.ped) and not IsPedInAnyVehicle(o.ped, false) then
+            and not IsEntityDead(o.ped) then -- (still sat in their car too: they get out for the taxi)
             list[#list + 1] = o
         end
     end
@@ -635,6 +672,13 @@ function JOB.taxi(u, at)
             spawned[o.ped] = true
             TagBackup(o.ped)
             ClearPedTasks(o.ped)
+            local sat = GetVehiclePedIsIn(o.ped, false)
+            if sat ~= 0 then -- (their own car, or the stop's: out first, then over to the taxi)
+                TaskLeaveVehicle(o.ped, sat, 0)
+                if not wait_until(6000, function() return not IsPedInAnyVehicle(o.ped, false) end) then
+                    TaskLeaveVehicle(o.ped, sat, 16) -- (the door's blocked: out anyway)
+                end
+            end
             TaskEnterVehicle(o.ped, u.veh, 20000, seat, 1.0, 1, 0)
             u.carried[#u.carried + 1] = o.ped
             seat = seat + 1
@@ -724,7 +768,8 @@ end)
 
 -- The AI crew: from out of sight to `at`, its job there, then away.
 local function send_unit(kind, def, at, started_on)
-    local node, h = spawn_point(at)
+    local node, h = behind_point(at)
+    if not node then node, h = spawn_point(at) end
     if not node then return false, 'no_route' end
     local u = new_unit(kind)
     CreateThread(function()

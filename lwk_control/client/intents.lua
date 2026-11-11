@@ -248,6 +248,20 @@ AddIntent({
     run = function() TriggerServerEvent('lwk_control:requestCallout') end,
 })
 
+-- Special taskings (c3r's planned jobs: a protection detail, event security, a business check): asked for, never offered.
+-- Any one, or a kind by name. c3r hands it over and dispatch says what and where (its own line).
+for _, t in ipairs({
+    { id = 'request_tasking', say = { 'special tasking', 'a special tasking', 'special assignment', 'a special assignment', 'tasking' } },
+    { id = 'request_tasking_protection', kind = 'protection', say = { 'protection detail', 'a protection detail', 'protective detail' } },
+    { id = 'request_tasking_event', kind = 'event', say = { 'event security', 'event detail', 'an event detail', 'security detail' } },
+    { id = 'request_tasking_business', kind = 'business', say = { 'business check', 'business checks', 'a business check', 'business inspection' } },
+}) do
+    AddIntent({
+        id = t.id, verb = 'request', say = t.say,
+        run = function() TriggerServerEvent('lwk_control:requestTasking', t.kind) end,
+    })
+end
+
 AddIntent({
     id = 'hold_callouts',
     say = { 'hold my call outs', 'hold call outs', 'pause my call outs', 'pause call outs', 'no more call outs', 'stop call outs' },
@@ -316,7 +330,8 @@ end
 AddIntent({
     id = 'pursuit_backup', verb = 'request', slot = 'code',
     say = { 'backup', 'back up', 'additional units', 'more units' },
-    run = function(ctx) pursuit_backup(PURSUIT_BY_CODE[ctx.code or 2] or 'medium') end,
+    -- (in a chase, the helicopter is the only backup: the AI pursuit cars weren't up to it; no chase, c3r sends cover)
+    run = function(ctx) pursuit_backup(State.pursuit and 'air' or PURSUIT_BY_CODE[ctx.code or 2] or 'medium') end,
 })
 
 AddIntent({

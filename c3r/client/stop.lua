@@ -773,7 +773,17 @@ exports('getStop', function()
     return { veh_net = s.veh_net, ped_net = s.ped_net, stopped = s.stopped == true, mode = s.mode, people = people }
 end)
 
-local pursuit, body, lead -- further down with what the people in the car do
+-- Whoever is running from the officer's stop on foot right now (lwk_k9's Attack and Track). -> { { net, ped } }
+exports('getRunners', function()
+    local s, out = Stop, {}
+    if not s then return out end
+    for net, o in pairs(s.occ) do
+        if o.fleeing and o.ped and DoesEntityExist(o.ped) then out[#out + 1] = { net = net, ped = o.ped } end
+    end
+    return out
+end)
+
+local pursuit, body, lead, give_up -- further down with what the people in the car do
 
 -- Only chatting: someone on foot, or in a parked car, walked up to; nobody in cuffs or being walked. Walking off,
 -- or going to talk to someone else, ends it (menu.lua).
@@ -956,6 +966,13 @@ end
 function TASKS.handsup(s, o)
     if o.felony then return end -- already hands up (and maybe on their knees): leave them be
     o.following = false
+    -- (running let them react to a gun again, and a gun on them set them off again over any order: not now)
+    SetBlockingOfNonTemporaryEvents(o.ped, true)
+    if o.fleeing then -- told while running (the PA): they give up
+        give_up(s, o)
+        if not s.foot then return end -- (a car stop: it's a felony stop now, and that's its pose)
+        o.doing = 'handsup'
+    end
     if IsPedInAnyVehicle(o.ped, false) then return TaskHandsUp(o.ped, -1, PlayerPedId(), -1, false) end
     stand(o)
 end
@@ -1403,7 +1420,7 @@ function DropChaseBlip(s)
     s.blip = nil
 end
 
-local function give_up(s, o)
+give_up = function(s, o)
     o.fleeing, o.doing, o.out, o.following, o.anchor = false, 'fel_out', true, false, nil
     ClearPedTasks(o.ped)
     if not s.foot then -- the stop turns into a felony stop (the server's too): hands up, back to the officer
@@ -2295,7 +2312,7 @@ function TowCar(car, s)
     SetBlipColour(blip, 47)
 
     local stop_at = c + fwd * 10.0
-    local around, still, stuck = false, nil, false
+    local around, still, slow, stuck = false, nil, nil, false
     TaskVehicleDriveToCoord(driver, truck, stop_at.x, stop_at.y, stop_at.z, 12.0, 0, tm, TOW_NORMAL, 4.0, true)
     -- called off: the truck drives on by, and the car is the stop's again (not a failed tow: no strike against it)
     local function called_off()
@@ -2318,8 +2335,10 @@ function TowCar(car, s)
         if job.off or not DoesEntityExist(truck) then return true end
         local d = #(GetEntityCoords(truck) - stop_at)
         if d < 8.0 then return true end
-        still = GetEntitySpeed(truck) < 0.5 and (still or GetGameTimer()) or nil
-        if not around and (d < 80.0 or (still and GetGameTimer() - still > 4000)) then -- close, or boxed in: work round
+        local speed = GetEntitySpeed(truck)
+        still = speed < 0.5 and (still or GetGameTimer()) or nil
+        slow = speed < 2.0 and (slow or GetGameTimer()) or nil -- (creeping in a queue)
+        if not around and (d < 200.0 or (slow and GetGameTimer() - slow > 4000)) then -- close (the queue behind the stop), or boxed in: work round
             around = true
             TaskVehicleDriveToCoord(driver, truck, stop_at.x, stop_at.y, stop_at.z, 7.0, 0, tm, TOW_AROUND, 4.0, true)
         elseif around and still and GetGameTimer() - still > 5000 then -- still boxed in (behind the patrol car): skip the rest
