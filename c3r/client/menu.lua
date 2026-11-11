@@ -155,6 +155,7 @@ end)
 RegisterCommand('+c3r_interact', function()
     local s = Stop
     if open or MedicalOpen() then return end
+    if LocalPlayer.state.c3rKeyE then return end -- (an add-on's own E is in reach: lwk_scene's pick up)
     if CalloutPlacing and CalloutPlacing() then return end -- (/c3rplace: E sets a point)
     if CalloutInspect and CalloutInspect() then return end -- evidence on a call, right beside you (client/callouts.lua)
     if EmsInteract and EmsInteract() then return end -- a medic's bag, stretcher and handover (client/ems.lua)

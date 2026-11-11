@@ -1,8 +1,8 @@
 --[[
-    c3r — client: the vehicle's radial menu. Press the radial key (G) on foot at any car: search it, call a
-    tow, run its plate, order everyone out or back in, call backup. Sat in a car (the officer's own), or with no car
-    at hand, it's the dispatch wheel: any unit, or in a chase, only air support.
-    Every wheel has Backup ▸. A car that isn't stopped becomes a quiet stop first
+    c3r — client: the G wheel. It opens on slices: Backup ▸ (any unit, or in a chase only air support), the
+    add-ons' (lwk_scene's Scene ▸, lwk_k9's K9 ▸), and what's at hand: Vehicle ▸ on foot at any car (search it, call
+    a tow, run its plate, everyone out or back in), Felony stop ▸ from cover. A medic's: Medical ▸ at their vehicle,
+    and Backup ▸. Sat in a car (the officer's own), or with no car at hand, it's titled Dispatch. A car that isn't stopped becomes a quiet stop first
     (stop.lua's RequestVehicle). On a traffic stop it's only for the car pulled over. Point at an option and
     click it; the key again closes it. The stopped car's felony stop is run from cover: from Config.PaRange, and from
     the officer's own (stopped) patrol car.
@@ -87,7 +87,8 @@ end
 
 local BACKUP = { label = 'Backup', icon = 'radio', to = 'backup' }
 
--- Add-ons' slices of the wheel (lwk_k9's K9 ▸): { label, icon, desc, root = level id, levels = { [id] = { title, items } } }.
+-- Add-ons' slices of the wheel (lwk_scene's Scene ▸, lwk_k9's K9 ▸): { label, icon, desc, off (why it's greyed),
+-- order (lower first, default 50), root = level id, levels = { [id] = { title, items } } }.
 -- An add-on keeps its slice fresh; its options come back to it as the client event c3r:radial (slice id, action, arg).
 local Slices = {}
 local function slice_items(id, list)
@@ -110,8 +111,14 @@ local function slice_levels(into)
     return into
 end
 local function slice_roots(list)
-    for id, sl in pairs(Slices) do
-        if sl.root then list[#list + 1] = { label = sl.label, icon = sl.icon, desc = sl.desc, to = 'addon:' .. id .. ':' .. sl.root } end
+    local ids = {}
+    for id, sl in pairs(Slices) do if sl.root then ids[#ids + 1] = id end end
+    local function ord(id) return tonumber(Slices[id].order) or 50 end
+    table.sort(ids, function(a, b) if ord(a) ~= ord(b) then return ord(a) < ord(b) end return a < b end)
+    for _, id in ipairs(ids) do
+        local sl = Slices[id]
+        list[#list + 1] = { label = sl.label, icon = sl.icon, desc = sl.desc, off = type(sl.off) == 'string' and sl.off or nil,
+                            to = 'addon:' .. id .. ':' .. sl.root }
     end
     return list
 end
@@ -120,30 +127,15 @@ exports('setRadialSlice', function(id, sl)
     Slices[id] = type(sl) == 'table' and sl or nil
 end)
 
--- The sub-level: Backup ▸ (every unit but the tow, which the car wheel has itself; in a chase, only the helicopter).
-local function levels()
-    local chase = ChaseOn() and OnPatrol()
-    return slice_levels({ backup = { title = 'Backup', items = chase and backup_items(CHASE) or backup_items(services(), 'tow') } })
-end
-
--- The first half go on the left of the wheel, the rest on the right.
-local function items(t)
-    local s = Stop
-    local ems = not OnPatrol() and EmsWheel and EmsWheel() -- (a medic at their vehicle: client/ems.lua)
-    if ems then
-        ems[#ems + 1] = BACKUP
-        return ems
-    end
-    if t.backup then
-        if not ChaseOn() or not OnPatrol() then return backup_items(services()) end
-        return backup_items(CHASE)
-    end
-    if not OnPatrol() then return { BACKUP } end -- (a medic: units to call, nothing of a stop's)
-    if t.far then
-        local list = felony_items(s)
-        list[#list + 1] = BACKUP
-        return list
-    end
+-- The car's own things (Vehicle ▸). On a felony stop there's no "everyone out / in": that's the felony orders.
+local function car_items(t, s)
+    local towed = t.stop and s.towed
+    local list = {
+        { action = 'search_car', label = 'Search vehicle', icon = 'search' },
+        { action = 'tow', label = 'Request tow', icon = 'tow', off = towed and 'On its way' or nil },
+        { action = 'run_plate', label = 'Run plate', icon = 'plate' },
+    }
+    if t.stop and s.felony then return list end
     local inside, outside = {}, {}
     if t.stop then
         inside, outside = VehicleFree(s)
@@ -153,28 +145,42 @@ local function items(t)
             if p ~= 0 and not IsPedAPlayer(p) then inside[#inside + 1] = p end
         end
     end
-    local towed = t.stop and s.towed
-    local felony = t.stop and not s.foot and not s.empty and felony_items(s) or {}
-    if t.stop and s.felony then -- a felony stop, at the car: its orders, and the car's own things (no "everyone out / in")
-        for _, it in ipairs({
-            { action = 'search_car', label = 'Search vehicle', icon = 'search' },
-            { action = 'tow', label = 'Request tow', icon = 'tow', off = towed and 'On its way' or nil },
-            { action = 'run_plate', label = 'Run plate', icon = 'plate' },
-            BACKUP,
-        }) do felony[#felony + 1] = it end
-        return felony
-    end
-    local list = {
-        { action = 'search_car', label = 'Search vehicle', icon = 'search' },
-        { action = 'tow', label = 'Request tow', icon = 'tow', off = towed and 'On its way' or nil },
-        { action = 'run_plate', label = 'Run plate', icon = 'plate' },
-        { action = 'all_out', label = 'Everyone out', icon = 'out', off = #inside == 0 and 'Nobody inside' or nil },
-        { action = 'all_in', label = 'Everyone back in', icon = 'in',
-          off = towed and 'Being towed' or #outside == 0 and 'Nobody out' or nil },
-        BACKUP,
-    }
-    if felony[1] then table.insert(list, 1, felony[1]) end
+    list[#list + 1] = { action = 'all_out', label = 'Everyone out', icon = 'out', off = #inside == 0 and 'Nobody inside' or nil }
+    list[#list + 1] = { action = 'all_in', label = 'Everyone back in', icon = 'in',
+                        off = towed and 'Being towed' or #outside == 0 and 'Nobody out' or nil }
     return list
+end
+
+-- The wheel's first ring and its levels. -> items, levels. The first half go on the left of the wheel, the rest on the right.
+local function build(t)
+    local s, lv, list = Stop, {}, {}
+    local ems = not OnPatrol() and EmsWheel and EmsWheel() -- (a medic at their vehicle: client/ems.lua)
+    if ems then
+        list[1] = { label = 'Medical', icon = 'medic', to = 'medical' }
+        lv.medical = { title = 'Medical', items = ems }
+    end
+    local car = OnPatrol() and t.veh and not t.backup and not t.far
+    if OnPatrol() and t.stop and (t.far or (not s.foot and not s.empty)) then -- a stop's car: its felony stop
+        local fel = felony_items(s)
+        if s.felony or t.far then
+            list[#list + 1] = { label = 'Felony stop', icon = 'siren', to = 'felony' }
+            lv.felony = { title = 'Felony stop', items = fel }
+        else -- (not begun, at the car: its one option goes with the car's)
+            car = { fel[1] }
+        end
+    end
+    if car then
+        local items = type(car) == 'table' and car or {}
+        for _, it in ipairs(car_items(t, s)) do items[#items + 1] = it end
+        list[#list + 1] = { label = 'Vehicle', icon = 'car', to = 'vehicle' }
+        lv.vehicle = { title = 'Vehicle', items = items }
+    end
+    -- Backup ▸: every unit (but the tow, when Vehicle ▸ has it); in a chase, only the helicopter.
+    local chase = ChaseOn() and OnPatrol()
+    list[#list + 1] = BACKUP
+    lv.backup = { title = 'Backup', items = chase and backup_items(CHASE) or backup_items(services(), car and 'tow' or nil) }
+    if OnPatrol() then slice_roots(list) end -- (an officer's add-ons: Scene ▸, K9 ▸)
+    return list, slice_levels(lv)
 end
 
 -- Sat in a car the wheel stays up until clicked (G or Esc closes it) and the car still drives under it: only what
@@ -214,10 +220,9 @@ RegisterCommand('+c3r_radial', function()
         end)
     end
     local plate = (t.veh and GetVehicleNumberPlateText(t.veh) or ''):match('^%s*(.-)%s*$') -- which car this is, in the middle of the wheel
-    local list = items(t)
-    if OnPatrol() then slice_roots(list) end -- (an officer's add-ons: K9 ▸)
+    local list, lv = build(t)
     SendNUIMessage({ type = 'radial', open = true, kind = 'vehicle', hold = false, items = list, key = KeyName('+c3r_radial', 'G'),
-                     title = t.backup and 'Dispatch' or plate ~= '' and plate or nil, levels = levels() })
+                     title = t.backup and 'Dispatch' or plate ~= '' and plate or nil, levels = lv })
 end, false)
 RegisterCommand('-c3r_radial', function() end, false)
 RegisterKeyMapping('+c3r_radial', 'Vehicle radial menu (c3r)', 'keyboard', Config.RadialKey)
