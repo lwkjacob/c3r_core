@@ -62,6 +62,9 @@ function Gen.check(doc)
     if not ident(doc.id) or doc.id:match('^c_') then bad('The callout id must be letters, numbers and _ (and not start c_).') end
     if not text(doc.name, 60) or doc.name == '' then bad('The callout needs a name.') end
     if doc.alert and not text(doc.alert, 60) then bad('The alert line is too long.') end
+    if doc.voice and doc.voice ~= '' and not (type(doc.voice) == 'string' and #doc.voice <= 60 and doc.voice:match('^[%w_]+$') or (type(doc.voice) == 'string' and doc.voice:match('^custom/[%w_]+$'))) then
+        bad('The dispatcher line is a clip name: letters, numbers and _ (custom/ in front for your own).')
+    end
     if not list(doc.reports)[1] then bad('Add at least one report: what the caller says.') end
     for i, r in ipairs(list(doc.reports)) do if not text(r, 300) or r == '' then bad('Report %d is empty or too long.', i) end end
     local points = {}
@@ -130,11 +133,13 @@ function Gen.check(doc)
         stories[s.id or ''] = true
         if not num(s.weight or 1, 0, 100) then bad('%s: the weight is 0 to 100.', w) end
         for _, n in ipairs(list(s.needs)) do if not points[n] then bad('%s needs a point "%s" the callout does not list.', w, tostring(n)) end end
-        local keys = {}
+        -- (as in c3r, a person, a car and a clue may share a key: a clue called car, on the car)
+        local keys, kinds = {}, { person = {}, vehicle = {}, clue = {} }
         local function key(k, what)
             if not ident(k) then bad('%s: a %s needs a key: letters, numbers and _.', w, what)
-            elseif keys[k] then bad('%s: two things are called %s.', w, k) end
-            keys[k or ''] = what
+            elseif kinds[what][k] then bad('%s: two %ss are called %s.', w, what == 'vehicle' and 'car' or what, k) end
+            kinds[what][k or ''] = true
+            keys[k or ''] = true
         end
         local function at(where, a)
             if not points[a] then bad('%s: %s is at "%s", which is not one of the points.', w, where, tostring(a)) end
@@ -151,7 +156,7 @@ function Gen.check(doc)
             if p.demeanor and p.demeanor ~= '' and not Gen.DEMEANORS[p.demeanor] then bad('%s: %s: unknown demeanor.', w, pw) end
             if p.weapon and p.weapon ~= '' and not model(p.weapon) then bad('%s: %s: that is not a weapon name.', w, pw) end
             if p.home and p.home ~= '' and p.home ~= 'yes' and not points[p.home] then bad('%s: %s lives on a point that is not there.', w, pw) end
-            if p.seated and p.seated ~= '' and keys[p.seated] ~= 'vehicle' then bad('%s: %s sits in a car that is not in this story.', w, pw) end
+            if p.seated and p.seated ~= '' and not kinds.vehicle[p.seated] then bad('%s: %s sits in a car that is not in this story.', w, pw) end
             if p.qset and p.qset ~= '' and not qsets[p.qset] then bad('%s: %s uses a question list that is not there.', w, pw) end
             local sc = p.scene or {}
             if sc.kind == 'scenario' and not model(sc.name) then bad('%s: %s: that is not a scenario name.', w, pw) end
@@ -180,14 +185,14 @@ function Gen.check(doc)
             at(vw, v.at)
             if not model(v.model) then bad('%s: %s needs a model name.', w, vw) end
             for _, f in ipairs({ 'make', 'name', 'color', 'label' }) do if v[f] and not text(v[f], 40) then bad('%s: %s: %s is too long.', w, vw, f) end end
-            if v.owner and v.owner ~= '' and keys[v.owner] ~= 'person' then bad('%s: %s belongs to someone not in this story.', w, vw) end
+            if v.owner and v.owner ~= '' and not kinds.person[v.owner] then bad('%s: %s belongs to someone not in this story.', w, vw) end
             if v.damage and v.damage ~= '' and not Gen.DAMAGE[v.damage] then bad('%s: %s: unknown damage.', w, vw) end
             if v.paint and v.paint ~= '' and not num(v.paint, 0, 160) then bad('%s: %s: paint is a colour number, 0 to 160.', w, vw) end
         end
         for _, c in ipairs(list(s.clues)) do
             local cw = 'clue ' .. tostring(c.key)
             if c.on and c.on ~= '' then
-                if keys[c.on] ~= 'vehicle' and keys[c.on] ~= 'person' then bad('%s: %s is on something not in this story.', w, cw) end
+                if not kinds.vehicle[c.on] and not kinds.person[c.on] then bad('%s: %s is on something not in this story.', w, cw) end
             else at(cw, c.at) end
             if not text(c.label, 60) or c.label == '' or not text(c.text, 600) or c.text == '' then bad('%s: %s needs a label and what it shows.', w, cw) end
             if c.prop and c.prop ~= '' and not model(c.prop) then bad('%s: %s: that is not a prop name.', w, cw) end
@@ -196,7 +201,7 @@ function Gen.check(doc)
         local ids = {}
         for k in pairs(card) do ids[k] = true end
         objectives(w, s.objectives, ids)
-        local function thing(k, what) return k ~= nil and k ~= '' and keys[k] == what end
+        local function thing(k, what) return k ~= nil and k ~= '' and kinds[what][k] == true end
         for ri, r in ipairs(list(s.rules)) do
             local rw = ('%s, rule %d'):format(w, ri)
             local wh = r.when or {}
@@ -231,10 +236,10 @@ function Gen.check(doc)
                     elseif (need == 'drive' or need == 'point?') and a.point and a.point ~= '' and not points[a.point] then bad('%s: that point is not there.', rw) end
                 end
                 for _, f in ipairs({ 'who' }) do
-                    if a[f] and a[f] ~= '' and keys[a[f]] ~= 'person' then bad('%s: %s is not someone in this story.', rw, tostring(a[f])) end
+                    if a[f] and a[f] ~= '' and not kinds.person[a[f]] then bad('%s: %s is not someone in this story.', rw, tostring(a[f])) end
                 end
-                if a.car and a.car ~= '' and keys[a.car] ~= 'vehicle' then bad('%s: %s is not one of the story\'s cars.', rw, tostring(a.car)) end
-                if a.clue and a.clue ~= '' and keys[a.clue] ~= 'clue' then bad('%s: %s is not one of the story\'s clues.', rw, tostring(a.clue)) end
+                if a.car and a.car ~= '' and not kinds.vehicle[a.car] then bad('%s: %s is not one of the story\'s cars.', rw, tostring(a.car)) end
+                if a.clue and a.clue ~= '' and not kinds.clue[a.clue] then bad('%s: %s is not one of the story\'s clues.', rw, tostring(a.clue)) end
                 if (k == 'done' or k == 'reveal' or k == 'hide' or k == 'blip') and not ident(a.id) then bad('%s: which objective?', rw) end
                 if k == 'give' and not fact(a.fact) then bad('%s: facts start with c_.', rw) end
                 if (k == 'flag') and not ident(a.flag) then bad('%s: a flag needs a name.', rw) end
@@ -963,6 +968,7 @@ function Gen.lua(doc, credit)
     add('    enabled = ' .. tostring(doc.enabled ~= false) .. ',')
     if doc.service == 'ambulance' then add("    service = 'ambulance',") end
     if doc.alert and doc.alert ~= '' then add('    alert = ' .. q(doc.alert) .. ',') end
+    if doc.voice and doc.voice ~= '' then add('    voice = ' .. q(doc.voice) .. ', -- (the dispatcher line: lwk_control_assets/nui/voice/' .. doc.voice .. '_1.ogg)') end
     add('    reports = ' .. strs(doc.reports) .. ',')
     add('    points = {\n' .. table.concat(pts, '\n') .. '\n    },')
     add(LOC_START)

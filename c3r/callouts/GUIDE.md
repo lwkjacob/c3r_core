@@ -48,7 +48,7 @@ Callout({
     id = 'noise',              -- unique; /requestcall noise asks for it
     name = 'Noise complaint',  -- on the offer and the card
     priority = 3,              -- 1 (urgent) to 3
-    voice = 'call_noise',      -- optional: dispatch's line (lwk_control_assets/nui/voice/call_noise_1.ogg; call_noise_to_1.ogg leads into the location). Left out, or no such file: "Incoming 911 call."
+    voice = 'call_noise',      -- optional: dispatch's line (lwk_control_assets/nui/voice/call_noise_1.ogg; call_noise_to_1.ogg leads into the location). Your own: nui/voice/custom/call_x_1.ogg and voice = 'custom/call_x' (setup keeps that folder). Left out, or no such file: "Incoming 911 call."
     alert = 'Assist request',  -- optional: the on-screen line for a planned job nobody rang in. Left out: "Incoming 911 call".
     weight = 1,                -- how often it comes up, against the other callouts
     service = 'ambulance',     -- optional: a medic's call, offered only to medics. Left out: police.

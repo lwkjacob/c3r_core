@@ -604,13 +604,14 @@ exports('say', function(clips, text)
     if type(clips) == 'table' then Speak(clips) end
 end)
 
--- A call going out: "<key>_to" + the location of `at`, from the location's own clips. No such line, or no clips for that
--- location: the plain line, <key>.
+-- A call going out: "<key>_to" + the location of `at`, from the location's own clips. A line with no "_to" version (a
+-- server's own, in nui/voice/custom/): the plain line, then "Your call is at" + the location. No clips for that location:
+-- the plain line, <key>.
 exports('sayCall', function(key, at, text)
     if type(text) == 'string' then Notify('~b~DISPATCH~s~ ' .. text) end
     local where = Brain.location_words(LocationAt(at), PlaceClipExists)
-    if not where or not Clip(key .. '_to') then return Speak({ key }) end
-    local clips = { key .. '_to' }
+    if not where then return Speak({ key }) end
+    local clips = Clip(key .. '_to') and { key .. '_to' } or { key, 'call_at' }
     for _, it in ipairs(where) do clips[#clips + 1] = it end
     Speak(clips)
 end)

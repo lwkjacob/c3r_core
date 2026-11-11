@@ -447,18 +447,36 @@ function newDoc(id) {
 
 async function guard() { return !S.dirty || ask('Not saved', 'Leave without saving your changes?', 'Leave', 'bad'); }
 
+// c3r's own callouts, as starting points (nui/templates.js, made by tools/make_templates.lua)
+const TPL = typeof TEMPLATES !== 'undefined' ? TEMPLATES : [];
+
 function newCallout(pack) {
   const taken = arr(S.list && S.list.packs).flatMap((p) => p.callouts.map((c) => c.id));
-  const m = { name: '' };
-  modal('New callout', h('div', {}, help('Give it a name: it\'s what officers see on the offer and the card. You start with a caller, one story and a card to build on.'),
-    h('div', { class: 'grid' }, field(m, 'name', 'Name', 'text', 'e.g. Shoplifting'))), [['Cancel', () => {}],
+  const m = { name: '', from: '' };
+  const body = () => {
+    const t = TPL.find((x) => x.id === m.from);
+    return h('div', {}, help('Start blank, or from one of CODE3RESPONSE\'s own callouts: its reports, places, people and what they say, cars, clues and card come with it, to change into your own.'),
+      h('div', { class: 'grid' },
+        h('div', { class: 'f wide' }, h('span', {}, 'Start from'), dropdown([['', 'A blank callout', 'a caller, one story']].concat(TPL.map((x) => [x.id, x.name, `${x.stories} stories`])),
+          m.from, (v) => { m.from = v; again(); }, 'Start from')),
+        field(m, 'name', 'Name (on the offer and the card)', 'text', t ? t.name + ' (my version)' : 'e.g. Shoplifting')),
+      t ? help(`${t.name} has ${t.stories} stories. Its special scenes (fights, chases, tow trucks...) are code, so they don't come with it: the creator adds its standard rules, and you add Action scenes where you want them.`) : null);
+  };
+  const again = () => { const box = document.querySelector('#modal .box'); box.replaceChild(body(), box.children[1]); };
+  modal('New callout', body(), [['Cancel', () => {}],
     ['Make it', () => {
-      const name = (m.name || '').trim() || 'New callout';
+      const t = TPL.find((x) => x.id === m.from);
+      const name = (m.name || '').trim() || (t ? t.name + ' (my version)' : 'New callout');
       let id = unique(name, taken);
       if (id.startsWith('c_')) id = 'x' + id;
-      const d = newDoc(id);
+      const d = t ? norm(clone(t.doc)) : newDoc(id);
+      d.id = id;
       d.name = name;
       Object.assign(S, { view: 'edit', pack, res: null, file: null, doc: d, was: null, tab: 'callout', story: 0, stab: 'people', dirty: true });
+      if (t) {
+        const n = fixAll(d);
+        toast(`Started from ${t.name}. ${n} standard rule${n === 1 ? '' : 's'} and fixes added: look them over in each story's Rules.`);
+      }
       render();
     }, 'go']]);
 }
@@ -514,6 +532,12 @@ async function closeAll(keep) {
   post('close');
 }
 
+async function hear(name) {
+  if (!name) return toast("Type the clip's name first.", true);
+  const r = await post('hear', { name });
+  if (!r || !r.ok) toast(r && r.why ? r.why : `No clip called ${name}: looked for lwk_control_assets/nui/voice/${name}_1.ogg.`, true);
+}
+
 async function preview(d) {
   const r = await post('preview', d);
   if (!r || !r.ok) toast(`"${d.name || d.dict || 'that'}" isn't in the game${r && r.why ? ': ' + r.why : '.'} Check the name.`, true);
@@ -549,6 +573,11 @@ function tabCallout() {
       A(field(d, 'service', 'Who it\'s for', 'sel', [['police', 'Police'], ['ambulance', 'Medics (Ambulance service)']])),
       A(field(d, 'alert', 'Alert line (empty: "Incoming 911 call")', 'text')),
       field(d, 'enabled', 'Dispatch offers it by itself (off: only by Test or /requestcall)', 'bool')),
+    h('h2', {}, 'What dispatch says'),
+    h('div', { class: 'grid' }, h('div', { class: 'f wide' }, h('span', {}, "Dispatcher's voice line (empty: 'Incoming 911 call')"),
+      h('div', { class: 'withbtn' }, h('input', { type: 'text', value: d.voice || '', placeholder: 'e.g. call_robbery, or custom/call_bridge', spellcheck: 'false',
+        oninput: (e) => { d.voice = e.target.value.trim(); changed(false); } }), btn('Hear it', () => hear(d.voice), 'small')))),
+    help("A clip's name. Your own go in lwk_control_assets/nui/voice/custom/ as call_bridge_1.ogg (more as _2, _3: one is picked at random), and dispatch follows it with: Your call is at, and the street. Or record call_bridge_to_1.ogg too, ending as it leads into the street (...on the bridge, at), and dispatch says the street straight after it. Then type custom/call_bridge. Setup keeps that folder when it updates."),
     h('h2', {}, 'What the caller says'),
     help('One of these is read out with the call. Every story shares them, so the report never gives the truth away.'),
     strings(d.reports, 'e.g. Store clerk reports a man left without paying.', 'Another way the caller might say it', true));
@@ -890,13 +919,17 @@ const firstPoint = (d, car) => ((car && arr(d.points).find((p) => p.car)) || arr
 
 // A rule that marks an objective done, from what it marks on the map: talking to them, looking at it, running the plate.
 function doneRule(s, o) {
+  const plate = /plate/i.test(o.text || ''); // ("Run the plate": the car's plate, not the clue that shares its name)
   for (const k of arr(o.blip)) {
+    if (plate && arr(s.vehicles).some((v) => v.key === k)) return { when: { event: 'plate', car: k }, ifs: [], actions: [{ kind: 'done', id: o.id }] };
     if (arr(s.people).some((p) => p.key === k)) return { when: { event: 'contact', who: k }, ifs: [], actions: [{ kind: 'done', id: o.id }] };
     if (arr(s.clues).some((c) => c.key === k)) return { when: { event: 'inspect', clue: k }, ifs: [], actions: [{ kind: 'done', id: o.id }] };
     if (arr(s.vehicles).some((v) => v.key === k)) return { when: { event: 'plate', car: k }, ifs: [], actions: [{ kind: 'done', id: o.id }] };
   }
   return null;
 }
+// "Deal with them: arrest, ticket or warn": done when the call ends, not when they're found
+const DECIDE = /arrest|deal with|decide|let (them|him|her) go|ticket|warn|serve/i;
 function ruleSays(s, r) {
   const w = r.when;
   return w.event === 'contact' ? `an officer talks to ${nameOf(s, w.who)}` : w.event === 'inspect' ? `${nameOf(s, w.clue)} is looked at` : `${w.car}'s plate is run`;
@@ -941,9 +974,11 @@ function checks(d) {
     if (s.ending && s.ending.decide) completes.add(s.ending.decide);
     for (const o of arr(d.card).concat(arr(s.objectives))) {
       if (!completes.has(o.id)) {
-        const r = doneRule(s, o);
+        const decide = !(s.ending && s.ending.decide) && DECIDE.test(o.text || '');
+        const r = decide ? null : doneRule(s, o);
         add('warn', `${where}nothing marks "${o.text || o.id}" done, so the call can stick on it. Add a rule that does.`, 'stories', si, 'rules',
-          r ? auto(`Done when ${ruleSays(s, r)}`, () => { s.rules = arr(s.rules); s.rules.push(r); }) : null);
+          r ? auto(`Done when ${ruleSays(s, r)}`, () => { s.rules = arr(s.rules); s.rules.push(r); })
+            : decide ? auto('Done when the call ends', () => { s.ending = s.ending || { mode: 'subject', lines: {} }; s.ending.decide = o.id; }) : null);
       }
       if (o.hidden && !reveals.has(o.id)) {
         const after = (arr(d.card).find((x) => !x.hidden && x.id !== o.id) || {}).id;
@@ -960,7 +995,7 @@ function checks(d) {
     arr(s.people).forEach((p) => {
       if (!pointNames.includes(p.at)) add('bad', `${where}${p.label || p.key} stands at "${p.at}", which isn't a point.`, 'stories', si, 'people',
         pointNames.length ? auto(`Stand them at ${firstPoint(d)}`, () => { p.at = firstPoint(d); }) : null);
-      const qs = arr((qsetOf(p) || {}).questions).concat(arr(p.questions));
+      const qs = arr((arr(d.qsets).find((x) => x.id === p.qset) || {}).questions).concat(arr(p.questions));
       for (const q of qs) {
         if (!(q.label || '').trim()) add('bad', `${where}${p.label || p.key} has a question with no words.`, 'stories', si, 'people');
         else if (!said(arr(p.lines).find((l) => l.q === q.id))) add('tip', `${where}${p.label || p.key} has no answer to "${q.label}": they'll give a vague one.`, 'stories', si, 'people');
@@ -993,6 +1028,18 @@ function checks(d) {
   return out;
 }
 
+// Every fix that's safe to make without asking, over and over (a fix can need another: hiding an objective then needs a
+// rule to reveal it). -> how many
+function fixAll(d) {
+  let n = 0;
+  for (let pass = 0; pass < 5; pass++) {
+    const todo = checks(d).filter((y) => y.fix && y.fix.auto && y.level !== 'tip');
+    if (!todo.length) break;
+    for (const x of todo) { x.fix.run(); n++; }
+  }
+  return n;
+}
+
 function fixOne(x) {
   x.fix.run();
   changed(true);
@@ -1005,12 +1052,7 @@ function tabChecks(issues) {
   const autos = issues.filter((x) => x.fix && x.fix.auto && x.level !== 'tip');
   return h('div', {}, help('Red stops it saving. Amber will go wrong in game. Grey is advice. A fix button does the obvious thing for you: it can only guess, so check it afterwards.'),
     autos.length ? h('div', { class: 'row' }, btn(`Fix everything I can (${autos.length})`, () => {
-      let n = 0;
-      for (let pass = 0; pass < 5; pass++) { // (a fix can need another: hiding an objective then needs a rule to reveal it)
-        const todo = checks(S.doc).filter((y) => y.fix && y.fix.auto && y.level !== 'tip');
-        if (!todo.length) break;
-        for (const x of todo) { x.fix.run(); n++; }
-      }
+      const n = fixAll(S.doc);
       changed(true);
       toast(`Fixed ${n} thing${n === 1 ? '' : 's'}. Check them over, then Save.`);
     }, 'go')) : null,
@@ -1100,6 +1142,7 @@ const MOCK = {
     if (name === 'close') { document.getElementById('app').hidden = true; setTimeout(() => window.postMessage({ type: 'open' }, '*'), 800); return {}; }
     if (name === 'preview') return { ok: !!(data.name || data.dict) };
     if (name === 'goto') return {};
+    if (name === 'hear') return { ok: true };
     if (name === 'place') return { ok: true, location: { street: 'Test St', points: Object.fromEntries(arr(data.points).map((p, i) => [p.name, { x: 100 + i, y: 200, z: 30, h: 90 }])), streets: {} } };
     const r = data.req || {}, st = this.store;
     const pack = st.packs.find((p) => p.id === r.pack);

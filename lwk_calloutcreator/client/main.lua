@@ -240,6 +240,18 @@ RegisterNUICallback('place', function(d, cb)
     end)
 end)
 
+-- The dispatcher's line for a call, played as lwk_control would: <name>_1.ogg in lwk_control_assets/nui/voice/.
+RegisterNUICallback('hear', function(d, cb)
+    local name = tostring(d.name or '')
+    if not (name:match('^[%w_]+$') or name:match('^custom/[%w_]+$')) then return cb({ ok = false, why = 'A clip name is letters, numbers and _ (custom/ in front for your own).' }) end
+    if not LoadResourceFile('lwk_control_assets', ('nui/voice/%s_1.ogg'):format(name)) then
+        return cb({ ok = false, why = ('No clip called %s: looked for lwk_control_assets/nui/voice/%s_1.ogg.'):format(name, name) })
+    end
+    if GetResourceState('lwk_control') ~= 'started' then return cb({ ok = false, why = 'The clip is there, but lwk_control is not running to play it.' }) end
+    local ok = pcall(function() exports.lwk_control:say({ name }) end)
+    cb({ ok = ok, why = ok and nil or 'lwk_control could not play it.' })
+end)
+
 -- Taken to a location's first point, to look at it (or place again from there).
 RegisterNUICallback('goto', function(d, cb)
     local p = d.at

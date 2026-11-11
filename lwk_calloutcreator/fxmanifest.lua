@@ -15,7 +15,7 @@ client_script 'client/main.lua'
 server_scripts { 'server/generator.lua', 'server/main.lua' }
 
 ui_page 'nui/index.html'
-files { 'nui/index.html', 'nui/app.js', 'nui/style.css', 'nui/data.js' }
+files { 'nui/index.html', 'nui/app.js', 'nui/style.css', 'nui/data.js', 'nui/templates.js' }
 
 -- packs/: the packs made here (index.json lists them; <pack>.<callout>.lua each callout). export/: packs written out as
 -- standalone resources, to copy to any c3r server.

@@ -25,4 +25,5 @@ files {
     'nui/voice/vehicle/*.ogg',
     'nui/voice/numbers/*.ogg',
     'nui/voice/places/*.ogg',
+    'nui/voice/custom/*.ogg', -- (the server's own dispatcher lines: setup keeps this folder when it updates)
 }
